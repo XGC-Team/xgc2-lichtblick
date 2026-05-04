@@ -61,6 +61,13 @@ import { IncompatibleLayoutVersionAlert } from "./IncompatibleLayoutVersionAlert
 
 const log = Logger.getLogger(__filename);
 
+function isXgc2EmbedMode(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("xgc2Embed") === "1"
+  );
+}
+
 /**
  * Concrete implementation of CurrentLayoutContext.Provider which handles
  * automatically restoring the current layout from LayoutStorage.
@@ -315,6 +322,18 @@ export default function CurrentLayoutProvider({
     }
 
     const layouts = await layoutManager.getLayouts();
+
+    if (isXgc2EmbedMode()) {
+      setLayoutState({
+        selectedLayout: {
+          loading: false,
+          id: "xgc2-default" as LayoutID,
+          data: defaultLayout,
+          name: "XGC2",
+        },
+      });
+      return;
+    }
 
     // Check if there's a layout specified by app parameter
     const defaultLayoutFromParameters = layouts.find((l) => l.name === appParameters.defaultLayout);

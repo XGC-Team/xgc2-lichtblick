@@ -24,6 +24,7 @@ interface ISharedRootContext {
   nativeWindow?: INativeWindow;
   enableLaunchPreferenceScreen?: boolean;
   enableGlobalCss?: boolean;
+  xgc2EmbedMode?: boolean;
   appBarLeftInset?: number;
   extraProviders?: readonly React.JSX.Element[];
   customWindowControlProps?: CustomWindowControlsProps;

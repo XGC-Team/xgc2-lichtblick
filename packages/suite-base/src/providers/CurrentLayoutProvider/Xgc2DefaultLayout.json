@@ -1,0 +1,66 @@
+{
+  "configById": {
+    "3D!xgc2": {
+      "followTf": "map",
+      "followMode": "follow-none",
+      "scene": {
+        "meshUpAxis": "z_up",
+        "ignoreColladaUpAxis": false,
+        "backgroundColor": "#f4f5f8",
+        "transforms": {
+          "showLabel": false,
+          "axisScale": 0,
+          "labelSize": 0,
+          "lineWidth": 0
+        }
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "frameLocked": false,
+          "label": "Grid",
+          "instanceId": "grid",
+          "layerId": "foxglove.Grid",
+          "position": [0, 0, 0]
+        },
+        "ugv1-urdf": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "UGV 1 URDF",
+          "instanceId": "ugv1-urdf",
+          "layerId": "foxglove.Urdf",
+          "sourceType": "topic",
+          "topic": "/ugv1/robot_description",
+          "framePrefix": "ugv1/",
+          "displayMode": "auto",
+          "fallbackColor": "#d8c76a"
+        }
+      },
+      "cameraState": {
+        "distance": 6,
+        "perspective": true,
+        "thetaOffset": 45,
+        "phi": 55,
+        "targetOffset": [0, 0, 0]
+      },
+      "topics": {
+        "/tf": { "visible": false },
+        "/tf_static": { "visible": false },
+        "/ugv1/joint_states": { "visible": false },
+        "/ugv1/robot_description": { "visible": false },
+        "/ugv1/history_path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.08,
+          "gradient": ["rgba(255, 206, 84, 1)", "rgba(71, 194, 255, 0.55)"]
+        }
+      }
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": "3D!xgc2"
+}

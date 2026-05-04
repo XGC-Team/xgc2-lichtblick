@@ -15,6 +15,7 @@ export type WorkspaceProps = CustomWindowControlsProps & {
 
   disablePersistenceForStorybook?: boolean;
   AppBarComponent?: (props: AppBarProps) => React.JSX.Element;
+  xgc2EmbedMode?: boolean;
 };
 
 export type DropHandler = {

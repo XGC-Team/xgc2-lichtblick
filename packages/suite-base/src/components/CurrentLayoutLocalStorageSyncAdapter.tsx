@@ -31,7 +31,15 @@ export function selectLayoutId(state: LayoutState): LayoutID | undefined {
 
 const log = Log.getLogger(__filename);
 
+function isXgc2EmbedMode(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("xgc2Embed") === "1"
+  );
+}
+
 export function CurrentLayoutLocalStorageSyncAdapter(): React.JSX.Element {
+  const xgc2EmbedMode = isXgc2EmbedMode();
   const { getCurrentLayoutState } = useCurrentLayoutActions();
   const currentLayoutData = useCurrentLayoutSelector(selectLayoutData);
   const currentLayoutId = useCurrentLayoutSelector(selectLayoutId);
@@ -49,6 +57,10 @@ export function CurrentLayoutLocalStorageSyncAdapter(): React.JSX.Element {
   }, [currentLayoutId]);
 
   useEffect(() => {
+    if (xgc2EmbedMode) {
+      return;
+    }
+
     if (!debouncedLayoutData) {
       return;
     }
@@ -56,10 +68,14 @@ export function CurrentLayoutLocalStorageSyncAdapter(): React.JSX.Element {
     const serializedLayoutData = JSON.stringify(debouncedLayoutData);
     assert(serializedLayoutData);
     localStorage.setItem(LOCAL_STORAGE_STUDIO_LAYOUT_KEY, serializedLayoutData);
-  }, [debouncedLayoutData]);
+  }, [debouncedLayoutData, xgc2EmbedMode]);
 
   // Send new layoutData to layoutManager to be saved
   useAsync(async () => {
+    if (xgc2EmbedMode) {
+      return;
+    }
+
     const layoutState = getCurrentLayoutState();
 
     if (!layoutState.selectedLayout) {
@@ -85,7 +101,7 @@ export function CurrentLayoutLocalStorageSyncAdapter(): React.JSX.Element {
     } catch (error) {
       log.error(error);
     }
-  }, [debouncedLayoutData, getCurrentLayoutState, layoutManager]);
+  }, [debouncedLayoutData, getCurrentLayoutState, layoutManager, xgc2EmbedMode]);
 
   return <></>;
 }

@@ -52,6 +52,7 @@ export function WebRoot(props: {
   ];
   const url = new URL(window.location.href);
   const workspace = url.searchParams.get("workspace");
+  const xgc2EmbedMode = url.searchParams.get("xgc2Embed") === "1";
 
   if (workspace && APP_CONFIG.apiUrl) {
     defaultExtensionLoaders.push(new RemoteExtensionLoader("org", workspace));
@@ -75,7 +76,7 @@ export function WebRoot(props: {
 
   return (
     <SharedRoot
-      enableLaunchPreferenceScreen
+      enableLaunchPreferenceScreen={!xgc2EmbedMode}
       deepLinks={[window.location.href]}
       dataSources={dataSources}
       appConfiguration={appConfiguration}
@@ -83,6 +84,7 @@ export function WebRoot(props: {
       enableGlobalCss
       extraProviders={props.extraProviders}
       AppBarComponent={props.AppBarComponent}
+      xgc2EmbedMode={xgc2EmbedMode}
     >
       {props.children}
     </SharedRoot>

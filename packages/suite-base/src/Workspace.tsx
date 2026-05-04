@@ -567,26 +567,31 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     playUntil,
   });
 
+  const xgc2EmbedMode = props.xgc2EmbedMode === true;
+  const emptySidebarItems = useMemo(() => new Map(), []);
+
   return (
     <PanelStateContextProvider>
-      {dataSourceDialog.open && <DataSourceDialog />}
+      {!xgc2EmbedMode && dataSourceDialog.open && <DataSourceDialog />}
       <DocumentDropListener onDrop={dropHandler} allowedExtensions={allowedDropExtensions} />
       <SyncAdapters />
       <KeyListener global keyDownHandlers={keyDownHandlers} />
       <div className={classes.container} ref={containerRef} tabIndex={0}>
-        {appBar}
+        {!xgc2EmbedMode && appBar}
         <Sidebars
           selectedKey=""
           onSelectKey={() => {}}
           items={sidebarItems}
-          leftItems={leftSidebarItems}
+          leftItems={xgc2EmbedMode ? emptySidebarItems : leftSidebarItems}
           bottomItems={sidebarBottomItems}
-          selectedLeftKey={leftSidebarOpen ? leftSidebarItem : undefined}
+          selectedLeftKey={xgc2EmbedMode ? undefined : leftSidebarOpen ? leftSidebarItem : undefined}
           onSelectLeftKey={sidebarActions.left.selectItem}
           leftSidebarSize={leftSidebarSize}
           setLeftSidebarSize={sidebarActions.left.setSize}
-          rightItems={rightSidebarItems}
-          selectedRightKey={rightSidebarOpen ? rightSidebarItem : undefined}
+          rightItems={xgc2EmbedMode ? emptySidebarItems : rightSidebarItems}
+          selectedRightKey={
+            xgc2EmbedMode ? undefined : rightSidebarOpen ? rightSidebarItem : undefined
+          }
           onSelectRightKey={sidebarActions.right.selectItem}
           rightSidebarSize={rightSidebarSize}
           setRightSidebarSize={sidebarActions.right.setSize}
@@ -598,7 +603,7 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
             </Stack>
           </RemountOnValueChange>
         </Sidebars>
-        {play && pause && seek && (
+        {!xgc2EmbedMode && play && pause && seek && (
           <div style={{ flexShrink: 0 }} data-testid="playback-controls">
             <PlaybackControls
               play={play}
@@ -611,7 +616,7 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
           </div>
         )}
       </div>
-      <WorkspaceDialogs />
+      {!xgc2EmbedMode && <WorkspaceDialogs />}
     </PanelStateContextProvider>
   );
 }
@@ -626,7 +631,9 @@ export default function Workspace(props: WorkspaceProps): React.JSX.Element {
   const isPlayerPresent = useMessagePipeline(selectPlayerIsPresent);
 
   const initialItem: undefined | DataSourceDialogItem =
-    isPlayerPresent || !showOpenDialogOnStartup ? undefined : "start";
+    props.xgc2EmbedMode === true || isPlayerPresent || !showOpenDialogOnStartup
+      ? undefined
+      : "start";
 
   const initialState: Pick<WorkspaceContextStore, "dialogs"> = {
     dialogs: {

@@ -8,11 +8,17 @@
 import { LayoutData } from "@lichtblick/suite-base/context/CurrentLayoutContext/actions";
 import { defaultPlaybackConfig } from "@lichtblick/suite-base/providers/CurrentLayoutProvider/reducers";
 
+import Xgc2DefaultLayout from "./Xgc2DefaultLayout.json";
+
 /**
- * Overridden default layout that may have been provided when self-hosting via Docker
+ * Overridden default layout that may have been provided by a self-hosted app
  * */
 const staticDefaultLayout = (globalThis as { LICHTBLICK_SUITE_DEFAULT_LAYOUT?: LayoutData })
   .LICHTBLICK_SUITE_DEFAULT_LAYOUT;
+
+const xgc2EmbedMode =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("xgc2Embed") === "1";
 
 /**
  * This is loaded when the user has no layout selected on application launch
@@ -20,6 +26,7 @@ const staticDefaultLayout = (globalThis as { LICHTBLICK_SUITE_DEFAULT_LAYOUT?: L
  */
 export const defaultLayout: LayoutData =
   staticDefaultLayout ??
+  (xgc2EmbedMode ? (Xgc2DefaultLayout as LayoutData) : undefined) ??
   ({
     configById: {
       "3D!18i6zy7": {
