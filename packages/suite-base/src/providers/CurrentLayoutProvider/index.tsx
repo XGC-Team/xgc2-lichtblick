@@ -68,6 +68,33 @@ function isXgc2EmbedMode(): boolean {
   );
 }
 
+async function loadXgc2EmbedLayout(fallback: typeof defaultLayout): Promise<typeof defaultLayout> {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const layoutUrl = params.get("xgc2LayoutUrl") ?? params.get("layout");
+  if (!layoutUrl) {
+    return fallback;
+  }
+  try {
+    const response = await fetch(layoutUrl, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = (await response.json()) as { layout?: unknown; configById?: unknown };
+    const layout =
+      payload.layout != undefined && typeof payload.layout === "object" ? payload.layout : payload;
+    if (typeof layout !== "object" || !("configById" in layout)) {
+      throw new Error("layout payload does not contain configById");
+    }
+    return layout as typeof defaultLayout;
+  } catch (error) {
+    console.warn("Failed to load XGC2 embed layout, using bundled default layout", error);
+    return fallback;
+  }
+}
+
 /**
  * Concrete implementation of CurrentLayoutContext.Provider which handles
  * automatically restoring the current layout from LayoutStorage.
@@ -324,11 +351,12 @@ export default function CurrentLayoutProvider({
     const layouts = await layoutManager.getLayouts();
 
     if (isXgc2EmbedMode()) {
+      const embedLayout = await loadXgc2EmbedLayout(defaultLayout);
       setLayoutState({
         selectedLayout: {
           loading: false,
           id: "xgc2-default" as LayoutID,
-          data: defaultLayout,
+          data: embedLayout,
           name: "XGC2",
         },
       });
