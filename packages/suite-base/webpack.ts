@@ -21,6 +21,8 @@ import { WebpackArgv } from "./WebpackArgv";
 // Load environment variables from .env.local
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
+const skipTypeCheck = process.env.LICHTBLICK_SKIP_TYPECHECK === "1";
+
 type Options = {
   // During hot reloading and development it is useful to comment out code while iterating.
   // We ignore errors from unused locals to avoid having to also comment
@@ -261,19 +263,20 @@ export function makeConfig(
         // downstream users of the suite-base package.
         filename: "[name].worker.[contenthash].js",
       }),
-      new ForkTsCheckerWebpackPlugin({
-        typescript: {
-          configFile: tsconfigPath,
-          configOverwrite: {
-            compilerOptions: {
-              noUnusedLocals: !allowUnusedVariables,
-              noUnusedParameters: !allowUnusedVariables,
-              jsx: isDev ? "react-jsxdev" : "react-jsx",
+      !skipTypeCheck &&
+        new ForkTsCheckerWebpackPlugin({
+          typescript: {
+            configFile: tsconfigPath,
+            configOverwrite: {
+              compilerOptions: {
+                noUnusedLocals: !allowUnusedVariables,
+                noUnusedParameters: !allowUnusedVariables,
+                jsx: isDev ? "react-jsxdev" : "react-jsx",
+              },
             },
           },
-        },
-      }),
-    ],
+        }),
+    ].filter(Boolean),
     node: {
       __dirname: true,
       __filename: true,
