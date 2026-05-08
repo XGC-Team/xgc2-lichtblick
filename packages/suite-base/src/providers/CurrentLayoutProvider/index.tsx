@@ -314,8 +314,12 @@ export default function CurrentLayoutProvider({
 
   // Load initial state by re-selecting the last selected layout from the UserProfile.
   useAsync(async () => {
+    const xgc2EmbedMode = isXgc2EmbedMode();
+
     // Don't restore the layout if there's one specified in the app state url.
-    if (windowAppURLState()?.layoutId) {
+    // XGC embeds provide their layout through xgc2LayoutUrl and must not be
+    // short-circuited by Lichtblick's generic layout URL state.
+    if (!xgc2EmbedMode && windowAppURLState()?.layoutId) {
       return;
     }
 
@@ -350,7 +354,7 @@ export default function CurrentLayoutProvider({
 
     const layouts = await layoutManager.getLayouts();
 
-    if (isXgc2EmbedMode()) {
+    if (xgc2EmbedMode) {
       const embedLayout = await loadXgc2EmbedLayout(defaultLayout);
       setLayoutState({
         selectedLayout: {

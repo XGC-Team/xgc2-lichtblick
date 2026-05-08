@@ -568,6 +568,10 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   });
 
   const xgc2EmbedMode = props.xgc2EmbedMode === true;
+  const xgc2ShowSidebars =
+    xgc2EmbedMode &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("xgc2Sidebars") === "1";
   const emptySidebarItems = useMemo(() => new Map(), []);
 
   return (
@@ -582,15 +586,25 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
           selectedKey=""
           onSelectKey={() => {}}
           items={sidebarItems}
-          leftItems={xgc2EmbedMode ? emptySidebarItems : leftSidebarItems}
+          leftItems={xgc2EmbedMode && !xgc2ShowSidebars ? emptySidebarItems : leftSidebarItems}
           bottomItems={sidebarBottomItems}
-          selectedLeftKey={xgc2EmbedMode ? undefined : leftSidebarOpen ? leftSidebarItem : undefined}
+          selectedLeftKey={
+            xgc2EmbedMode && !xgc2ShowSidebars
+              ? undefined
+              : leftSidebarOpen
+                ? leftSidebarItem
+                : undefined
+          }
           onSelectLeftKey={sidebarActions.left.selectItem}
           leftSidebarSize={leftSidebarSize}
           setLeftSidebarSize={sidebarActions.left.setSize}
-          rightItems={xgc2EmbedMode ? emptySidebarItems : rightSidebarItems}
+          rightItems={xgc2EmbedMode && !xgc2ShowSidebars ? emptySidebarItems : rightSidebarItems}
           selectedRightKey={
-            xgc2EmbedMode ? undefined : rightSidebarOpen ? rightSidebarItem : undefined
+            xgc2EmbedMode && !xgc2ShowSidebars
+              ? undefined
+              : rightSidebarOpen
+                ? rightSidebarItem
+                : undefined
           }
           onSelectRightKey={sidebarActions.right.selectItem}
           rightSidebarSize={rightSidebarSize}
