@@ -32,7 +32,8 @@ export type FromWorkerMessage =
 export type ToWorkerMessage =
   | { type: "open"; data: { wsUrl: string; protocols?: string[] | string } }
   | { type: "close"; data: undefined }
-  | { type: "data"; data: string | ArrayBuffer | ArrayBufferView };
+  | { type: "data"; data: string | ArrayBuffer | ArrayBufferView }
+  | { type: "ack" };
 
 export interface MessageWriter {
   writeMessage(message: unknown): Uint8Array;

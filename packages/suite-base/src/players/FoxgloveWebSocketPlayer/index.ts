@@ -553,9 +553,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
               2,
             )}MB) reached. Dropping old messages. This accumulation can occur if the browser tab has been inactive.`,
           });
-          // Amortize cost of dropping messages by dropping parsedMessages size to
-          // 80% so that it doesn't happen for every message after reaching the limit
-          const evictUntilSize = 0.8 * CURRENT_FRAME_MAXIMUM_SIZE_BYTES;
+          // Drop to 50% to recover quickly and avoid repeatedly trimming at the limit.
+          const evictUntilSize = 0.5 * CURRENT_FRAME_MAXIMUM_SIZE_BYTES;
           let droppedBytes = 0;
           let indexToCutBefore = 0;
           while (this.#parsedMessagesBytes - droppedBytes > evictUntilSize) {

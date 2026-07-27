@@ -84,7 +84,7 @@ describe("useConfigById", () => {
     });
   });
 
-  it("calls savePanelConfigs with a function updater", () => {
+  it("does not dispatch a function updater that leaves the config unchanged", () => {
     mockGetCurrentLayoutState.mockReturnValue({
       selectedLayout: { data: { configById: { "panel-1": { topics: { topic1: "topic1" } } } } },
     });
@@ -98,9 +98,43 @@ describe("useConfigById", () => {
       saveConfig((prev) => ({ topics: { ...prev.topics, topic1: "topic1" } }));
     });
 
-    expect(mockSavePanelConfigs).toHaveBeenCalledWith({
-      configs: [{ id: "panel-1", config: { topics: { topic1: "topic1" } } }],
+    expect(mockSavePanelConfigs).not.toHaveBeenCalled();
+  });
+
+  it("calls savePanelConfigs with a function updater that changes the config", () => {
+    mockGetCurrentLayoutState.mockReturnValue({
+      selectedLayout: { data: { configById: { "panel-1": { topics: { topic1: "topic1" } } } } },
     });
+
+    const { result } = renderHook(() =>
+      useConfigById<{ topics?: Record<string, string> }>("panel-1"),
+    );
+    const [, saveConfig] = result.current;
+
+    act(() => {
+      saveConfig((prev) => ({ topics: { ...prev.topics, topic2: "topic2" } }));
+    });
+
+    expect(mockSavePanelConfigs).toHaveBeenCalledWith({
+      configs: [{ id: "panel-1", config: { topics: { topic1: "topic1", topic2: "topic2" } } }],
+    });
+  });
+
+  it("does not dispatch a plain object that leaves the config unchanged", () => {
+    mockGetCurrentLayoutState.mockReturnValue({
+      selectedLayout: { data: { configById: { "panel-1": { topics: { topic1: "topic1" } } } } },
+    });
+
+    const { result } = renderHook(() =>
+      useConfigById<{ topics?: Record<string, string> }>("panel-1"),
+    );
+    const [, saveConfig] = result.current;
+
+    act(() => {
+      saveConfig({ topics: { topic1: "topic1" } });
+    });
+
+    expect(mockSavePanelConfigs).not.toHaveBeenCalled();
   });
 
   it("does nothing if panelId is undefined", () => {

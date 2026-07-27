@@ -23,7 +23,9 @@ describe("WorkerSocketAdapter", () => {
   });
 
   it("WorkerSocketAdapter should close a WebSocket connection", () => {
-    workerMock.onmessage?.({ data: { type: "close", data: {} } } as MessageEvent);
+    workerMock.onmessage?.({
+      data: { type: "close", data: {} },
+    } as MessageEvent);
 
     expect(workerMock.terminate).toHaveBeenCalled();
   });
@@ -51,14 +53,35 @@ describe("WorkerSocketAdapter", () => {
     });
   });
 
+  it("WorkerSocketAdapter should acknowledge a processed message", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    socket.onmessage = jest.fn();
+    workerMock.postMessage.mockClear();
+
+    workerMock.onmessage?.({
+      data: { type: "message", data: BasicBuilder.string() },
+    });
+
+    expect(socket.onmessage).toHaveBeenCalledTimes(1);
+    expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "ack" });
+  });
+
   it.each([
     [
       {
         data: { type: "open", protocol: BasicBuilder.string() },
       } as MessageEvent<FromWorkerMessage>,
     ],
-    [{ data: { type: "message", data: BasicBuilder.string() } } as MessageEvent<FromWorkerMessage>],
-    [{ data: { type: "close", data: undefined } } as MessageEvent<FromWorkerMessage>],
+    [
+      {
+        data: { type: "message", data: BasicBuilder.string() },
+      } as MessageEvent<FromWorkerMessage>,
+    ],
+    [
+      {
+        data: { type: "close", data: undefined },
+      } as MessageEvent<FromWorkerMessage>,
+    ],
   ])("WorkerSocketAdapter should handle '%s' event", (event) => {
     workerMock.onmessage?.(event);
     expect(workerMock.postMessage).toHaveBeenCalledWith({

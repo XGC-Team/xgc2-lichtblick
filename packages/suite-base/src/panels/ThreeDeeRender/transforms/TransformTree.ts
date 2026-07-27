@@ -7,14 +7,19 @@
 
 import { ObjectPool } from "@lichtblick/den/collection";
 
-import { CoordinateFrame, MAX_DURATION, FallbackFrameId, AnyFrameId } from "./CoordinateFrame";
+import { CoordinateFrame, FallbackFrameId, AnyFrameId } from "./CoordinateFrame";
 import { Transform } from "./Transform";
 import { Pose } from "./geometry";
 import { Duration, Time } from "./time";
 
 /**
- * Defines the maximum number of transforms across time stored in a single
- * `CoordinateFrame`.
+ * XGC2 is a live robotics display. Keeping minutes of TF history in every 3D
+ * panel makes the browser retain millions of transforms without improving the
+ * current view, so the default history is intentionally short and bounded.
+ *
+ * 128 samples preserve about two seconds at common 50-60 Hz publication rates.
+ * Higher-rate publishers retain a shorter window, which is appropriate for
+ * real-time interpolation. Static transforms still occupy a single entry.
  * We store a history of transforms received so that Markers and other 3D elements
  * can reference the state of a CoordinateFrame transform at a particular time rather than
  * only storing the most recent frame.
@@ -30,12 +35,11 @@ import { Duration, Time } from "./time";
  *    If the object references a transform at a time older than the history, it will simply use the oldest transform for that frame
  *    which is not guaranteed to be accurate.
  *
- * We generally want to keep this higher to allow for larger transform histories, but
- * also want to be mindful to memory and performance concerns when doing so
- *
- * This number is mentioned in the docs. If changed docs must be updated.
+ * Callers that explicitly need playback history can still construct a
+ * `TransformTree` with larger values.
  */
-export const DEFAULT_MAX_CAPACITY_PER_FRAME = 10_000;
+export const DEFAULT_MAX_CAPACITY_PER_FRAME = 128;
+export const DEFAULT_MAX_STORAGE_TIME = 2n * BigInt(1e9);
 
 export enum AddTransformResult {
   NOT_UPDATED,
@@ -60,7 +64,7 @@ export class TransformTree {
 
   public constructor(
     transformPool: ObjectPool<Transform>,
-    maxStorageTime = MAX_DURATION,
+    maxStorageTime = DEFAULT_MAX_STORAGE_TIME,
     maxCapacityPerFrame = DEFAULT_MAX_CAPACITY_PER_FRAME,
   ) {
     this.#transformPool = transformPool;

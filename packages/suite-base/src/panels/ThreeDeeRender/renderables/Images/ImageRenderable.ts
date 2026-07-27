@@ -195,6 +195,13 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
   public override dispose(): void {
     this.#disposed = true;
+    const textureImage = this.userData.texture?.image;
+    if (textureImage instanceof ImageBitmap) {
+      textureImage.close();
+    }
+    if (this.#decodedImage instanceof ImageBitmap && this.#decodedImage !== textureImage) {
+      this.#decodedImage.close();
+    }
     this.userData.texture?.dispose();
     this.userData.material?.dispose();
     this.userData.geometry?.dispose();
@@ -444,9 +451,15 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       const skipRender = options?.skipRender ?? false;
       const result = await this.decodeImage(image, resizeWidth);
       if (this.isDisposed()) {
+        if (result instanceof ImageBitmap) {
+          result.close();
+        }
         return;
       }
       if (this.#displayedImageSequenceNumber > seq) {
+        if (result instanceof ImageBitmap) {
+          result.close();
+        }
         return;
       }
       this.#displayedImageSequenceNumber = seq;
@@ -477,9 +490,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   async #setErrorImage(seq: number, onDecoded?: () => void): Promise<void> {
     const errorBitmap = await getErrorImage(64, 64);
     if (this.isDisposed()) {
+      errorBitmap.close();
       return;
     }
     if (this.#displayedImageSequenceNumber > seq) {
+      errorBitmap.close();
       return;
     }
     this.#decodedImage = errorBitmap;
@@ -803,14 +818,17 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         !bitmapDimensionsEqual(decodedImage, canvasTexture.image as ImageBitmap | undefined)
       ) {
         if (canvasTexture?.image instanceof ImageBitmap) {
-          // don't close the image if it is the error image
           canvasTexture.image.close();
         }
         canvasTexture?.dispose();
         this.userData.texture = createCanvasTexture(decodedImage);
       } else {
+        const previousImage = canvasTexture.image as ImageBitmap | undefined;
         canvasTexture.image = decodedImage;
         canvasTexture.needsUpdate = true;
+        if (previousImage != undefined && previousImage !== decodedImage) {
+          previousImage.close();
+        }
       }
     } else {
       let dataTexture = this.userData.texture;
@@ -821,6 +839,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         dataTexture.image.width !== decodedImage.width ||
         dataTexture.image.height !== decodedImage.height
       ) {
+        if (dataTexture?.image instanceof ImageBitmap) {
+          dataTexture.image.close();
+        }
         dataTexture?.dispose();
         dataTexture = createDataTexture(decodedImage);
         this.userData.texture = dataTexture;

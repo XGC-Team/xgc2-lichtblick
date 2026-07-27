@@ -12,6 +12,7 @@ import Logger from "@lichtblick/log";
 export type Path = ReadonlyArray<string>;
 
 const TOPIC_PATH: [string, string] = ["topics", ""];
+const MAX_LOGGED_ERROR_KEYS = 2048;
 
 export class NodeError {
   public path: Path;
@@ -61,6 +62,7 @@ const log = Logger.getLogger(__filename);
 
 export class LayerErrors extends EventEmitter<LayerErrorEvents> {
   public errors = new NodeError([]);
+  #loggedErrorKeys = new Set<string>();
 
   public add(path: Path, errorId: string, errorMessage: string): void {
     // Get or create the node for the given path
@@ -76,9 +78,19 @@ export class LayerErrors extends EventEmitter<LayerErrorEvents> {
     // Create the error map if it does not already exist
     node.errorsById ??= new Map();
 
-    // Onlu log the first error message per path+id for performance
+    // Log a path+id only once for the lifetime of this renderer. A transient missing transform can
+    // otherwise be removed and re-added every frame, flooding DevTools even though its visible
+    // LayerErrors state remains bounded.
     const prevErrorMessage = node.errorsById.get(errorId);
-    if (prevErrorMessage == undefined) {
+    const errorKey = JSON.stringify([path, errorId]) ?? errorId;
+    if (!this.#loggedErrorKeys.has(errorKey)) {
+      if (this.#loggedErrorKeys.size >= MAX_LOGGED_ERROR_KEYS) {
+        const oldestKey = this.#loggedErrorKeys.values().next().value;
+        if (oldestKey != undefined) {
+          this.#loggedErrorKeys.delete(oldestKey);
+        }
+      }
+      this.#loggedErrorKeys.add(errorKey);
       log.warn(`[${path.join(" > ")}] ${errorMessage}`);
     }
 

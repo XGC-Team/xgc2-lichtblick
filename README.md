@@ -1,3 +1,8 @@
+> **XGC2 product fork.** This branch is maintained from the official Lichtblick
+> v1.27.0 baseline. XGC2-specific source, build, launcher, and maintenance
+> policy live under [`xgc2/`](xgc2/README.md). Debian/APT packaging is no longer
+> the product boundary.
+
 <h1 align="center">Lichtblick</h1>
 
 <div align="center">

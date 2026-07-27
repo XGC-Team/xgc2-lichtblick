@@ -13,11 +13,14 @@ export const FALLBACK_PUBLICATION_ENCODING = "json";
 export const SUPPORTED_SERVICE_ENCODINGS = ["json", ...ROS_ENCODINGS];
 
 /**
- * When the tab is inactive setTimeout's are throttled to at most once per second.
- * Because the MessagePipeline listener uses timeouts to resolve its promises, it throttles our ability to
- * emit a frame more than once per second. In the websocket player this was causing
- * an accumulation of messages that were waiting to be emitted, this could keep growing
- * indefinitely if the rate at which we emit a frame is low enough.
- * 400MB
+ * XGC2 is a live visualization client. Keep only a small amount of parsed history when rendering
+ * falls behind; stale frames are less useful than bounded latency and predictable memory usage.
  */
-export const CURRENT_FRAME_MAXIMUM_SIZE_BYTES = 400 * 1024 * 1024;
+export const CURRENT_FRAME_MAXIMUM_SIZE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Maximum raw telemetry backlog retained inside the WebSocket worker. The worker/main-thread
+ * acknowledgement protocol guarantees that at most one additional message is queued by the
+ * browser's MessagePort.
+ */
+export const WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES = 16 * 1024 * 1024;

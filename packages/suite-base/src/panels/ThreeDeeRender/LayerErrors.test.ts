@@ -50,6 +50,16 @@ describe("LayerErrors", () => {
       expect(removeHandler).toHaveBeenCalledWith(path, errorId);
     });
 
+    it("should not log the same transient error again after it is removed", () => {
+      const path = ["transforms", topicId];
+
+      layerErrors.add(path, errorId, errorMessage);
+      layerErrors.remove(path, errorId);
+      layerErrors.add(path, errorId, errorMessage);
+
+      expect(console.warn).toHaveBeenCalledTimes(1);
+    });
+
     it("should emit clear event when path is cleared", () => {
       const clearHandler = jest.fn();
       layerErrors.on("clear", clearHandler);

@@ -116,9 +116,75 @@ describe("ImageRenderable", () => {
     expect(renderable.getDecodedImage()).toBeInstanceOf(ImageBitmap);
   });
 
+  it("should close the previous bitmap when replacing a same-size image", async () => {
+    const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+    const firstBitmap = new ImageBitmap();
+    const secondBitmap = new ImageBitmap();
+    const firstClose = jest.spyOn(firstBitmap, "close");
+    const decodeImage = jest
+      .spyOn(
+        renderable as unknown as {
+          decodeImage: () => Promise<ImageBitmap | ImageData>;
+        },
+        "decodeImage",
+      )
+      .mockResolvedValueOnce(firstBitmap)
+      .mockResolvedValueOnce(secondBitmap);
+
+    await new Promise<void>((resolve) => {
+      renderable.setImage(sampleImage, undefined, resolve);
+    });
+    await new Promise<void>((resolve) => {
+      renderable.setImage(sampleImage, undefined, resolve);
+    });
+
+    expect(decodeImage).toHaveBeenCalledTimes(2);
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(renderable.userData.texture?.image).toBe(secondBitmap);
+  });
+
+  it("should close a stale out-of-order decode result", async () => {
+    const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+    const staleBitmap = new ImageBitmap();
+    const latestBitmap = new ImageBitmap();
+    const staleClose = jest.spyOn(staleBitmap, "close");
+    let resolveStale!: (value: ImageBitmap) => void;
+    let resolveLatest!: (value: ImageBitmap) => void;
+    const staleResult = new Promise<ImageBitmap>((resolve) => {
+      resolveStale = resolve;
+    });
+    const latestResult = new Promise<ImageBitmap>((resolve) => {
+      resolveLatest = resolve;
+    });
+    jest
+      .spyOn(
+        renderable as unknown as {
+          decodeImage: () => Promise<ImageBitmap | ImageData>;
+        },
+        "decodeImage",
+      )
+      .mockReturnValueOnce(staleResult)
+      .mockReturnValueOnce(latestResult);
+
+    renderable.setImage(sampleImage);
+    const latestDecoded = new Promise<void>((resolve) => {
+      renderable.setImage(sampleImage, undefined, resolve);
+    });
+    resolveLatest(latestBitmap);
+    await latestDecoded;
+    resolveStale(staleBitmap);
+    await staleResult;
+    await Promise.resolve();
+
+    expect(staleClose).toHaveBeenCalledTimes(1);
+    expect(renderable.getDecodedImage()).toBe(latestBitmap);
+  });
+
   it("should dispose resources", () => {
     const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
-    renderable.userData.texture = new THREE.Texture();
+    const bitmap = new ImageBitmap();
+    const bitmapClose = jest.spyOn(bitmap, "close");
+    renderable.userData.texture = new THREE.CanvasTexture(bitmap);
     renderable.userData.material = new THREE.ShaderMaterial();
     renderable.userData.geometry = new THREE.PlaneGeometry();
     const close = jest.fn();
@@ -132,6 +198,7 @@ describe("ImageRenderable", () => {
     renderable.dispose();
 
     expect(close).toHaveBeenCalled();
+    expect(bitmapClose).toHaveBeenCalledTimes(1);
     // @ts-expect-error isDisposed is protected, but ok to use on tests
     expect(renderable.isDisposed()).toBe(true);
   });

@@ -15,7 +15,6 @@ import shallowequal from "shallowequal";
 import { v4 as uuidv4 } from "uuid";
 
 import { useShallowMemo } from "@lichtblick/hooks";
-import Logger from "@lichtblick/log";
 import { VariableValue } from "@lichtblick/suite";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import { useAppParameters } from "@lichtblick/suite-base/context/AppParametersContext";
@@ -58,8 +57,6 @@ import { windowAppURLState } from "@lichtblick/suite-base/util/appURLState";
 import { getPanelTypeFromId } from "@lichtblick/suite-base/util/layout";
 
 import { IncompatibleLayoutVersionAlert } from "./IncompatibleLayoutVersionAlert";
-
-const log = Logger.getLogger(__filename);
 
 /**
  * Concrete implementation of CurrentLayoutContext.Provider which handles
@@ -208,7 +205,6 @@ export default function CurrentLayoutProvider({
       // The panel state did not change, so no need to perform layout state
       // updates or layout manager updates.
       if (_.isEqual(oldData, newData)) {
-        log.warn("Panel action resulted in identical config:", action);
         return;
       }
 

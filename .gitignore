@@ -3,6 +3,7 @@
 .DS_Store
 .eslintcache
 .webpack/
+web/build-info.json
 ci/apt/packages
 dist/
 node_modules/

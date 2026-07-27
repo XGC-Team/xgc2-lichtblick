@@ -8,10 +8,34 @@
 import { ObjectPool } from "@lichtblick/den/collection";
 import { Transform } from "@lichtblick/suite-base/panels/ThreeDeeRender/transforms/Transform";
 
-import { AddTransformResult, TransformTree } from "./TransformTree";
+import {
+  AddTransformResult,
+  DEFAULT_MAX_CAPACITY_PER_FRAME,
+  DEFAULT_MAX_STORAGE_TIME,
+  TransformTree,
+} from "./TransformTree";
 
 const tf = Transform.Identity();
 describe("TransformTree", () => {
+  it("bounds the default live TF history per frame", () => {
+    const tfTree = new TransformTree(new ObjectPool(Transform.Empty));
+    for (let index = 0; index < 1_000; index++) {
+      tfTree.addTransform(
+        "robot/base_link",
+        "world",
+        BigInt(index) * 10_000_000n,
+        Transform.Identity(),
+      );
+    }
+
+    const frame = tfTree.frame("robot/base_link");
+    expect(DEFAULT_MAX_CAPACITY_PER_FRAME).toEqual(128);
+    expect(DEFAULT_MAX_STORAGE_TIME).toEqual(2_000_000_000n);
+    expect(frame?.maxCapacity).toEqual(DEFAULT_MAX_CAPACITY_PER_FRAME);
+    expect(frame?.maxStorageTime).toEqual(DEFAULT_MAX_STORAGE_TIME);
+    expect(frame?.transformsSize()).toBeLessThanOrEqual(DEFAULT_MAX_CAPACITY_PER_FRAME);
+  });
+
   it("updates tree when adding a transform that would not create a cycle", () => {
     const tfTree = new TransformTree(new ObjectPool(Transform.Empty));
     tfTree.addTransform("b", "a", 0n, tf);
