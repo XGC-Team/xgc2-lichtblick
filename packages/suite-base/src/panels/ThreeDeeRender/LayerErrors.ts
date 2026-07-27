@@ -84,6 +84,9 @@ export class LayerErrors extends EventEmitter<LayerErrorEvents> {
     const prevErrorMessage = node.errorsById.get(errorId);
     const errorKey = JSON.stringify([path, errorId]) ?? errorId;
     if (!this.#loggedErrorKeys.has(errorKey)) {
+      // Eviction is FIFO by Set insertion order (guaranteed by the JS spec), not
+      // LRU: this set only deduplicates console logging, so evicting the oldest
+      // *first-seen* key (worst case: one repeated log line) is intentional.
       if (this.#loggedErrorKeys.size >= MAX_LOGGED_ERROR_KEYS) {
         const oldestKey = this.#loggedErrorKeys.values().next().value;
         if (oldestKey != undefined) {

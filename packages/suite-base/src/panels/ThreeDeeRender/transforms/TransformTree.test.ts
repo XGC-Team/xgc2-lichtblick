@@ -12,6 +12,7 @@ import {
   AddTransformResult,
   DEFAULT_MAX_CAPACITY_PER_FRAME,
   DEFAULT_MAX_STORAGE_TIME,
+  resolveLiveTfHistory,
   TransformTree,
 } from "./TransformTree";
 
@@ -29,7 +30,7 @@ describe("TransformTree", () => {
     }
 
     const frame = tfTree.frame("robot/base_link");
-    expect(DEFAULT_MAX_CAPACITY_PER_FRAME).toEqual(128);
+    expect(DEFAULT_MAX_CAPACITY_PER_FRAME).toEqual(256);
     expect(DEFAULT_MAX_STORAGE_TIME).toEqual(2_000_000_000n);
     expect(frame?.maxCapacity).toEqual(DEFAULT_MAX_CAPACITY_PER_FRAME);
     expect(frame?.maxStorageTime).toEqual(DEFAULT_MAX_STORAGE_TIME);
@@ -103,5 +104,33 @@ describe("TransformTree", () => {
     expect(tfTree.frame("b")).toBeUndefined();
     expect(tfTree.frame("c")).toBeUndefined();
     expect(tfTree.frame("d")).toBeUndefined();
+  });
+});
+
+describe("resolveLiveTfHistory", () => {
+  it("returns bounded defaults without an override", () => {
+    for (const search of [undefined, "", "?foo=1", "?xgcTfHistorySeconds=", "?xgcTfHistorySeconds=abc", "?xgcTfHistorySeconds=0"]) {
+      const config = resolveLiveTfHistory(search);
+      expect(config.maxStorageTime).toEqual(DEFAULT_MAX_STORAGE_TIME);
+      expect(config.maxCapacityPerFrame).toEqual(DEFAULT_MAX_CAPACITY_PER_FRAME);
+    }
+  });
+
+  it("extends the window and scales capacity at 128 samples/second", () => {
+    const config = resolveLiveTfHistory("?xgcTfHistorySeconds=30");
+    expect(config.maxStorageTime).toEqual(30_000_000_000n);
+    expect(config.maxCapacityPerFrame).toEqual(30 * 128);
+  });
+
+  it("clamps the window to 600 seconds", () => {
+    const config = resolveLiveTfHistory("?xgcTfHistorySeconds=10000");
+    expect(config.maxStorageTime).toEqual(600_000_000_000n);
+    expect(config.maxCapacityPerFrame).toEqual(600 * 128);
+  });
+
+  it("never shrinks capacity below the default", () => {
+    const config = resolveLiveTfHistory("?xgcTfHistorySeconds=1");
+    expect(config.maxStorageTime).toEqual(1_000_000_000n);
+    expect(config.maxCapacityPerFrame).toEqual(DEFAULT_MAX_CAPACITY_PER_FRAME);
   });
 });

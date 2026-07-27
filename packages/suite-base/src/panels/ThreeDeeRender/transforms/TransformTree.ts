@@ -17,9 +17,15 @@ import { Duration, Time } from "./time";
  * panel makes the browser retain millions of transforms without improving the
  * current view, so the default history is intentionally short and bounded.
  *
- * 128 samples preserve about two seconds at common 50-60 Hz publication rates.
- * Higher-rate publishers retain a shorter window, which is appropriate for
- * real-time interpolation. Static transforms still occupy a single entry.
+ * 256 samples preserve the full two-second window up to ~100 Hz publication
+ * rates (capacity trims fire at `size >= max`, evicting the oldest 25%, so the
+ * capacity must exceed rate x window to let the time bound govern). Static
+ * transforms still occupy a single entry.
+ *
+ * Deployments that need longer interpolation history (e.g. rosbag replay,
+ * latency compensation debugging) can extend the window per page load with the
+ * URL query parameter `xgcTfHistorySeconds` (1..600). Capacity scales with the
+ * requested window at a 128 samples/second budget.
  * We store a history of transforms received so that Markers and other 3D elements
  * can reference the state of a CoordinateFrame transform at a particular time rather than
  * only storing the most recent frame.
@@ -38,8 +44,60 @@ import { Duration, Time } from "./time";
  * Callers that explicitly need playback history can still construct a
  * `TransformTree` with larger values.
  */
-export const DEFAULT_MAX_CAPACITY_PER_FRAME = 128;
+export const DEFAULT_MAX_CAPACITY_PER_FRAME = 256;
 export const DEFAULT_MAX_STORAGE_TIME = 2n * BigInt(1e9);
+
+const TF_HISTORY_SAMPLES_PER_SECOND = 128;
+const TF_HISTORY_SECONDS_MIN = 1;
+const TF_HISTORY_SECONDS_MAX = 600;
+
+export type LiveTfHistoryConfig = {
+  maxStorageTime: Duration;
+  maxCapacityPerFrame: number;
+};
+
+/**
+ * Resolve the live TF history bounds from a URL query string. An absent or
+ * invalid `xgcTfHistorySeconds` yields the bounded defaults; a valid value
+ * (clamped to 1..600 s) extends the window and scales the per-frame capacity
+ * at 128 samples/second so the time bound, not the capacity trim, governs.
+ */
+export function resolveLiveTfHistory(search: string | undefined): LiveTfHistoryConfig {
+  const defaults: LiveTfHistoryConfig = {
+    maxStorageTime: DEFAULT_MAX_STORAGE_TIME,
+    maxCapacityPerFrame: DEFAULT_MAX_CAPACITY_PER_FRAME,
+  };
+  if (search == undefined || search === "") {
+    return defaults;
+  }
+  let raw: string | null;
+  try {
+    raw = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get(
+      "xgcTfHistorySeconds",
+    );
+  } catch {
+    return defaults;
+  }
+  if (raw == undefined || raw === "") {
+    return defaults;
+  }
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < TF_HISTORY_SECONDS_MIN) {
+    return defaults;
+  }
+  const clamped = Math.min(seconds, TF_HISTORY_SECONDS_MAX);
+  return {
+    maxStorageTime: BigInt(Math.round(clamped * 1e9)),
+    maxCapacityPerFrame: Math.max(
+      DEFAULT_MAX_CAPACITY_PER_FRAME,
+      Math.ceil(clamped * TF_HISTORY_SAMPLES_PER_SECOND),
+    ),
+  };
+}
+
+const liveTfHistory = resolveLiveTfHistory(
+  (globalThis as { location?: { search?: string } }).location?.search,
+);
 
 export enum AddTransformResult {
   NOT_UPDATED,
@@ -64,8 +122,8 @@ export class TransformTree {
 
   public constructor(
     transformPool: ObjectPool<Transform>,
-    maxStorageTime = DEFAULT_MAX_STORAGE_TIME,
-    maxCapacityPerFrame = DEFAULT_MAX_CAPACITY_PER_FRAME,
+    maxStorageTime = liveTfHistory.maxStorageTime,
+    maxCapacityPerFrame = liveTfHistory.maxCapacityPerFrame,
   ) {
     this.#transformPool = transformPool;
     this.#maxStorageTime = maxStorageTime;

@@ -478,3 +478,22 @@ describe("FoxgloveWebSocketPlayer worker", () => {
     });
   });
 });
+
+describe("resolvePlayerMemoryCaps", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { resolvePlayerMemoryCaps, CURRENT_FRAME_MAXIMUM_SIZE_BYTES, WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES } = require("./constants");
+
+  it("returns 16MB defaults without overrides", () => {
+    for (const search of [undefined, "", "?xgcFrameCapMB=abc", "?xgcWorkerQueueMB=2"]) {
+      const caps = resolvePlayerMemoryCaps(search);
+      expect(caps.currentFrameMaximumSizeBytes).toEqual(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
+      expect(caps.workerQueueMaximumSizeBytes).toEqual(WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES);
+    }
+  });
+
+  it("applies independent overrides with clamping", () => {
+    const caps = resolvePlayerMemoryCaps("?xgcFrameCapMB=64&xgcWorkerQueueMB=9999");
+    expect(caps.currentFrameMaximumSizeBytes).toEqual(64 * 1024 * 1024);
+    expect(caps.workerQueueMaximumSizeBytes).toEqual(1024 * 1024 * 1024);
+  });
+});

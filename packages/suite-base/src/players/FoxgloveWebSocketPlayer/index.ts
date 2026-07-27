@@ -63,7 +63,7 @@ import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosData
 import { JsonMessageWriter } from "./JsonMessageWriter";
 import WorkerSocketAdapter from "./WorkerSocketAdapter";
 import {
-  CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
+  resolvePlayerMemoryCaps,
   FALLBACK_PUBLICATION_ENCODING,
   GET_ALL_PARAMS_PERIOD_MS,
   GET_ALL_PARAMS_REQUEST_ID,
@@ -85,6 +85,10 @@ import {
 const log = Log.getLogger(__dirname);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+
+const PLAYER_MEMORY_CAPS = resolvePlayerMemoryCaps(
+  (globalThis as { location?: { search?: string } }).location?.search,
+);
 
 export default class FoxgloveWebSocketPlayer implements Player {
   readonly #sourceId: string;
@@ -192,7 +196,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#client = new FoxgloveClient({
       ws:
         typeof Worker !== "undefined"
-          ? new WorkerSocketAdapter(this.#url, subprotocols)
+          ? new WorkerSocketAdapter(
+              this.#url,
+              subprotocols,
+              PLAYER_MEMORY_CAPS.workerQueueMaximumSizeBytes,
+            )
           : (new WebSocket(this.#url, subprotocols) as IWebSocket),
     });
 
@@ -544,17 +552,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
           schemaName: chanInfo.channel.schemaName,
         });
         this.#parsedMessagesBytes += sizeInBytes;
-        if (this.#parsedMessagesBytes > CURRENT_FRAME_MAXIMUM_SIZE_BYTES) {
+        if (this.#parsedMessagesBytes > PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes) {
           this.#alerts.addAlert(`webSocketPlayer:parsedMessageCacheFull`, {
             severity: "error",
             message: `WebSocketPlayer maximum frame size (${(
-              CURRENT_FRAME_MAXIMUM_SIZE_BYTES / 1_000_000
+              PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes / 1_000_000
             ).toFixed(
               2,
             )}MB) reached. Dropping old messages. This accumulation can occur if the browser tab has been inactive.`,
           });
           // Drop to 50% to recover quickly and avoid repeatedly trimming at the limit.
-          const evictUntilSize = 0.5 * CURRENT_FRAME_MAXIMUM_SIZE_BYTES;
+          const evictUntilSize = 0.5 * PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes;
           let droppedBytes = 0;
           let indexToCutBefore = 0;
           while (this.#parsedMessagesBytes - droppedBytes > evictUntilSize) {

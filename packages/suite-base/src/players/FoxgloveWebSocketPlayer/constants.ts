@@ -24,3 +24,60 @@ export const CURRENT_FRAME_MAXIMUM_SIZE_BYTES = 16 * 1024 * 1024;
  * browser's MessagePort.
  */
 export const WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES = 16 * 1024 * 1024;
+
+const MEMORY_CAP_MIN_MB = 4;
+const MEMORY_CAP_MAX_MB = 1024;
+
+export type PlayerMemoryCaps = {
+  currentFrameMaximumSizeBytes: number;
+  workerQueueMaximumSizeBytes: number;
+};
+
+/**
+ * Resolve the two backlog caps from a URL query string. High-bandwidth sensor
+ * deployments (multi-MB PointCloud2 frames, several 4K cameras) can raise the
+ * bounds per page load with `xgcFrameCapMB` (parsed-message backlog on the main
+ * thread) and `xgcWorkerQueueMB` (raw backlog inside the WebSocket worker),
+ * both clamped to 4..1024 MB. Absent or invalid values keep the 16 MB
+ * live-first defaults. Per-topic loss policy is independent of these caps:
+ * telemetry is superseded per subscription (latest frame wins), /tf and
+ * /tf_static and protocol messages are never dropped.
+ */
+export function resolvePlayerMemoryCaps(search: string | undefined): PlayerMemoryCaps {
+  const defaults: PlayerMemoryCaps = {
+    currentFrameMaximumSizeBytes: CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
+    workerQueueMaximumSizeBytes: WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES,
+  };
+  if (search == undefined || search === "") {
+    return defaults;
+  }
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  } catch {
+    return defaults;
+  }
+  const readCapMb = (key: string): number | undefined => {
+    const raw = params.get(key);
+    if (raw == undefined || raw === "") {
+      return undefined;
+    }
+    const mb = Number(raw);
+    if (!Number.isFinite(mb) || mb < MEMORY_CAP_MIN_MB) {
+      return undefined;
+    }
+    return Math.min(mb, MEMORY_CAP_MAX_MB);
+  };
+  const frameMb = readCapMb("xgcFrameCapMB");
+  const workerMb = readCapMb("xgcWorkerQueueMB");
+  return {
+    currentFrameMaximumSizeBytes:
+      frameMb != undefined
+        ? Math.round(frameMb * 1024 * 1024)
+        : defaults.currentFrameMaximumSizeBytes,
+    workerQueueMaximumSizeBytes:
+      workerMb != undefined
+        ? Math.round(workerMb * 1024 * 1024)
+        : defaults.workerQueueMaximumSizeBytes,
+  };
+}

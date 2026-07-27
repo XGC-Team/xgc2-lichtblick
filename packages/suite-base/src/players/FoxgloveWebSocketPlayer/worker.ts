@@ -12,6 +12,7 @@ import { WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES } from "./constants";
 
 let ws: WebSocket | undefined = undefined;
 let messageInFlight = false;
+let queueLimitBytes = WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES;
 
 type QueuedMessage = {
   data: unknown;
@@ -97,7 +98,7 @@ function isEvictableTelemetry(queued: QueuedMessage): boolean {
 }
 
 function trimMessageQueue(): void {
-  while (messageQueueSizeBytes > WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES) {
+  while (messageQueueSizeBytes > queueLimitBytes) {
     // Telemetry frames on non-exempt topics may be superseded/evicted. Protocol control
     // messages, service responses, asset responses, TIME, and loss-exempt topics (/tf,
     // /tf_static, or unknown topic) must remain ordered and are never discarded by trim.
@@ -269,6 +270,12 @@ self.onmessage = (event: MessageEvent<ToWorkerMessage>) => {
     case "open":
       try {
         const { data } = event.data;
+        queueLimitBytes =
+          data.queueLimitBytes != undefined &&
+          Number.isFinite(data.queueLimitBytes) &&
+          data.queueLimitBytes > 0
+            ? data.queueLimitBytes
+            : WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES;
         clearTopicMaps();
         ws = new WebSocket(data.wsUrl, data.protocols);
         ws.binaryType = "arraybuffer";

@@ -30,7 +30,10 @@ export type FromWorkerMessage =
   | { type: "message"; data: unknown };
 
 export type ToWorkerMessage =
-  | { type: "open"; data: { wsUrl: string; protocols?: string[] | string } }
+  | {
+      type: "open";
+      data: { wsUrl: string; protocols?: string[] | string; queueLimitBytes?: number };
+    }
   | { type: "close"; data: undefined }
   | { type: "data"; data: string | ArrayBuffer | ArrayBufferView }
   | { type: "ack" };

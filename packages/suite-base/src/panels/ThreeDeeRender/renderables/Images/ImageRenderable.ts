@@ -134,6 +134,20 @@ export type ImageUserData = BaseUserData & {
   mesh: THREE.Mesh | undefined;
 };
 
+/**
+ * Close an ImageBitmap or VideoFrame defensively. Per spec `close()` on an
+ * already-detached resource is a no-op, but `userData.texture.image` and
+ * `#decodedImage` aliasing is an implicit invariant of this class; guard so a
+ * future aliasing change degrades to a logged warning instead of a crash.
+ */
+function closeGraphicResource(resource: { close: () => void } | undefined): void {
+  try {
+    resource?.close();
+  } catch (err) {
+    log.warn("Failed to close graphic resource", err);
+  }
+}
+
 export class ImageRenderable extends Renderable<ImageUserData> {
   // A lazily instantiated player for compressed video
   public videoPlayer: VideoPlayer | undefined;
@@ -197,10 +211,10 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#disposed = true;
     const textureImage = this.userData.texture?.image;
     if (textureImage instanceof ImageBitmap) {
-      textureImage.close();
+      closeGraphicResource(textureImage);
     }
     if (this.#decodedImage instanceof ImageBitmap && this.#decodedImage !== textureImage) {
-      this.#decodedImage.close();
+      closeGraphicResource(this.#decodedImage);
     }
     this.userData.texture?.dispose();
     this.userData.material?.dispose();
@@ -452,13 +466,13 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       const result = await this.decodeImage(image, resizeWidth);
       if (this.isDisposed()) {
         if (result instanceof ImageBitmap) {
-          result.close();
+          closeGraphicResource(result);
         }
         return;
       }
       if (this.#displayedImageSequenceNumber > seq) {
         if (result instanceof ImageBitmap) {
-          result.close();
+          closeGraphicResource(result);
         }
         return;
       }
@@ -490,11 +504,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   async #setErrorImage(seq: number, onDecoded?: () => void): Promise<void> {
     const errorBitmap = await getErrorImage(64, 64);
     if (this.isDisposed()) {
-      errorBitmap.close();
+      closeGraphicResource(errorBitmap);
       return;
     }
     if (this.#displayedImageSequenceNumber > seq) {
-      errorBitmap.close();
+      closeGraphicResource(errorBitmap);
       return;
     }
     this.#decodedImage = errorBitmap;
@@ -658,20 +672,20 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
     if (result.type !== "target") {
       if ("frame" in result) {
-        result.frame?.close();
+        closeGraphicResource(result.frame);
       }
       return undefined;
     }
 
     try {
       const imageBitmap = await globalThis.createImageBitmap(result.frame, { resizeWidth });
-      this.videoPlayer.lastImageBitmap?.close();
+      closeGraphicResource(this.videoPlayer.lastImageBitmap);
       this.videoPlayer.lastImageBitmap = imageBitmap;
       this.#waitingForVideoKeyframe = false;
       this.#canReplayVideoGop = false;
       return imageBitmap;
     } finally {
-      result.frame.close();
+      closeGraphicResource(result.frame);
     }
   }
 
@@ -818,7 +832,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         !bitmapDimensionsEqual(decodedImage, canvasTexture.image as ImageBitmap | undefined)
       ) {
         if (canvasTexture?.image instanceof ImageBitmap) {
-          canvasTexture.image.close();
+          closeGraphicResource(canvasTexture.image);
         }
         canvasTexture?.dispose();
         this.userData.texture = createCanvasTexture(decodedImage);
@@ -827,7 +841,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         canvasTexture.image = decodedImage;
         canvasTexture.needsUpdate = true;
         if (previousImage != undefined && previousImage !== decodedImage) {
-          previousImage.close();
+          closeGraphicResource(previousImage);
         }
       }
     } else {
@@ -840,7 +854,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         dataTexture.image.height !== decodedImage.height
       ) {
         if (dataTexture?.image instanceof ImageBitmap) {
-          dataTexture.image.close();
+          closeGraphicResource(dataTexture.image);
         }
         dataTexture?.dispose();
         dataTexture = createDataTexture(decodedImage);
