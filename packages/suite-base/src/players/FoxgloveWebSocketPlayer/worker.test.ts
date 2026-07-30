@@ -3,6 +3,11 @@
 
 import { BinaryOpcode } from "@foxglove/ws-protocol";
 
+import {
+  CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
+  resolvePlayerMemoryCaps,
+  WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES,
+} from "@lichtblick/suite-base/players/FoxgloveWebSocketPlayer/constants";
 import { ToWorkerMessage } from "@lichtblick/suite-base/players/FoxgloveWebSocketPlayer/types";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
@@ -298,8 +303,9 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       for (let i = 0; i < 10; i++) {
         dispatch({ type: "ack" });
         for (const call of postMessageMock.mock.calls) {
-          if (call[0]?.type === "message" && call[0].data instanceof ArrayBuffer) {
-            delivered.push(call[0].data);
+          const deliveredData: unknown = call[0]?.data;
+          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
+            delivered.push(deliveredData);
           }
         }
         postMessageMock.mockClear();
@@ -340,8 +346,9 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       for (let i = 0; i < 10; i++) {
         dispatch({ type: "ack" });
         for (const call of postMessageMock.mock.calls) {
-          if (call[0]?.type === "message" && call[0].data instanceof ArrayBuffer) {
-            delivered.push(call[0].data);
+          const deliveredData: unknown = call[0]?.data;
+          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
+            delivered.push(deliveredData);
           }
         }
         postMessageMock.mockClear();
@@ -371,8 +378,9 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       for (let i = 0; i < 10; i++) {
         dispatch({ type: "ack" });
         for (const call of postMessageMock.mock.calls) {
-          if (call[0]?.type === "message" && call[0].data instanceof ArrayBuffer) {
-            delivered.push(call[0].data);
+          const deliveredData: unknown = call[0]?.data;
+          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
+            delivered.push(deliveredData);
           }
         }
         postMessageMock.mockClear();
@@ -480,13 +488,6 @@ describe("FoxgloveWebSocketPlayer worker", () => {
 });
 
 describe("resolvePlayerMemoryCaps", () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const {
-    resolvePlayerMemoryCaps,
-    CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
-    WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES,
-  } = require("./constants");
-
   it("returns 16MB defaults without overrides", () => {
     for (const search of [undefined, "", "?xgcFrameCapMB=abc", "?xgcWorkerQueueMB=2"]) {
       const caps = resolvePlayerMemoryCaps(search);

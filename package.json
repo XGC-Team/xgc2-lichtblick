@@ -91,7 +91,6 @@
     "esbuild": "0.28.1",
     "dompurify": "3.4.11",
     "js-yaml": "4.3.0",
-    "brace-expansion": "5.0.8",
     "fast-uri": "3.1.4",
     "postcss": "8.5.25",
     "svgo": "3.3.4",
@@ -107,7 +106,10 @@
     "plist@3.1.0": "patch:plist@npm%3A3.1.0#./patches/plist-npm-3.1.0-66799cb2cb.patch",
     "plist@^3.0.4": "patch:plist@npm%3A3.1.0#./patches/plist-npm-3.1.0-66799cb2cb.patch",
     "plist@^3.0.5": "patch:plist@npm%3A3.1.0#./patches/plist-npm-3.1.0-66799cb2cb.patch",
-    "plist@^3.1.0": "patch:plist@npm%3A3.1.0#./patches/plist-npm-3.1.0-66799cb2cb.patch"
+    "plist@^3.1.0": "patch:plist@npm%3A3.1.0#./patches/plist-npm-3.1.0-66799cb2cb.patch",
+    "brace-expansion@npm:^1.1.7": "patch:brace-expansion@npm%3A5.0.8#~/patches/brace-expansion-npm-5.0.8-08bf144160.patch",
+    "brace-expansion@npm:^5.0.5": "patch:brace-expansion@npm%3A5.0.8#~/patches/brace-expansion-npm-5.0.8-08bf144160.patch",
+    "brace-expansion@npm:^2.0.2": "patch:brace-expansion@npm%3A5.0.8#~/patches/brace-expansion-npm-5.0.8-08bf144160.patch"
   },
   "devDependencies": {
     "@actions/core": "1.11.1",

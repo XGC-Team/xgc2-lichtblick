@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 "use strict";
 
 const assert = require("node:assert/strict");
@@ -91,9 +94,9 @@ test("accepts historic XGC layout flags as no-ops", () => {
 test("normalizes exact HTTP origins and rejects ambiguous sources", () => {
   assert.equal(normalizeOrigin("https://xgc.example:443"), "https://xgc.example");
   assert.equal(normalizeOrigin("http://127.0.0.1:8080"), "http://127.0.0.1:8080");
-  assert.throws(() => normalizeOrigin("ws://xgc.example"), /must use http:\/\//);
+  assert.throws(() => normalizeOrigin("ws://xgc.example"), /must use http:[/][/]/);
   assert.throws(() => normalizeOrigin("https://xgc.example/path"), /must not include/);
-  assert.throws(() => normalizeOrigin("https:\/\/*.example"), /wildcard/);
+  assert.throws(() => normalizeOrigin("https://*.example"), /wildcard/);
 });
 
 test("builds the WebSocket browser Origin allowlist", () => {
@@ -188,7 +191,9 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
     let request = "";
     socket.on("data", (chunk) => {
       request += chunk.toString("latin1");
-      if (!request.includes("\r\n\r\n")) return;
+      if (!request.includes("\r\n\r\n")) {
+        return;
+      }
       socket.write(
         "HTTP/1.1 101 Switching Protocols\r\n" +
           "Upgrade: websocket\r\n" +
@@ -234,7 +239,9 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
   });
 
   t.after(async () => {
-    if (child.exitCode === null) child.kill("SIGTERM");
+    if (child.exitCode == null) {
+      child.kill("SIGTERM");
+    }
     await waitForExit(child);
     await closeServer(upstream);
     fs.rmSync(temporary, { recursive: true, force: true });
@@ -272,7 +279,9 @@ function closeServer(server) {
 }
 
 function waitForExit(child) {
-  if (child.exitCode !== null) return Promise.resolve();
+  if (child.exitCode != null) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => child.once("exit", resolve));
 }
 
@@ -285,7 +294,9 @@ function waitForListeningPort(child, stderr) {
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
       const match = /serving Lichtblick web bundle on http:\/\/127\.0\.0\.1:(\d+)/.exec(stdout);
-      if (!match) return;
+      if (!match) {
+        return;
+      }
       clearTimeout(timeout);
       resolve(Number(match[1]));
     });
@@ -359,7 +370,9 @@ function websocketUpgradeStatus(port, origin) {
     });
     socket.on("data", (chunk) => {
       response += chunk.toString("latin1");
-      if (!response.includes("\r\n\r\n")) return;
+      if (!response.includes("\r\n\r\n")) {
+        return;
+      }
       clearTimeout(timeout);
       socket.destroy();
       resolve(response.split("\r\n", 1)[0]);

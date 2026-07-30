@@ -8113,6 +8113,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"brace-expansion@patch:brace-expansion@npm%3A5.0.8#~/patches/brace-expansion-npm-5.0.8-08bf144160.patch":
+  version: 5.0.8
+  resolution: "brace-expansion@patch:brace-expansion@npm%3A5.0.8#~/patches/brace-expansion-npm-5.0.8-08bf144160.patch::version=5.0.8&hash=2f337e"
+  dependencies:
+    balanced-match: "npm:^4.0.2"
+  checksum: 10/3e6a020ab5aae6b4426ad1ccbb9fa3dd4d48919504a37a5155bccb30b0faaa6f02cf48f048b3028ee970c410306d76b1eead9d28dc157ef06f7fe7e780bd896b
+  languageName: node
+  linkType: hard
+
 "braces@npm:^3.0.3, braces@npm:~3.0.2":
   version: 3.0.3
   resolution: "braces@npm:3.0.3"

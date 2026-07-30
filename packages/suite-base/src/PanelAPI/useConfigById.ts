@@ -90,7 +90,7 @@ export default function useConfigById<Config extends Record<string, unknown>>(
         return;
       }
 
-      const currentConfig = getCurrentLayoutState()?.selectedLayout?.data?.configById[panelId] as
+      const currentConfig = getCurrentLayoutState().selectedLayout?.data?.configById[panelId] as
         | undefined
         | Config;
 

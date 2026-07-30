@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 //
 // xgc2-lichtblick-web launcher
@@ -15,13 +16,12 @@
 
 "use strict";
 
-const http = require("node:http");
-const https = require("node:https");
 const fs = require("node:fs");
-const path = require("node:path");
-const url = require("node:url");
+const http = require("node:http");
 const net = require("node:net");
+const path = require("node:path");
 const tls = require("node:tls");
+const url = require("node:url");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8080;
@@ -117,7 +117,9 @@ function parseArgs(argv) {
 }
 
 function consumeDeprecatedLayoutOption(name, value) {
-  if (value === undefined) throw new Error(`missing value for ${name}`);
+  if (value == undefined) {
+    throw new Error(`missing value for ${name}`);
+  }
 }
 
 function printHelp() {
@@ -156,7 +158,9 @@ function printHelp() {
 // ---- source-owned environment file loader ----------------------------------
 
 function loadEnvFile(envPath) {
-  if (!fs.existsSync(envPath)) return;
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
   let raw;
   try {
     raw = fs.readFileSync(envPath, "utf8");
@@ -166,7 +170,9 @@ function loadEnvFile(envPath) {
   }
   for (const rawLine of raw.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) continue;
+    if (line === "" || line.startsWith("#")) {
+      continue;
+    }
     const eq = line.indexOf("=");
     if (eq <= 0) {
       logWarn(`ignoring malformed line in ${envPath}: ${rawLine}`);
@@ -184,7 +190,7 @@ function loadEnvFile(envPath) {
     }
     // Do not override an already-set process env (so the operator can
     // override the file from the shell).
-    if (process.env[key] === undefined) {
+    if (process.env[key] == undefined) {
       process.env[key] = value;
     }
   }
@@ -207,7 +213,9 @@ function parseWsUrl(rawUrl) {
 
 function normalizeOrigin(rawOrigin) {
   const value = String(rawOrigin ?? "").trim();
-  if (value === "") throw new Error("origin must not be empty");
+  if (value === "") {
+    throw new Error("origin must not be empty");
+  }
   const parsed = new url.URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`origin must use http:// or https://, got ${parsed.protocol}`);
@@ -231,7 +239,9 @@ function parseConfiguredOrigins(values) {
   const origins = new Set();
   for (const rawValue of values) {
     for (const item of String(rawValue ?? "").split(",")) {
-      if (item.trim() !== "") origins.add(normalizeOrigin(item));
+      if (item.trim() !== "") {
+        origins.add(normalizeOrigin(item));
+      }
     }
   }
   return origins;
@@ -243,7 +253,9 @@ function defaultListenerOrigins(port) {
 
 function validateFrameAncestors(rawValue) {
   const value = String(rawValue ?? "").trim();
-  if (value === "") throw new Error("frame-ancestors must not be empty");
+  if (value === "") {
+    throw new Error("frame-ancestors must not be empty");
+  }
   if (/[,;\r\n]/.test(value)) {
     throw new Error("frame-ancestors contains an invalid separator");
   }
@@ -252,17 +264,21 @@ function validateFrameAncestors(rawValue) {
     throw new Error("frame-ancestors 'none' cannot be combined with other sources");
   }
   const normalized = sources.map((source) => {
-    if (source === "'self'" || source === "'none'") return source;
+    if (source === "'self'" || source === "'none'") {
+      return source;
+    }
     return normalizeOrigin(source);
   });
   return normalized.join(" ");
 }
 
 function websocketOriginAllowed(originHeader, allowedOrigins) {
-  if (typeof originHeader !== "string" || originHeader.trim() === "") return false;
+  if (typeof originHeader !== "string" || originHeader.trim() === "") {
+    return false;
+  }
   try {
     return allowedOrigins.has(normalizeOrigin(originHeader));
-  } catch (_err) {
+  } catch {
     return false;
   }
 }
@@ -297,7 +313,9 @@ function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
 
   let headWritten = false;
   function onUpstreamConnect() {
-    if (headWritten) return;
+    if (headWritten) {
+      return;
+    }
     headWritten = true;
     // If the client had pending data after the upgrade request, send it.
     const head = clientHead && clientHead.length > 0 ? clientHead : Buffer.alloc(0);
@@ -306,15 +324,19 @@ function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
     headerLines.push(`Host: ${target.hostname}:${target.port}`);
     for (const [name, value] of Object.entries(clientHeaders)) {
       if (Array.isArray(value)) {
-        for (const v of value) headerLines.push(`${name}: ${v}`);
-      } else if (value !== undefined) {
+        for (const v of value) {
+          headerLines.push(`${name}: ${v}`);
+        }
+      } else if (value != undefined) {
         headerLines.push(`${name}: ${value}`);
       }
     }
     headerLines.push("Upgrade: websocket");
     headerLines.push("Connection: Upgrade");
     upstream.write(headerLines.join("\r\n") + "\r\n\r\n");
-    if (head.length > 0) upstream.write(head);
+    if (head.length > 0) {
+      upstream.write(head);
+    }
   }
 
   let upstreamBuf = Buffer.alloc(0);
@@ -323,7 +345,9 @@ function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
     if (!upgraded) {
       upstreamBuf = Buffer.concat([upstreamBuf, chunk]);
       const headerEnd = upstreamBuf.indexOf("\r\n\r\n");
-      if (headerEnd < 0) return;
+      if (headerEnd < 0) {
+        return;
+      }
       const headText = upstreamBuf.slice(0, headerEnd).toString();
       const statusMatch = /^HTTP\/\d\.\d\s+(\d{3})/.exec(headText);
       const status = statusMatch ? Number.parseInt(statusMatch[1], 10) : 0;
@@ -333,7 +357,7 @@ function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
           clientSocket.write(
             "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
           );
-        } catch (_e) {
+        } catch {
           /* ignore */
         }
         clientSocket.destroy();
@@ -345,7 +369,9 @@ function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
       const after = upstreamBuf.slice(headerEnd + 4);
       clientSocket.write(upstreamBuf.slice(0, headerEnd + 4));
       upgraded = true;
-      if (after.length > 0) clientSocket.write(after);
+      if (after.length > 0) {
+        clientSocket.write(after);
+      }
       logInfo(`bidirectional WebSocket pipe established for ${clientReq.url}`);
     } else {
       clientSocket.write(chunk);
@@ -361,7 +387,7 @@ function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
       clientSocket.write(
         "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
       );
-    } catch (_e) {
+    } catch {
       /* ignore */
     }
     clientSocket.destroy();
@@ -370,7 +396,9 @@ function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
 
   // Forward bytes from client to upstream once the upgrade has succeeded.
   clientSocket.on("data", (chunk) => {
-    if (upgraded) upstream.write(chunk);
+    if (upgraded) {
+      upstream.write(chunk);
+    }
   });
 
   clientSocket.on("end", () => upstream.end());
@@ -409,7 +437,7 @@ function safeJoin(root, requested) {
   let decoded;
   try {
     decoded = decodeURIComponent(requested);
-  } catch (_err) {
+  } catch {
     return null;
   }
   // Strip a single leading slash so path.posix.normalize treats the
@@ -455,7 +483,7 @@ function loadBuildInfo() {
   const parsed = JSON.parse(fs.readFileSync(BUILD_INFO_FILE, "utf8"));
   if (
     typeof parsed !== "object" ||
-    parsed === null ||
+    parsed == null ||
     parsed.schema !== "xgc2.lichtblick-web.build.v1" ||
     typeof parsed.package !== "string" ||
     typeof parsed.version !== "string" ||
@@ -490,7 +518,9 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
   let stripped = urlPath;
   if (prefix !== "/" && urlPath.startsWith(prefix)) {
     stripped = urlPath.slice(prefix.length);
-    if (!stripped.startsWith("/")) stripped = `/${stripped}`;
+    if (!stripped.startsWith("/")) {
+      stripped = `/${stripped}`;
+    }
   }
   if (stripped === "/" || stripped === "" || stripped === "/index.html") {
     serveIndex(res, transformedIndex, responseSecurityHeaders);
@@ -498,7 +528,7 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
   }
 
   const target = safeJoin(STATIC_ROOT, stripped);
-  if (target === null) {
+  if (target == null) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("forbidden");
     return;
@@ -651,8 +681,12 @@ function main() {
   // Normalize prefix to always start with "/" and not end with "/" unless
   // it IS "/".
   let prefix = publicUrlPrefix;
-  if (!prefix.startsWith("/")) prefix = `/${prefix}`;
-  if (prefix.length > 1 && prefix.endsWith("/")) prefix = prefix.slice(0, -1);
+  if (!prefix.startsWith("/")) {
+    prefix = `/${prefix}`;
+  }
+  if (prefix.length > 1 && prefix.endsWith("/")) {
+    prefix = prefix.slice(0, -1);
+  }
 
   let transformedIndex;
   let buildInfo;

@@ -373,4 +373,13 @@ export default [
       "@lichtblick/license-header": "off",
     },
   },
+
+  // Node requires the executable shebang to remain the first line. The file
+  // carries SPDX headers immediately after it.
+  {
+    files: ["xgc2/launcher/xgc2-lichtblick-web.js"],
+    rules: {
+      "@lichtblick/license-header": "off",
+    },
+  },
 ];

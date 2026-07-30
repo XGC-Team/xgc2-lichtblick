@@ -1,0 +1,14 @@
+diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
+index be9df86be09c7655787a65c55ae6da01858894c3..625f646e2e0fffff113b60ed4c834eac9b489564 100644
+--- a/dist/commonjs/index.js
++++ b/dist/commonjs/index.js
+@@ -260,4 +260,9 @@ function expand_(str, max, maxLength, isTop) {
+     }
+     return acc;
+ }
++// Preserve the callable CommonJS API expected by minimatch versions used by
++// the Lichtblick toolchain while retaining the named exports used by newer
++// consumers.
++Object.assign(expand, exports);
++module.exports = expand;
+ //# sourceMappingURL=index.js.map
