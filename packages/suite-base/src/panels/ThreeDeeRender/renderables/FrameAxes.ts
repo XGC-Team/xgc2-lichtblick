@@ -48,7 +48,10 @@ const DEFAULT_LINE_COLOR_STR = "#ffff00";
 const DEFAULT_TF_LABEL_SIZE = 0.2;
 
 const DEFAULT_SETTINGS: LayerSettingsTransform = {
-  visible: true,
+  // XGC: hide every TF axis until a layout/operator explicitly enables a frame.
+  // Otherwise scene.transforms.axisScale (World axis size) draws XYZ gizmos on
+  // every robot link that appears in the transform tree.
+  visible: false,
   frameLocked: true,
   xyzOffset: [0, 0, 0],
   rpyCoefficient: [0, 0, 0],
