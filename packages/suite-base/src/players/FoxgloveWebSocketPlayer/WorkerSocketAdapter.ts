@@ -59,7 +59,9 @@ export default class WorkerSocketAdapter implements IWebSocket {
             }
           } finally {
             // Do not allow the worker to fill the browser's unbounded worker/main-thread queue.
-            this.#sendToWorker({ type: "ack" });
+            if (event.data.requiresAck !== false) {
+              this.#sendToWorker({ type: "ack" });
+            }
           }
           break;
       }

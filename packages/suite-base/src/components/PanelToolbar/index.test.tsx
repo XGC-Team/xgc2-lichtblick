@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import "@testing-library/jest-dom";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import PanelContext from "@lichtblick/suite-base/components/PanelContext";
+import { EmbeddedWorkspaceControlsContext } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { SharedRootContext } from "@lichtblick/suite-base/context/SharedRootContext";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 import type { WorkspaceAppearance } from "@lichtblick/suite-base/types";
@@ -41,7 +42,12 @@ jest.mock("@lichtblick/suite-base/components/PanelToolbar/ToolbarIconButton", ()
   }>) => <button title={typeof title === "string" ? title : undefined}>{children}</button>,
 }));
 
-function renderToolbar(appearance: WorkspaceAppearance, toolbar: React.JSX.Element) {
+function renderToolbar(
+  appearance: WorkspaceAppearance,
+  toolbar: React.JSX.Element,
+  options: { panelControlsVisible?: boolean } = {},
+) {
+  const { panelControlsVisible = false } = options;
   return render(
     <SharedRootContext.Provider
       value={{
@@ -51,7 +57,15 @@ function renderToolbar(appearance: WorkspaceAppearance, toolbar: React.JSX.Eleme
         workspaceAppearance: appearance,
       }}
     >
-      <ThemeProvider isDark={false}>{toolbar}</ThemeProvider>
+      <EmbeddedWorkspaceControlsContext.Provider
+        value={{
+          hidePanelControls: jest.fn(),
+          panelControlsVisible,
+          togglePanelControls: jest.fn(),
+        }}
+      >
+        <ThemeProvider isDark={false}>{toolbar}</ThemeProvider>
+      </EmbeddedWorkspaceControlsContext.Provider>
     </SharedRootContext.Provider>,
   );
 }
@@ -66,13 +80,18 @@ describe("PanelToolbar workspace appearance", () => {
     expect(screen.getByTestId("panel-toolbar-controls")).toHaveAttribute("data-compact", "false");
     expect(getComputedStyle(toolbar).position).toBe("relative");
     expect(getComputedStyle(toolbar).width).toBe("100%");
+    expect(toolbar).not.toHaveAttribute("data-xgc2-panel-controls");
+    expect(toolbar).not.toHaveAttribute("aria-hidden");
+    expect(toolbar).not.toHaveAttribute("role");
   });
 
-  it("renders embedded controls as a compact overlay without a title row", () => {
+  it("keeps embedded controls fully hidden until the host explicitly shows them", () => {
     renderToolbar("embedded", <PanelToolbar additionalIcons={<span>Additional action</span>} />);
 
     const toolbar = screen.getByTestId("mosaic-drag-handle");
     expect(toolbar).toHaveAttribute("data-workspace-appearance", "embedded");
+    expect(toolbar).toHaveAttribute("data-xgc2-panel-controls");
+    expect(toolbar).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByText("Default panel")).not.toBeInTheDocument();
     expect(screen.getByText("Additional action")).toBeInTheDocument();
     expect(screen.getByTitle("fullscreen")).toBeInTheDocument();
@@ -80,6 +99,29 @@ describe("PanelToolbar workspace appearance", () => {
     expect(getComputedStyle(toolbar).position).toBe("absolute");
     expect(getComputedStyle(toolbar).display).toBe("flex");
     expect(getComputedStyle(toolbar).width).toBe("max-content");
+    expect(getComputedStyle(toolbar).visibility).toBe("hidden");
+    expect(getComputedStyle(toolbar).pointerEvents).toBe("none");
+  });
+
+  it("shows embedded controls only when requested and isolates toolbar clicks", () => {
+    const onPanelClick = jest.fn();
+    renderToolbar(
+      "embedded",
+      <div onClick={onPanelClick}>
+        <PanelToolbar />
+      </div>,
+      { panelControlsVisible: true },
+    );
+
+    const toolbar = screen.getByTestId("mosaic-drag-handle");
+    expect(toolbar).not.toHaveAttribute("aria-hidden");
+    expect(toolbar).toHaveAttribute("role", "toolbar");
+    expect(toolbar).toHaveAttribute("aria-label", "Default panel controls");
+    expect(getComputedStyle(toolbar).visibility).toBe("visible");
+    expect(getComputedStyle(toolbar).pointerEvents).toBe("auto");
+
+    fireEvent.click(toolbar);
+    expect(onPanelClick).not.toHaveBeenCalled();
   });
 
   it("preserves business toolbar children in embedded appearance", () => {
@@ -88,6 +130,7 @@ describe("PanelToolbar workspace appearance", () => {
       <PanelToolbar>
         <button>Panel-specific action</button>
       </PanelToolbar>,
+      { panelControlsVisible: true },
     );
 
     const toolbar = screen.getByTestId("mosaic-drag-handle");

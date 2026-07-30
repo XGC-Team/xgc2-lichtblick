@@ -624,6 +624,122 @@ describe("ImageRenderable error handling", () => {
     self.createImageBitmap = originalCreateImageBitmap;
   });
 
+  it("should reset between an active decode and the retained recovery chain on overflow", async () => {
+    const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+    const update = jest.spyOn(renderable, "update").mockImplementation(() => undefined);
+    const resetForSeek = jest.fn();
+    renderable.videoPlayer = {
+      isInitialized: jest.fn().mockReturnValue(true),
+      resetForSeek,
+      lastImageBitmap: undefined,
+      lastVideoFrame: undefined,
+    } as unknown as ImageRenderable["videoPlayer"];
+
+    const timestamp = (index: number) => ({
+      sec: Math.floor(index / 1000),
+      nsec: (index % 1000) * 1_000_000,
+    });
+    const timestampIndex = (image: CompressedVideo) =>
+      image.timestamp.sec * 1000 + image.timestamp.nsec / 1_000_000;
+    const decodeOrder: number[] = [];
+    const resetCountsAtDecode: number[] = [];
+    const staleBitmap = new ImageBitmap();
+    const closeStaleBitmap = jest.spyOn(staleBitmap, "close");
+    let releaseFirstDecode!: () => void;
+    const firstDecodeBlocked = new Promise<void>((resolve) => {
+      releaseFirstDecode = resolve;
+    });
+    let notifyFirstDecodeStarted!: () => void;
+    const firstDecodeStarted = new Promise<void>((resolve) => {
+      notifyFirstDecodeStarted = resolve;
+    });
+
+    jest
+      .spyOn(renderable as unknown as { decodeImage: jest.Mock }, "decodeImage")
+      .mockImplementation(async (image: CompressedVideo) => {
+        const index = timestampIndex(image);
+        decodeOrder.push(index);
+        resetCountsAtDecode.push(resetForSeek.mock.calls.length);
+        if (index === 0) {
+          notifyFirstDecodeStarted();
+          await firstDecodeBlocked;
+          return staleBitmap;
+        }
+        return {} as ImageData;
+      });
+
+    const staleFrameDecoded = jest.fn();
+    const recoveryFrameDecoded = jest.fn();
+    const latestDeltaDecoded = jest.fn();
+    renderable.setImage(createH265Frame(h265Keyframe, timestamp(0)), undefined, staleFrameDecoded);
+    renderable.flushPendingDecodes();
+    await firstDecodeStarted;
+    const resetCountBeforePressure = resetForSeek.mock.calls.length;
+
+    // Fill the pending queue behind the blocked frame, then add a complete recovery point and its
+    // delta. The final delta crosses the hard frame cap, compacting the queue to that recovery GOP.
+    for (let index = 1; index < 2000; index++) {
+      renderable.setImage(createH265Frame(h265DeltaFrame, timestamp(index)));
+    }
+    renderable.setImage(
+      createH265Frame(h265Keyframe, timestamp(2000)),
+      undefined,
+      recoveryFrameDecoded,
+    );
+    renderable.setImage(
+      createH265Frame(h265DeltaFrame, timestamp(2001)),
+      undefined,
+      latestDeltaDecoded,
+    );
+
+    expect(renderable.getVideoBufferStats().pendingFrames).toBe(2);
+    expect(resetForSeek).toHaveBeenCalledTimes(resetCountBeforePressure);
+
+    releaseFirstDecode();
+    await renderable.settleVideoDecodes();
+
+    expect(decodeOrder).toEqual([0, 2000, 2001]);
+    expect(resetCountsAtDecode).toEqual([
+      resetCountBeforePressure,
+      resetCountBeforePressure + 1,
+      resetCountBeforePressure + 1,
+    ]);
+    expect(resetForSeek).toHaveBeenCalledTimes(resetCountBeforePressure + 1);
+    expect(staleFrameDecoded).not.toHaveBeenCalled();
+    expect(closeStaleBitmap).toHaveBeenCalledTimes(1);
+    expect(recoveryFrameDecoded).toHaveBeenCalledTimes(1);
+    expect(latestDeltaDecoded).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("should bound a long pending GOP by frame count and wait for complete recovery", () => {
+    const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+    const timestamp = (index: number) => ({
+      sec: Math.floor(index / 1000),
+      nsec: (index % 1000) * 1_000_000,
+    });
+
+    renderable.setImage(createH265Frame(h265Keyframe, timestamp(0)));
+    for (let index = 1; index <= 2000; index++) {
+      renderable.setImage(createH265Frame(h265DeltaFrame, timestamp(index)));
+    }
+
+    // The 2001-frame GOP cannot fit the 2000-frame hard cap, so no mid-GOP suffix survives.
+    expect(renderable.getVideoBufferStats()).toMatchObject({
+      pendingBytes: 0,
+      pendingFrames: 0,
+    });
+
+    renderable.setImage(createH265Frame(h265DeltaFrame, timestamp(2001)));
+    expect(renderable.getVideoBufferStats().pendingFrames).toBe(0);
+
+    renderable.setImage(createH265Frame(h265Keyframe, timestamp(2002)));
+    expect(renderable.getVideoBufferStats()).toMatchObject({
+      pendingBytes: h265Keyframe.byteLength,
+      pendingFrames: 1,
+    });
+  });
+
   it("should skip duplicate pending h265 frame timestamps", async () => {
     const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
     jest.spyOn(renderable, "update").mockImplementation(() => undefined);
@@ -897,6 +1013,62 @@ describe("ImageRenderable error handling", () => {
     expect(decode).toHaveBeenNthCalledWith(2, expect.any(Uint8Array), 16666, "delta");
     expect(decode).toHaveBeenNthCalledWith(3, expect.any(Uint8Array), 33333, "delta");
     expect(init).toHaveBeenCalledTimes(1); // Only the first keyframe triggers init;
+
+    self.createImageBitmap = originalCreateImageBitmap;
+  });
+
+  it("should bound GOP history by frame count and reset byte accounting on format change", async () => {
+    const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+    jest.spyOn(renderable, "update").mockImplementation(() => undefined);
+    renderable.videoPlayer = {
+      isInitialized: jest.fn().mockReturnValue(true),
+      init: jest.fn().mockResolvedValue(undefined),
+      decode: jest
+        .fn<Promise<VideoFrame>, [Uint8Array, number]>()
+        .mockImplementation(async (_data, timestampMicros) =>
+          createDecodedVideoFrame(timestampMicros),
+        ),
+      codedSize: jest.fn(),
+      decoderConfig: jest.fn().mockReturnValue({ codec: "hvc1.1.6.L93.B0" }),
+      resetForSeek: jest.fn(),
+      lastImageBitmap: undefined,
+      lastVideoFrame: undefined,
+    } as unknown as ImageRenderable["videoPlayer"];
+
+    const originalCreateImageBitmap = self.createImageBitmap;
+    self.createImageBitmap = jest.fn().mockImplementation(async () => new ImageBitmap());
+    const timestamp = (index: number) => ({
+      sec: Math.floor(index / 1000),
+      nsec: (index % 1000) * 1_000_000,
+    });
+
+    await decodeAndSettle(renderable, h265Keyframe, timestamp(0));
+    for (let index = 1; index <= 2000; index++) {
+      // @ts-expect-error decodeImage is protected, but ok to use in tests
+      await renderable.decodeImage(createH265Frame(h265DeltaFrame, timestamp(index)));
+    }
+
+    // A 2001-frame GOP has no later recovery boundary, so retaining a delta-only suffix would be
+    // useless. The cache fails closed until the next complete keyframe.
+    expect(renderable.getVideoBufferStats()).toMatchObject({
+      historyBytes: 0,
+      historyFrames: 0,
+    });
+    // @ts-expect-error decodeImage is protected, but ok to use in tests
+    await renderable.decodeImage(createH265Frame(h265Keyframe, timestamp(2001)));
+    expect(renderable.getVideoBufferStats()).toMatchObject({
+      historyBytes: h265Keyframe.byteLength,
+      historyFrames: 1,
+    });
+
+    renderable.setImage({
+      ...createH265Frame(h265Keyframe, timestamp(2002)),
+      format: "h264",
+    });
+    expect(renderable.getVideoBufferStats()).toMatchObject({
+      historyBytes: 0,
+      historyFrames: 0,
+    });
 
     self.createImageBitmap = originalCreateImageBitmap;
   });

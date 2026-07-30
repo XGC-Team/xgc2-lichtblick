@@ -172,34 +172,35 @@ describe("LiveMessageQueue", () => {
     expect(queue.drain()).toEqual(["new-idr", "new-p"]);
   });
 
-  it.each(["replaceable", "protected", "video"] as const)(
-    "rejects one individually oversized %s entry without disturbing queued data",
-    (retention) => {
-      const queue = new LiveMessageQueue<string>(10);
-      queue.enqueue({
-        value: "retained-control",
-        sizeInBytes: 5,
-        retention: "protected",
-        protectedPriority: "high",
-      });
+  it.each([
+    "replaceable",
+    "protected",
+    "video",
+  ] as const)("rejects one individually oversized %s entry without disturbing queued data", (retention) => {
+    const queue = new LiveMessageQueue<string>(10);
+    queue.enqueue({
+      value: "retained-control",
+      sizeInBytes: 5,
+      retention: "protected",
+      protectedPriority: "high",
+    });
 
-      const result = queue.enqueue({
-        value: "oversized",
-        sizeInBytes: 20,
-        key: retention === "video" ? "video" : "stream",
-        retention,
-        isVideoRecoveryPoint: retention === "video" ? true : undefined,
-      });
+    const result = queue.enqueue({
+      value: "oversized",
+      sizeInBytes: 20,
+      key: retention === "video" ? "video" : "stream",
+      retention,
+      isVideoRecoveryPoint: retention === "video" ? true : undefined,
+    });
 
-      expect(result).toEqual({
-        accepted: false,
-        droppedEntries: 1,
-        sizeLimitExceeded: true,
-      });
-      expect(queue.getSizeInBytes()).toBe(5);
-      expect(queue.drain()).toEqual(["retained-control"]);
-    },
-  );
+    expect(result).toEqual({
+      accepted: false,
+      droppedEntries: 1,
+      sizeLimitExceeded: true,
+    });
+    expect(queue.getSizeInBytes()).toBe(5);
+    expect(queue.drain()).toEqual(["retained-control"]);
+  });
 
   it("waits for a fitting video recovery point after rejecting an oversized frame", () => {
     const queue = new LiveMessageQueue<string>(10);

@@ -98,32 +98,43 @@ export class LiveMessageQueue<T> {
     options: { supersedeReplaceable?: boolean } = {},
   ): LiveMessageEnqueueResult {
     LiveMessageQueue.#validateByteCount(entry.sizeInBytes, "entry.sizeInBytes");
-    const hasUsableVideoKey =
-      entry.retention !== "video" || (entry.key != undefined && entry.key.length > 0);
+    const videoKey =
+      entry.retention === "video" && entry.key != undefined && entry.key.length > 0
+        ? entry.key
+        : undefined;
 
     if (entry.sizeInBytes > this.#maximumSizeBytes) {
-      if (entry.retention === "video" && hasUsableVideoKey) {
+      if (videoKey != undefined) {
         // This frame will be missing from the decoder input. Reject every following delta until a
         // complete, independently decodable recovery frame can fit in the queue.
-        this.#videoStreamsAwaitingRecovery.add(entry.key!);
+        this.#videoStreamsAwaitingRecovery.add(videoKey);
       }
-      return this.#enqueueResult(
-        false,
-        1,
-        true,
-        entry.retention === "protected" && entry.protectedPriority === "critical" ? 1 : 0,
-      );
+      return this.#enqueueResult({
+        accepted: false,
+        droppedEntries: 1,
+        sizeLimitExceeded: true,
+        droppedCriticalEntries:
+          entry.retention === "protected" && entry.protectedPriority === "critical" ? 1 : 0,
+      });
     }
 
     if (entry.retention === "video") {
       // Without a stable stream key there is no safe way to discard a complete dependency chain.
-      if (!hasUsableVideoKey) {
-        return this.#enqueueResult(false, 1, false);
+      if (videoKey == undefined) {
+        return this.#enqueueResult({
+          accepted: false,
+          droppedEntries: 1,
+          sizeLimitExceeded: false,
+        });
       }
 
-      if (this.#videoStreamsAwaitingRecovery.has(entry.key)) {
+      if (this.#videoStreamsAwaitingRecovery.has(videoKey)) {
         if (entry.isVideoRecoveryPoint !== true) {
-          return this.#enqueueResult(false, 1, false);
+          return this.#enqueueResult({
+            accepted: false,
+            droppedEntries: 1,
+            sizeLimitExceeded: false,
+          });
         }
       }
     }
@@ -145,8 +156,8 @@ export class LiveMessageQueue<T> {
           supersededEntries++;
         }
       }
-    } else if (entry.retention === "video") {
-      workingRecoveryState.delete(entry.key!);
+    } else if (videoKey != undefined) {
+      workingRecoveryState.delete(videoKey);
     }
 
     // Copy the entry so acceptance remains unambiguous even if a caller enqueues the same object
@@ -167,16 +178,20 @@ export class LiveMessageQueue<T> {
     if (!accepted && entry.retention === "replaceable" && supersededEntries > 0) {
       // A larger replacement may lose to protected traffic. Preserve the still-valid older sample
       // instead of committing a supersession whose replacement could not be queued.
-      return this.#enqueueResult(false, 1, true);
+      return this.#enqueueResult({
+        accepted: false,
+        droppedEntries: 1,
+        sizeLimitExceeded: true,
+      });
     }
 
     this.#commitPlan(plan);
-    return this.#enqueueResult(
+    return this.#enqueueResult({
       accepted,
-      plan.droppedEntries,
-      !accepted,
-      plan.criticalEntriesDropped,
-    );
+      droppedEntries: plan.droppedEntries,
+      sizeLimitExceeded: !accepted,
+      droppedCriticalEntries: plan.criticalEntriesDropped,
+    });
   }
 
   public shift(): LiveMessageQueueEntry<T> | undefined {
@@ -249,9 +264,7 @@ export class LiveMessageQueue<T> {
     };
 
     while (sizeInBytes > maximumSize) {
-      const replaceableIndex = entries.findIndex(
-        (entry) => entry.retention === "replaceable",
-      );
+      const replaceableIndex = entries.findIndex((entry) => entry.retention === "replaceable");
       if (replaceableIndex >= 0) {
         removeAt(replaceableIndex);
         continue;
@@ -280,9 +293,7 @@ export class LiveMessageQueue<T> {
           // this stream and retain the recovery point plus every dependent frame after it.
           removeWhere(
             (entry, index) =>
-              index < latestRecoveryIndex &&
-              entry.retention === "video" &&
-              entry.key === streamKey,
+              index < latestRecoveryIndex && entry.retention === "video" && entry.key === streamKey,
           );
         } else {
           // There is no newer recovery point in the queue. Removing any one frame would invalidate
@@ -339,17 +350,19 @@ export class LiveMessageQueue<T> {
     }
   }
 
-  #enqueueResult(
-    accepted: boolean,
-    droppedEntries: number,
-    sizeLimitExceeded: boolean,
-    droppedCriticalEntries = 0,
-  ): LiveMessageEnqueueResult {
+  #enqueueResult(options: {
+    accepted: boolean;
+    droppedCriticalEntries?: number;
+    droppedEntries: number;
+    sizeLimitExceeded: boolean;
+  }): LiveMessageEnqueueResult {
     return {
-      accepted,
-      droppedEntries,
-      ...(droppedCriticalEntries > 0 ? { droppedCriticalEntries } : {}),
-      sizeLimitExceeded,
+      accepted: options.accepted,
+      droppedEntries: options.droppedEntries,
+      ...(options.droppedCriticalEntries != undefined && options.droppedCriticalEntries > 0
+        ? { droppedCriticalEntries: options.droppedCriticalEntries }
+        : {}),
+      sizeLimitExceeded: options.sizeLimitExceeded,
     };
   }
 

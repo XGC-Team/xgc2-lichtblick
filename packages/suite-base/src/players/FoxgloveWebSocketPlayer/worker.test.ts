@@ -57,6 +57,16 @@ function timeData(): ArrayBuffer {
   return buffer;
 }
 
+function assetResponseData(requestId: number, payloadSize = 0): ArrayBuffer {
+  const buffer = new ArrayBuffer(10 + payloadSize);
+  const view = new DataView(buffer);
+  view.setUint8(0, BinaryOpcode.FETCH_ASSET_RESPONSE);
+  view.setUint32(1, requestId, true);
+  view.setUint8(5, 0);
+  view.setUint32(6, 0, true);
+  return buffer;
+}
+
 function serverAdvertise(
   channels: Array<{ id: number; topic: string; schemaName?: string; encoding?: string }>,
 ): string {
@@ -252,6 +262,33 @@ describe("FoxgloveWebSocketPlayer worker", () => {
 
       // Then
       expect(postMessageMock).toHaveBeenCalledWith({ type: "message", data: second }, [second]);
+    });
+
+    it("should transfer an oversized asset response outside the bounded telemetry queue", () => {
+      // Given
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 100 } });
+      const socket = MockWebSocket.lastInstance;
+      const inFlight = messageData(1);
+      const queued = messageData(2);
+      const asset = assetResponseData(7, 200);
+      socket?.onmessage?.({ data: inFlight } as MessageEvent);
+      socket?.onmessage?.({ data: queued } as MessageEvent);
+      postMessageMock.mockClear();
+
+      // When
+      socket?.onmessage?.({ data: asset } as MessageEvent);
+
+      // Then — the finite asset payload is transferred immediately and does not abort or mutate
+      // the ACK state of the bounded live-message queue.
+      expect(postMessageMock).toHaveBeenCalledWith(
+        { type: "message", data: asset, requiresAck: false },
+        [asset],
+      );
+      expect(socket?.close).not.toHaveBeenCalled();
+      postMessageMock.mockClear();
+
+      dispatch({ type: "ack" });
+      expect(postMessageMock).toHaveBeenCalledWith({ type: "message", data: queued }, [queued]);
     });
 
     it("should keep only the latest queued telemetry frame for each subscription", () => {
@@ -715,7 +752,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
           message: "WebSocket control message exceeded the bounded worker queue",
         }),
       });
-      expect(socket?.close).toHaveBeenCalledWith(1011, "bounded control queue overflow");
+      expect(socket?.close).toHaveBeenCalledWith(4000, "bounded control queue overflow");
     });
 
     it("should post an error message when constructing the WebSocket throws", () => {

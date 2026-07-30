@@ -5,6 +5,7 @@
 
 import { act, render } from "@testing-library/react";
 
+import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
 import EmbeddedWorkspaceBridge, {
@@ -16,9 +17,12 @@ import EmbeddedWorkspaceBridge, {
 } from "./EmbeddedWorkspaceBridge";
 
 jest.mock("@lichtblick/suite-base/context/Workspace/useWorkspaceActions");
+jest.mock("@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext");
 
 const selectLeftItem = jest.fn();
 const selectRightItem = jest.fn();
+const hidePanelControls = jest.fn();
+const togglePanelControls = jest.fn();
 
 function hostCommand(surface: Xgc2EmbeddedHostCommand["surface"]): Xgc2EmbeddedHostCommand {
   return {
@@ -43,6 +47,11 @@ function dispatchHostMessage(data: unknown, overrides: Partial<MessageEventInit>
 
 describe("EmbeddedWorkspaceBridge", () => {
   beforeEach(() => {
+    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue({
+      hidePanelControls,
+      panelControlsVisible: false,
+      togglePanelControls,
+    });
     jest.mocked(useWorkspaceActions).mockReturnValue({
       sidebarActions: {
         left: { selectItem: selectLeftItem },
@@ -55,6 +64,8 @@ describe("EmbeddedWorkspaceBridge", () => {
     jest.restoreAllMocks();
     selectLeftItem.mockReset();
     selectRightItem.mockReset();
+    hidePanelControls.mockReset();
+    togglePanelControls.mockReset();
   });
 
   it("announces the exact versioned capabilities to its same-origin parent", () => {
@@ -90,6 +101,8 @@ describe("EmbeddedWorkspaceBridge", () => {
 
     expect(selectLeftItem).toHaveBeenCalledWith(surface);
     expect(selectRightItem).not.toHaveBeenCalled();
+    expect(hidePanelControls).toHaveBeenCalledTimes(1);
+    expect(togglePanelControls).not.toHaveBeenCalled();
   });
 
   it("opens the variables right sidebar for a valid parent command", () => {
@@ -102,6 +115,22 @@ describe("EmbeddedWorkspaceBridge", () => {
 
     expect(selectRightItem).toHaveBeenCalledWith("variables");
     expect(selectLeftItem).not.toHaveBeenCalled();
+    expect(hidePanelControls).toHaveBeenCalledTimes(1);
+    expect(togglePanelControls).not.toHaveBeenCalled();
+  });
+
+  it("toggles pane controls only for the panel-controls capability", () => {
+    jest.spyOn(window.parent, "postMessage").mockImplementation();
+    render(<EmbeddedWorkspaceBridge />);
+
+    act(() => {
+      dispatchHostMessage(hostCommand("panel-controls"));
+    });
+
+    expect(togglePanelControls).toHaveBeenCalledTimes(1);
+    expect(hidePanelControls).not.toHaveBeenCalled();
+    expect(selectLeftItem).not.toHaveBeenCalled();
+    expect(selectRightItem).not.toHaveBeenCalled();
   });
 
   it("rejects commands from a different origin or window", () => {

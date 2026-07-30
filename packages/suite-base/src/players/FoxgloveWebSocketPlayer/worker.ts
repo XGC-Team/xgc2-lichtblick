@@ -20,6 +20,7 @@ import {
 let ws: WebSocket | undefined = undefined;
 let messageInFlight = false;
 const messageQueue = new LiveMessageQueue<unknown>(WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES);
+const CONTROL_QUEUE_OVERFLOW_CLOSE_CODE = 4000;
 
 type ChannelMetadata = {
   encoding: string | undefined;
@@ -95,6 +96,15 @@ function isTimeMessage(data: unknown): boolean {
     return false;
   }
   return new DataView(data).getUint8(0) === BinaryOpcode.TIME;
+}
+
+function isAssetResponse(data: unknown): data is ArrayBuffer {
+  // FETCH_ASSET_RESPONSE has a fixed ten-byte header before its error or asset payload.
+  return (
+    data instanceof ArrayBuffer &&
+    data.byteLength >= 10 &&
+    new DataView(data).getUint8(0) === BinaryOpcode.FETCH_ASSET_RESPONSE
+  );
 }
 
 function getMessageSize(data: unknown): number {
@@ -239,7 +249,9 @@ function enqueueMessage(data: unknown): void {
       type: "error",
       error: new Error("WebSocket control message exceeded the bounded worker queue"),
     });
-    ws?.close(1011, "bounded control queue overflow");
+    // Browser clients may only initiate WebSocket.close with 1000 or an application-defined
+    // 3000–4999 code. RFC server-error code 1011 throws InvalidAccessError in this worker.
+    ws?.close(CONTROL_QUEUE_OVERFLOW_CLOSE_CODE, "bounded control queue overflow");
     return;
   }
   sendNextMessage();
@@ -370,6 +382,16 @@ self.onmessage = (event: MessageEvent<ToWorkerMessage>) => {
           send({ type: "close", data: JSON.parse(JSON.stringify(wsEvent) ?? "{}") });
         };
         ws.onmessage = (wsEvent: MessageEvent) => {
+          if (isAssetResponse(wsEvent.data)) {
+            // Assets are finite request/response payloads which the renderer must materialize in
+            // full. Large meshes legitimately exceed the live telemetry queue cap; transfer their
+            // backing buffer immediately rather than misclassifying them as protocol control,
+            // retaining another copy in the worker, or aborting the connection.
+            sendWithTransfer({ type: "message", data: wsEvent.data, requiresAck: false }, [
+              wsEvent.data,
+            ]);
+            return;
+          }
           trackInboundControlMessage(wsEvent.data);
           enqueueMessage(wsEvent.data);
         };

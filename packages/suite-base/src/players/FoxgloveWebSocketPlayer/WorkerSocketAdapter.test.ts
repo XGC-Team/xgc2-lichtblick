@@ -66,6 +66,23 @@ describe("WorkerSocketAdapter", () => {
     expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "ack" });
   });
 
+  it("WorkerSocketAdapter should not acknowledge a directly transferred asset response", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    socket.onmessage = jest.fn();
+    workerMock.postMessage.mockClear();
+
+    workerMock.onmessage?.({
+      data: {
+        type: "message",
+        data: new ArrayBuffer(32),
+        requiresAck: false,
+      },
+    });
+
+    expect(socket.onmessage).toHaveBeenCalledTimes(1);
+    expect(workerMock.postMessage).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       {

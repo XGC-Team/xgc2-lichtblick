@@ -7,6 +7,7 @@
 
 import { useEffect } from "react";
 
+import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
 export const XGC2_EMBED_CHANNEL = "xgc2.lichtblick.embed";
@@ -17,6 +18,7 @@ export const XGC2_EMBED_SURFACES = [
   "topics",
   "layouts",
   "variables",
+  "panel-controls",
 ] as const;
 
 export type Xgc2EmbeddedSurface = (typeof XGC2_EMBED_SURFACES)[number];
@@ -77,6 +79,7 @@ export function isXgc2EmbeddedHostCommand(value: unknown): value is Xgc2Embedded
  */
 export default function EmbeddedWorkspaceBridge(): null {
   const { sidebarActions } = useWorkspaceActions();
+  const { hidePanelControls, togglePanelControls } = useEmbeddedWorkspaceControls();
 
   useEffect(() => {
     const parentWindow = window.parent;
@@ -96,10 +99,15 @@ export default function EmbeddedWorkspaceBridge(): null {
         case "alerts":
         case "topics":
         case "layouts":
+          hidePanelControls();
           sidebarActions.left.selectItem(event.data.surface);
           break;
         case "variables":
+          hidePanelControls();
           sidebarActions.right.selectItem(event.data.surface);
+          break;
+        case "panel-controls":
+          togglePanelControls();
           break;
       }
     };
@@ -118,7 +126,7 @@ export default function EmbeddedWorkspaceBridge(): null {
     return () => {
       window.removeEventListener("message", handleMessage);
     };
-  }, [sidebarActions]);
+  }, [hidePanelControls, sidebarActions, togglePanelControls]);
 
   return null;
 }

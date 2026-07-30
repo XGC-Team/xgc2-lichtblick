@@ -70,6 +70,7 @@ import {
   useCurrentUser,
   useCurrentUserType,
 } from "@lichtblick/suite-base/context/CurrentUserContext";
+import { EmbeddedWorkspaceControlsProvider } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { EventsStore, useEvents } from "@lichtblick/suite-base/context/EventsContext";
 import { useLayoutManager } from "@lichtblick/suite-base/context/LayoutManagerContext";
 import { usePlayerSelection } from "@lichtblick/suite-base/context/PlayerSelectionContext";
@@ -721,53 +722,55 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   }, [isEmbedded, sidebarActions.left, sidebarActions.right]);
 
   return (
-    <PanelStateContextProvider>
-      {dataSourceDialog.open && <DataSourceDialog />}
-      {isEmbedded && <EmbeddedWorkspaceBridge />}
-      {isEmbedded && <WssErrorModal playerAlerts={playerAlerts} />}
-      <DocumentDropListener onDrop={dropHandler} allowedExtensions={allowedDropExtensions} />
-      <SyncAdapters />
-      <KeyListener global keyDownHandlers={keyDownHandlers} />
-      <div className={classes.container} ref={containerRef} tabIndex={0}>
-        {!isEmbedded && appBar}
-        <Sidebars
-          selectedKey=""
-          onSelectKey={() => {}}
-          items={sidebarItems}
-          leftItems={leftSidebarItems}
-          bottomItems={sidebarBottomItems}
-          selectedLeftKey={leftSidebarOpen ? leftSidebarItem : undefined}
-          onSelectLeftKey={sidebarActions.left.selectItem}
-          leftSidebarSize={leftSidebarSize}
-          setLeftSidebarSize={sidebarActions.left.setSize}
-          rightItems={rightSidebarItems}
-          selectedRightKey={rightSidebarOpen ? rightSidebarItem : undefined}
-          onSelectRightKey={sidebarActions.right.selectItem}
-          rightSidebarSize={rightSidebarSize}
-          setRightSidebarSize={sidebarActions.right.setSize}
-        >
-          {/* To ensure no stale player state remains, we unmount all panels when players change */}
-          <RemountOnValueChange value={playerId}>
-            <Stack data-testid="workspace-panels">
-              <PanelLayout />
-            </Stack>
-          </RemountOnValueChange>
-        </Sidebars>
-        {play && pause && seek && (
-          <div style={{ flexShrink: 0 }} data-testid="playback-controls">
-            <PlaybackControls
-              play={play}
-              pause={pause}
-              seek={seek}
-              playUntil={playUntil}
-              isPlaying={isPlaying}
-              getTimeInfo={getTimeInfo}
-            />
-          </div>
-        )}
-      </div>
-      <WorkspaceDialogs />
-    </PanelStateContextProvider>
+    <EmbeddedWorkspaceControlsProvider>
+      <PanelStateContextProvider>
+        {dataSourceDialog.open && <DataSourceDialog />}
+        {isEmbedded && <EmbeddedWorkspaceBridge />}
+        {isEmbedded && <WssErrorModal playerAlerts={playerAlerts} />}
+        <DocumentDropListener onDrop={dropHandler} allowedExtensions={allowedDropExtensions} />
+        <SyncAdapters />
+        <KeyListener global keyDownHandlers={keyDownHandlers} />
+        <div className={classes.container} ref={containerRef} tabIndex={0}>
+          {!isEmbedded && appBar}
+          <Sidebars
+            selectedKey=""
+            onSelectKey={() => {}}
+            items={sidebarItems}
+            leftItems={leftSidebarItems}
+            bottomItems={sidebarBottomItems}
+            selectedLeftKey={leftSidebarOpen ? leftSidebarItem : undefined}
+            onSelectLeftKey={sidebarActions.left.selectItem}
+            leftSidebarSize={leftSidebarSize}
+            setLeftSidebarSize={sidebarActions.left.setSize}
+            rightItems={rightSidebarItems}
+            selectedRightKey={rightSidebarOpen ? rightSidebarItem : undefined}
+            onSelectRightKey={sidebarActions.right.selectItem}
+            rightSidebarSize={rightSidebarSize}
+            setRightSidebarSize={sidebarActions.right.setSize}
+          >
+            {/* To ensure no stale player state remains, we unmount all panels when players change */}
+            <RemountOnValueChange value={playerId}>
+              <Stack data-testid="workspace-panels">
+                <PanelLayout />
+              </Stack>
+            </RemountOnValueChange>
+          </Sidebars>
+          {play && pause && seek && (
+            <div style={{ flexShrink: 0 }} data-testid="playback-controls">
+              <PlaybackControls
+                play={play}
+                pause={pause}
+                seek={seek}
+                playUntil={playUntil}
+                isPlaying={isPlaying}
+                getTimeInfo={getTimeInfo}
+              />
+            </div>
+          )}
+        </div>
+        <WorkspaceDialogs />
+      </PanelStateContextProvider>
+    </EmbeddedWorkspaceControlsProvider>
   );
 }
 

@@ -27,7 +27,16 @@ export type FromWorkerMessage =
   | { type: "open"; protocol: string }
   | { type: "close"; data: unknown }
   | { type: "error"; error: unknown }
-  | { type: "message"; data: unknown };
+  | {
+      type: "message";
+      data: unknown;
+      /**
+       * Asset responses may be larger than the bounded live-telemetry queue and are transferred
+       * directly to the main thread. They do not participate in the worker's one-message ACK
+       * protocol because they were never admitted to that queue.
+       */
+      requiresAck?: boolean;
+    };
 
 export type ToWorkerMessage =
   | {

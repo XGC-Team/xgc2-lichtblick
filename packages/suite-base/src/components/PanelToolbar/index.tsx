@@ -23,6 +23,10 @@ import PanelContext from "@lichtblick/suite-base/components/PanelContext";
 import { useStyles } from "@lichtblick/suite-base/components/PanelToolbar/PanelToolbar.style";
 import ToolbarIconButton from "@lichtblick/suite-base/components/PanelToolbar/ToolbarIconButton";
 import { PanelToolbarProps } from "@lichtblick/suite-base/components/PanelToolbar/types";
+import {
+  EMBEDDED_PANEL_CONTROLS_ATTRIBUTE,
+  useEmbeddedWorkspaceControls,
+} from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { useSharedRootContext } from "@lichtblick/suite-base/context/SharedRootContext";
 import { useDefaultPanelTitle } from "@lichtblick/suite-base/providers/PanelStateContextProvider";
 import { PANEL_TITLE_CONFIG_KEY } from "@lichtblick/suite-base/util/layout";
@@ -42,6 +46,7 @@ export default React.memo<PanelToolbarProps>(function PanelToolbar({
   const { classes, cx } = useStyles();
   const { workspaceAppearance = "standard" } = useSharedRootContext();
   const isEmbedded = workspaceAppearance === "embedded";
+  const { panelControlsVisible } = useEmbeddedWorkspaceControls();
   const {
     isFullscreen,
     exitFullscreen,
@@ -95,13 +100,25 @@ export default React.memo<PanelToolbarProps>(function PanelToolbar({
         classes.root,
         {
           [classes.embedded]: isEmbedded,
+          [classes.embeddedVisible]: isEmbedded && panelControlsVisible,
           [classes.embeddedWithChildren]: isEmbedded && children != undefined,
         },
         className,
       )}
+      {...(isEmbedded ? { [EMBEDDED_PANEL_CONTROLS_ATTRIBUTE]: "" } : {})}
+      aria-hidden={isEmbedded && !panelControlsVisible ? true : undefined}
+      aria-label={isEmbedded ? `${title ?? "Panel"} controls` : undefined}
       data-workspace-appearance={workspaceAppearance}
       data-testid="mosaic-drag-handle"
+      onClick={
+        isEmbedded
+          ? (event) => {
+              event.stopPropagation();
+            }
+          : undefined
+      }
       ref={rootDragRef}
+      role={isEmbedded ? "toolbar" : undefined}
       style={{ backgroundColor, cursor: rootDragRef != undefined ? "grab" : "auto" }}
     >
       {children ??

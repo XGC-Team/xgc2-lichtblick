@@ -4,7 +4,6 @@
 import { alpha } from "@mui/material";
 import { makeStyles } from "tss-react/mui";
 
-import { PANEL_ROOT_CLASS_NAME } from "@lichtblick/suite-base/components/PanelRoot";
 import { PANEL_TOOLBAR_MIN_HEIGHT } from "@lichtblick/suite-base/components/PanelToolbar/constants";
 
 export const useStyles = makeStyles()((theme) => ({
@@ -44,30 +43,16 @@ export const useStyles = makeStyles()((theme) => ({
     boxShadow: theme.shadows[3],
     backdropFilter: "blur(6px)",
     transition: "transform 120ms ease-in-out, opacity 120ms ease-in-out",
-
-    "@media (hover: hover) and (pointer: fine)": {
-      opacity: 0,
-      pointerEvents: "none",
-      transform: `translateY(-${theme.spacing(0.5)})`,
-
-      [`.${PANEL_ROOT_CLASS_NAME}:hover &`]: {
-        opacity: 1,
-        pointerEvents: "auto",
-        transform: "translateY(0)",
-      },
-
-      "&:focus-within": {
-        opacity: 1,
-        pointerEvents: "auto",
-        transform: "translateY(0)",
-      },
-    },
-
-    "@media (hover: none), (pointer: coarse)": {
-      opacity: 1,
-      pointerEvents: "auto",
-      transform: "translateY(0)",
-    },
+    visibility: "hidden",
+    opacity: 0,
+    pointerEvents: "none",
+    transform: `translateY(-${theme.spacing(0.5)})`,
+  },
+  embeddedVisible: {
+    visibility: "visible",
+    opacity: 1,
+    pointerEvents: "auto",
+    transform: "translateY(0)",
   },
   embeddedWithChildren: {
     left: theme.spacing(0.75),

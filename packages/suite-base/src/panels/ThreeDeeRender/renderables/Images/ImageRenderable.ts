@@ -11,6 +11,9 @@ import { assert } from "ts-essentials";
 
 import {
   EncodedVideoFrame,
+  H264,
+  H264NaluType,
+  H265,
   VideoCodec,
   VideoPlayer,
   canonicalVideoCodec,
@@ -30,6 +33,7 @@ import { WorkerImageDecoder } from "@lichtblick/suite-base/panels/ThreeDeeRender
 import { projectPixel } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/projections";
 import { RosValue } from "@lichtblick/suite-base/players/types";
 
+import { BoundedVideoFrameQueue } from "./BoundedVideoFrameQueue";
 import { AnyImage, CompressedVideo } from "./ImageTypes";
 import {
   decodeCompressedImageToBitmap,
@@ -85,20 +89,26 @@ const VIDEO_TIMESTAMP_JITTER_NS = 5_000_000n;
  * longer-than-typical key-to-key distances.
  *
  * Real-world H.265 recordings encountered so far use keyframe intervals on the order of 1–10 s
- * (≈30–600 frames at 30–60 fps). 2000 frames is roughly 30–60 s of history, which covers several
- * GOPs of slack while bounding the memory footprint of the cached encoded payloads to the order
- * of tens of MB per topic even on high-bitrate streams. If a recording ever needs a deeper cache,
- * this is the single knob to raise — but increasing it linearly increases per-renderable memory
- * use, so prefer fixing pathological GOP cadence at the source first.
+ * (≈30–600 frames at 30–60 fps). 2000 frames covers several such GOPs, but only while the byte
+ * ceiling below also permits them. The cache owns at most 64 MiB of encoded payload per topic;
+ * entry objects, the live decode queue, active frames, and WebCodecs internal memory are separate.
  */
 const MAX_VIDEO_FRAME_HISTORY = 2000;
 
 /**
  * Byte ceiling for the GOP backfill cache, applied alongside {@link MAX_VIDEO_FRAME_HISTORY}. The
  * frame-count cap alone does not bound memory on high-bitrate streams, where 2000 encoded payloads
- * can reach hundreds of MB. Whichever limit is hit first evicts the oldest entries.
+ * can reach hundreds of MB. Whichever limit is hit first evicts complete old GOPs; if one GOP
+ * itself cannot fit, replay caching pauses until the next complete recovery point.
  */
-const MAX_VIDEO_FRAME_HISTORY_BYTES = 256 * 1024 * 1024;
+const MAX_VIDEO_FRAME_HISTORY_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Per-topic live decode backlog. The 2000-frame ceiling preserves existing long-GOP seek backfill,
+ * while the independent 64 MiB payload ceiling makes slow/stalled WebCodecs decoding finite.
+ */
+const MAX_PENDING_VIDEO_DECODE_FRAMES = 2000;
+const MAX_PENDING_VIDEO_DECODE_BYTES = 64 * 1024 * 1024;
 
 type PendingVideoDecode = {
   image: AnyImage;
@@ -148,6 +158,21 @@ function closeGraphicResource(resource: { close: () => void } | undefined): void
   }
 }
 
+function isCompleteVideoRecoveryPoint(frame: CompressedVideo, codec: VideoCodec): boolean {
+  switch (codec) {
+    case VideoCodec.H264:
+      return (
+        H264.IsKeyframe(frame.data) &&
+        H264.GetFirstNALUOfType(frame.data, H264NaluType.SPS) != undefined &&
+        H264.GetFirstNALUOfType(frame.data, H264NaluType.PPS) != undefined
+      );
+    case VideoCodec.H265: {
+      const frameInfo = H265.InspectFrame(frame.data);
+      return frameInfo.isKeyframe && frameInfo.hasRequiredParameterSets;
+    }
+  }
+}
+
 export class ImageRenderable extends Renderable<ImageUserData> {
   // A lazily instantiated player for compressed video
   public videoPlayer: VideoPlayer | undefined;
@@ -183,7 +208,17 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   // Used to gate the panel's frame barrier on a seek so the cursor parks until the seek frame
   // is actually decoded and painted, instead of resuming play before the image is ready.
   #activeVideoDecode: Promise<void> | undefined;
-  readonly #pendingVideoDecodeQueue: PendingVideoDecode[] = [];
+  // Queue compaction invalidates the decoder's dependency state, but resetting WebCodecs while the
+  // current frame is still awaiting output can abort that promise. Defer the reset to the next
+  // drain boundary, after the active frame settles and before the retained recovery suffix starts.
+  #pendingVideoResetRequired = false;
+  // Incremented when queue pressure invalidates the active dependency chain. A frame that settles
+  // after its epoch was superseded must not render or report an error over the retained recovery.
+  #videoDecodeEpoch = 0;
+  readonly #pendingVideoDecodeQueue = new BoundedVideoFrameQueue<PendingVideoDecode>(
+    MAX_PENDING_VIDEO_DECODE_FRAMES,
+    MAX_PENDING_VIDEO_DECODE_BYTES,
+  );
   #videoFrameHistory: VideoFrameHistoryEntry[] = [];
   #videoFrameHistoryBytes = 0;
 
@@ -207,6 +242,20 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     return this.#decodedImage;
   }
 
+  public getVideoBufferStats(): {
+    historyBytes: number;
+    historyFrames: number;
+    pendingBytes: number;
+    pendingFrames: number;
+  } {
+    return {
+      historyBytes: this.#videoFrameHistoryBytes,
+      historyFrames: this.#videoFrameHistory.length,
+      pendingBytes: this.#pendingVideoDecodeQueue.getSizeInBytes(),
+      pendingFrames: this.#pendingVideoDecodeQueue.getLength(),
+    };
+  }
+
   public override dispose(): void {
     this.#disposed = true;
     const textureImage = this.userData.texture?.image;
@@ -225,7 +274,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     // MAX_VIDEO_FRAME_HISTORY timestamps; clearing on dispose keeps per-renderable memory bounded.
     this.#videoFrameHistory.length = 0;
     this.#videoFrameHistoryBytes = 0;
-    this.#pendingVideoDecodeQueue.length = 0;
+    this.#pendingVideoDecodeQueue.clear();
     super.dispose();
   }
 
@@ -346,7 +395,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         this.#lastQueuedVideoMessageTime - messageTime > VIDEO_TIMESTAMP_JITTER_NS;
 
       if (backwardSeekDetected) {
-        this.#pendingVideoDecodeQueue.length = 0;
+        this.#pendingVideoDecodeQueue.clear();
       }
       this.#lastQueuedVideoMessageTime = messageTime;
 
@@ -357,7 +406,16 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       // per frame. It also makes the in-flight work awaitable through `#activeVideoDecode`, so a
       // pause stops painting at the current frame instead of letting orphaned parallel decodes
       // keep drawing for a second after stop.
-      this.#pendingVideoDecodeQueue.push({ image, resizeWidth, onDecoded, seq });
+      const enqueueResult = this.#pendingVideoDecodeQueue.enqueue({
+        value: { image, resizeWidth, onDecoded, seq },
+        sizeInBytes: videoImage.data.byteLength,
+        isRecoveryPoint: isCompleteVideoRecoveryPoint(videoImage, codec),
+      });
+      if (enqueueResult.resetRequired) {
+        this.#pendingVideoResetRequired = true;
+        this.#videoDecodeEpoch++;
+        this.#canReplayVideoGop = false;
+      }
       return;
     }
 
@@ -380,6 +438,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     nextCodec: VideoCodec | undefined,
     nextVideoFormat: string | undefined,
   ): void {
+    this.#videoDecodeEpoch++;
     this.#codec = nextCodec;
     this.#videoFormat = nextVideoFormat;
     this.#cachedVideoDecoderConfig = undefined;
@@ -388,8 +447,10 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#lastQueuedVideoMessageTime = undefined;
     this.#waitingForVideoKeyframe = nextCodec != undefined;
     this.#canReplayVideoGop = false;
-    this.#pendingVideoDecodeQueue.length = 0;
+    this.#pendingVideoResetRequired = false;
+    this.#pendingVideoDecodeQueue.clear();
     this.#videoFrameHistory.length = 0;
+    this.#videoFrameHistoryBytes = 0;
     this.videoPlayer?.resetForSeek();
   }
 
@@ -402,7 +463,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    * an intermediate that does not need a GPU upload.
    */
   public flushPendingDecodes(): void {
-    if (this.#pendingVideoDecodeQueue.length > 0 && this.#activeVideoDecode == undefined) {
+    if (this.#pendingVideoDecodeQueue.getLength() > 0 && this.#activeVideoDecode == undefined) {
       this.#activeVideoDecode = this.#drainPendingVideoDecodes().finally(() => {
         this.#activeVideoDecode = undefined;
       });
@@ -422,15 +483,24 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    * Reset decoder state for an external seek and force keyframe-gated decode on next frames.
    */
   public resetVideoForSeek(): void {
+    this.#videoDecodeEpoch++;
     this.videoPlayer?.resetForSeek();
     this.#waitingForVideoKeyframe = true;
     this.#canReplayVideoGop = true;
-    this.#pendingVideoDecodeQueue.length = 0;
+    this.#pendingVideoResetRequired = false;
+    this.#pendingVideoDecodeQueue.clear();
     this.#lastQueuedVideoMessageTime = undefined;
   }
 
   async #drainPendingVideoDecodes(): Promise<void> {
-    while (this.#pendingVideoDecodeQueue.length > 0) {
+    while (this.#pendingVideoDecodeQueue.getLength() > 0) {
+      if (this.#pendingVideoResetRequired) {
+        this.videoPlayer?.resetForSeek();
+        this.#waitingForVideoKeyframe = true;
+        this.#canReplayVideoGop = false;
+        this.#pendingVideoResetRequired = false;
+      }
+
       const pendingDecode = this.#pendingVideoDecodeQueue.shift();
       if (pendingDecode == undefined) {
         break;
@@ -443,13 +513,14 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       // Using the received sequence number (not the momentary queue length) is robust to frames
       // being fed incrementally across multiple drain passes during playback.
       const skipRender = pendingDecode.seq < this.#receivedImageSequenceNumber;
+      const videoDecodeEpoch = this.#videoDecodeEpoch;
 
       await this.#startDecode(
         pendingDecode.image,
         pendingDecode.seq,
         pendingDecode.resizeWidth,
         pendingDecode.onDecoded,
-        { skipRender },
+        { skipRender, videoDecodeEpoch },
       );
     }
   }
@@ -459,12 +530,21 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     seq: number,
     resizeWidth?: number,
     onDecoded?: () => void,
-    options?: { skipRender?: boolean },
+    options?: { skipRender?: boolean; videoDecodeEpoch?: number },
   ): Promise<void> {
     try {
       const skipRender = options?.skipRender ?? false;
       const result = await this.decodeImage(image, resizeWidth);
       if (this.isDisposed()) {
+        if (result instanceof ImageBitmap) {
+          closeGraphicResource(result);
+        }
+        return;
+      }
+      if (
+        options?.videoDecodeEpoch != undefined &&
+        options.videoDecodeEpoch !== this.#videoDecodeEpoch
+      ) {
         if (result instanceof ImageBitmap) {
           closeGraphicResource(result);
         }
@@ -490,10 +570,16 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         this.renderer.queueAnimationFrame();
       }
     } catch (err) {
-      log.error(err);
       if (this.isDisposed()) {
         return;
       }
+      if (
+        options?.videoDecodeEpoch != undefined &&
+        options.videoDecodeEpoch !== this.#videoDecodeEpoch
+      ) {
+        return;
+      }
+      log.error(err);
       if (!this.#showingErrorImage) {
         await this.#setErrorImage(seq, onDecoded);
       }
@@ -578,13 +664,27 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     if (!videoCodecNeedsKeyframeReplay(this.#codec)) {
       return;
     }
+    const isRecoveryPoint =
+      this.#codec != undefined && isCompleteVideoRecoveryPoint(frame, this.#codec);
+    // A delta without a retained recovery anchor can never participate in a seek replay.
+    if (this.#videoFrameHistory.length === 0 && !isRecoveryPoint) {
+      return;
+    }
+    // Avoid allocating a copy which can never fit. Losing any frame invalidates the remainder of
+    // this GOP for replay, so wait for the next complete recovery point.
+    if (frame.data.byteLength > MAX_VIDEO_FRAME_HISTORY_BYTES) {
+      this.#videoFrameHistory.length = 0;
+      this.#videoFrameHistoryBytes = 0;
+      return;
+    }
+
     const existingIndex = this.#videoFrameHistory.findIndex(
       (entry) => entry.timestampMicros === timestampMicros,
     );
     const historyEntry: VideoFrameHistoryEntry = {
       frame: { ...frame, data: frame.data.slice() },
-      type: preparedFrame.type,
-      decoderConfig: preparedFrame.decoderConfig,
+      type: isRecoveryPoint ? "key" : "delta",
+      decoderConfig: isRecoveryPoint ? preparedFrame.decoderConfig : undefined,
       timestampMicros,
     };
     if (existingIndex >= 0) {
@@ -592,20 +692,46 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         historyEntry.frame.data.byteLength -
         this.#videoFrameHistory[existingIndex]!.frame.data.byteLength;
       this.#videoFrameHistory[existingIndex] = historyEntry;
-      return;
+    } else {
+      this.#videoFrameHistory.push(historyEntry);
+      this.#videoFrameHistoryBytes += historyEntry.frame.data.byteLength;
     }
-    this.#videoFrameHistory.push(historyEntry);
-    this.#videoFrameHistoryBytes += historyEntry.frame.data.byteLength;
+    this.#trimVideoFrameHistory();
+  }
+
+  #trimVideoFrameHistory(): void {
     while (
       this.#videoFrameHistory.length > MAX_VIDEO_FRAME_HISTORY ||
       this.#videoFrameHistoryBytes > MAX_VIDEO_FRAME_HISTORY_BYTES
     ) {
-      const evicted = this.#videoFrameHistory.shift();
-      if (!evicted) {
+      const nextRecoveryIndex = this.#videoFrameHistory.findIndex(
+        (entry, index) => index > 0 && entry.type === "key",
+      );
+      if (nextRecoveryIndex < 0) {
+        // The current GOP itself exceeds a hard limit. A mid-GOP suffix is useless for replay.
+        this.#videoFrameHistory.length = 0;
         this.#videoFrameHistoryBytes = 0;
-        break;
+        return;
       }
-      this.#videoFrameHistoryBytes -= evicted.frame.data.byteLength;
+      const evicted = this.#videoFrameHistory.splice(0, nextRecoveryIndex);
+      for (const entry of evicted) {
+        this.#videoFrameHistoryBytes -= entry.frame.data.byteLength;
+      }
+    }
+
+    // A same-timestamp replacement can turn the current anchor into a delta without changing the
+    // total size. Realign to the next complete recovery point rather than retaining an orphan GOP.
+    if (this.#videoFrameHistory[0]?.type !== "key") {
+      const firstRecoveryIndex = this.#videoFrameHistory.findIndex((entry) => entry.type === "key");
+      if (firstRecoveryIndex < 0) {
+        this.#videoFrameHistory.length = 0;
+        this.#videoFrameHistoryBytes = 0;
+      } else {
+        const evicted = this.#videoFrameHistory.splice(0, firstRecoveryIndex);
+        for (const entry of evicted) {
+          this.#videoFrameHistoryBytes -= entry.frame.data.byteLength;
+        }
+      }
     }
   }
 
@@ -629,6 +755,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#waitingForVideoKeyframe = true;
     this.#canReplayVideoGop = false;
     this.videoPlayer?.resetForSeek();
+    this.#pendingVideoResetRequired = false;
+    this.#pendingVideoDecodeQueue.clear({ awaitRecovery: true });
     // The cached GOP cannot be replayed after a player error: the prior decoder state is gone,
     // and re-feeding the same chain will hit the same failure. Clear the history so the next
     // keyframe starts a fresh cache instead of accumulating on top of poisoned entries.
