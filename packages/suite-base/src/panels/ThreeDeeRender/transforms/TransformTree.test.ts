@@ -109,7 +109,14 @@ describe("TransformTree", () => {
 
 describe("resolveLiveTfHistory", () => {
   it("returns bounded defaults without an override", () => {
-    for (const search of [undefined, "", "?foo=1", "?xgcTfHistorySeconds=", "?xgcTfHistorySeconds=abc", "?xgcTfHistorySeconds=0"]) {
+    for (const search of [
+      undefined,
+      "",
+      "?foo=1",
+      "?xgcTfHistorySeconds=",
+      "?xgcTfHistorySeconds=abc",
+      "?xgcTfHistorySeconds=0",
+    ]) {
       const config = resolveLiveTfHistory(search);
       expect(config.maxStorageTime).toEqual(DEFAULT_MAX_STORAGE_TIME);
       expect(config.maxCapacityPerFrame).toEqual(DEFAULT_MAX_CAPACITY_PER_FRAME);

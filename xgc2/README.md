@@ -10,12 +10,12 @@ baseline and build toolchain.
 
 - `origin` is `lxk36/xgc2-lichtblick`; `upstream` is the official Lichtblick
   repository.
-- Product changes are developed on `xgc2-product` and must retain the locked
+- Product changes are developed on `xgc2` and must retain the locked
   upstream commit as an ancestor.
 - Upstream upgrades are source merges or rebases reviewed together with XGC2
-  patches and tests. Packaging lock updates are no longer the upgrade method.
-- The former Debian/FPM and APT release matrix is archived in
-  `external/dev/xgc2-lichtblick-packaging`; it must not publish releases.
+  patches and tests.
+- Debian packages are built by `lxk36/xgc2-lichtblick-packaging` from an exact
+  commit of this branch.
 
 ## Live TF retention
 
@@ -36,9 +36,9 @@ corepack yarn install --immutable
 ```
 
 The source-owned launcher provides the same-origin WebSocket proxy, Origin and
-CSP controls, `/healthz`, and `/version`. It uses `web/.webpack` and
-`web/build-info.json` from this working tree and does not read `/usr/lib` or
-require an APT-installed Lichtblick.
+CSP controls, `/healthz`, and `/version`. Local development uses
+`web/.webpack` and `web/build-info.json` from this working tree. The production
+process definition runs the packaged `/usr/bin/xgc2-lichtblick-web` launcher.
 
 ## Focused checks
 

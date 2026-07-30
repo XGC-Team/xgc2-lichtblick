@@ -481,7 +481,11 @@ describe("FoxgloveWebSocketPlayer worker", () => {
 
 describe("resolvePlayerMemoryCaps", () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { resolvePlayerMemoryCaps, CURRENT_FRAME_MAXIMUM_SIZE_BYTES, WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES } = require("./constants");
+  const {
+    resolvePlayerMemoryCaps,
+    CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
+    WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES,
+  } = require("./constants");
 
   it("returns 16MB defaults without overrides", () => {
     for (const search of [undefined, "", "?xgcFrameCapMB=abc", "?xgcWorkerQueueMB=2"]) {

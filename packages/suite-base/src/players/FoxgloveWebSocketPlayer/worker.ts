@@ -146,8 +146,7 @@ function sendNextMessage(): void {
 function enqueueMessage(data: unknown): void {
   const subscriptionId = getSubscriptionId(data);
   const isTime = isTimeMessage(data);
-  const lossExempt =
-    subscriptionId != undefined ? isLossExemptSubscription(subscriptionId) : false;
+  const lossExempt = subscriptionId != undefined ? isLossExemptSubscription(subscriptionId) : false;
 
   if (subscriptionId != undefined) {
     // Non-exempt telemetry: when the renderer is behind, only the newest unsent frame for a
