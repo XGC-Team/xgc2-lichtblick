@@ -15,6 +15,7 @@ import { INativeAppMenu } from "@lichtblick/suite-base/context/NativeAppMenuCont
 import { INativeWindow } from "@lichtblick/suite-base/context/NativeWindowContext";
 import { IDataSourceFactory } from "@lichtblick/suite-base/context/PlayerSelectionContext";
 import { IExtensionLoader } from "@lichtblick/suite-base/services/extension/IExtensionLoader";
+import type { WorkspaceAppearance } from "@lichtblick/suite-base/types";
 
 interface ISharedRootContext {
   deepLinks: readonly string[];
@@ -26,6 +27,7 @@ interface ISharedRootContext {
   nativeWindow?: INativeWindow;
   enableLaunchPreferenceScreen?: boolean;
   enableGlobalCss?: boolean;
+  workspaceAppearance?: WorkspaceAppearance;
   appBarLeftInset?: number;
   extraProviders?: readonly React.JSX.Element[];
   customWindowControlProps?: CustomWindowControlsProps;
@@ -37,6 +39,7 @@ const SharedRootContext = createContext<ISharedRootContext>({
   deepLinks: [],
   dataSources: [],
   extensionLoaders: [],
+  workspaceAppearance: "standard",
 });
 SharedRootContext.displayName = "SharedRootContext";
 

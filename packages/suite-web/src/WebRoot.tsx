@@ -23,6 +23,7 @@ import {
   SampleNuscenesDataSourceFactory,
   SharedRoot,
   UlogLocalDataSourceFactory,
+  type WorkspaceAppearance,
 } from "@lichtblick/suite-base";
 import { APP_CONFIG } from "@lichtblick/suite-base/constants/config";
 import { AppParametersInput } from "@lichtblick/suite-base/context/AppParametersContext";
@@ -53,6 +54,8 @@ export function WebRoot(props: {
   ];
   const url = new URL(globalThis.location.href);
   const workspace = url.searchParams.get("workspace");
+  const workspaceAppearance: WorkspaceAppearance =
+    url.searchParams.get("xgc2Embed") === "1" ? "embedded" : "standard";
 
   if (workspace && APP_CONFIG.apiUrl) {
     defaultExtensionLoaders.push(new RemoteExtensionLoader("org", workspace));
@@ -85,7 +88,7 @@ export function WebRoot(props: {
 
   return (
     <SharedRoot
-      enableLaunchPreferenceScreen
+      enableLaunchPreferenceScreen={workspaceAppearance === "standard"}
       deepLinks={[globalThis.location.href]}
       dataSources={dataSources}
       appConfiguration={appConfiguration}
@@ -94,6 +97,7 @@ export function WebRoot(props: {
       enableGlobalCss
       extraProviders={props.extraProviders}
       AppBarComponent={props.AppBarComponent}
+      workspaceAppearance={workspaceAppearance}
     >
       {props.children}
     </SharedRoot>

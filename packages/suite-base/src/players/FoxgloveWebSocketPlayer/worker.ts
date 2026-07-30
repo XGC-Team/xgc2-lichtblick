@@ -7,27 +7,28 @@ import {
   FromWorkerMessage,
   ToWorkerMessage,
 } from "@lichtblick/suite-base/players/FoxgloveWebSocketPlayer/types";
+import { COMPRESSED_VIDEO_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
 
 import { WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES } from "./constants";
+import {
+  inspectAnnexBVideoFrame,
+  isTransformSchemaName,
+  LiveMessageQueue,
+  LiveMessageRetention,
+} from "./liveMessageQueue";
 
 let ws: WebSocket | undefined = undefined;
 let messageInFlight = false;
-let queueLimitBytes = WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES;
+const messageQueue = new LiveMessageQueue<unknown>(WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES);
 
-type QueuedMessage = {
-  data: unknown;
-  sizeInBytes: number;
-  subscriptionId: number | undefined;
-  /** MESSAGE_DATA on /tf, /tf_static, or unknown topic — never superseded or trim-evicted. */
-  lossExempt: boolean;
-  isTime: boolean;
+type ChannelMetadata = {
+  encoding: string | undefined;
+  topic: string;
+  schemaName: string | undefined;
 };
 
-const messageQueue: QueuedMessage[] = [];
-let messageQueueSizeBytes = 0;
-
-/** Server channelId → topic (from inbound advertise / unadvertise). */
-const channelIdToTopic = new Map<number, string>();
+/** Server channelId → channel metadata (from inbound advertise / unadvertise). */
+const channelIdToMetadata = new Map<number, ChannelMetadata>();
 /** Client subscriptionId → channelId (from outbound subscribe / unsubscribe). */
 const subscriptionIdToChannelId = new Map<number, number>();
 
@@ -36,32 +37,49 @@ const sendWithTransfer: (message: FromWorkerMessage, transfer: Transferable[]) =
   self.postMessage;
 
 function clearTopicMaps(): void {
-  channelIdToTopic.clear();
+  channelIdToMetadata.clear();
   subscriptionIdToChannelId.clear();
 }
 
-function isLossExemptTopic(topic: string): boolean {
-  return topic === "/tf" || topic === "/tf_static";
+function isLossExemptChannel(channel: ChannelMetadata): boolean {
+  // Keep the conventional topic-name fallback for servers which omit a schema name, but classify
+  // custom topics such as /xgc/tf and camera TF primarily by their advertised datatype.
+  return (
+    channel.topic === "/tf" ||
+    channel.topic === "/tf_static" ||
+    isTransformSchemaName(channel.schemaName)
+  );
 }
 
-function topicForSubscription(subId: number): string | undefined {
+function channelForSubscription(subId: number): ChannelMetadata | undefined {
   const channelId = subscriptionIdToChannelId.get(subId);
   if (channelId == undefined) {
     return undefined;
   }
-  return channelIdToTopic.get(channelId);
+  return channelIdToMetadata.get(channelId);
 }
 
 /**
- * Fail-safe: unknown topic (mapping not yet established) is treated as exempt so we never
- * drop TF-like frames before advertise/subscribe control messages are processed.
+ * Fail-safe: an unknown channel (mapping not yet established) is treated as exempt so we never
+ * drop transform-like frames before advertise/subscribe control messages are processed.
  */
 function isLossExemptSubscription(subId: number): boolean {
-  const topic = topicForSubscription(subId);
-  if (topic == undefined) {
+  const channel = channelForSubscription(subId);
+  if (channel == undefined) {
     return true;
   }
-  return isLossExemptTopic(topic);
+  return isLossExemptChannel(channel);
+}
+
+function isVideoSubscription(subId: number): boolean {
+  const schemaName = channelForSubscription(subId)?.schemaName;
+  return schemaName != undefined && COMPRESSED_VIDEO_DATATYPES.has(schemaName);
+}
+
+function isHighPriorityProtectedSubscription(subId: number): boolean {
+  const channel = channelForSubscription(subId);
+  // Unknown subscriptions stay fail-safe and /tf_static is preferred over dynamic transforms.
+  return channel == undefined || channel.topic === "/tf_static";
 }
 
 function getSubscriptionId(data: unknown): number | undefined {
@@ -86,43 +104,77 @@ function getMessageSize(data: unknown): number {
   return typeof data === "string" ? data.length * 2 : 0;
 }
 
-function removeQueuedMessage(index: number): void {
-  const [removed] = messageQueue.splice(index, 1);
-  if (removed) {
-    messageQueueSizeBytes -= removed.sizeInBytes;
-  }
+function align(offset: number, alignment: number): number {
+  return Math.ceil(offset / alignment) * alignment;
 }
 
-function isEvictableTelemetry(queued: QueuedMessage): boolean {
-  return queued.subscriptionId != undefined && !queued.lossExempt;
+function extractRos1CompressedVideoData(data: ArrayBuffer): Uint8Array | undefined {
+  const payloadOffset = 13;
+  const view = new DataView(data, payloadOffset);
+  let offset = 8; // ROS time: uint32 sec + uint32 nsec
+
+  if (offset + 4 > view.byteLength) {
+    return undefined;
+  }
+  const frameIdLength = view.getUint32(offset, true);
+  offset += 4 + frameIdLength;
+  if (offset + 4 > view.byteLength) {
+    return undefined;
+  }
+
+  const frameDataLength = view.getUint32(offset, true);
+  offset += 4;
+  if (offset + frameDataLength > view.byteLength) {
+    return undefined;
+  }
+  return new Uint8Array(data, payloadOffset + offset, frameDataLength);
 }
 
-function trimMessageQueue(): void {
-  while (messageQueueSizeBytes > queueLimitBytes) {
-    // Telemetry frames on non-exempt topics may be superseded/evicted. Protocol control
-    // messages, service responses, asset responses, TIME, and loss-exempt topics (/tf,
-    // /tf_static, or unknown topic) must remain ordered and are never discarded by trim.
-    let oldestEvictableIndex = -1;
-    let evictableCount = 0;
-    for (let i = 0; i < messageQueue.length; i++) {
-      if (isEvictableTelemetry(messageQueue[i]!)) {
-        if (oldestEvictableIndex < 0) {
-          oldestEvictableIndex = i;
-        }
-        evictableCount++;
-      }
-    }
-    if (oldestEvictableIndex < 0) {
-      return;
-    }
-
-    // Keep the last remaining evictable telemetry frame so a single oversized frame can still
-    // be rendered, even when other non-evictable (protocol / exempt) messages remain in queue.
-    if (evictableCount === 1) {
-      return;
-    }
-    removeQueuedMessage(oldestEvictableIndex);
+function extractCdrCompressedVideoData(data: ArrayBuffer): Uint8Array | undefined {
+  const payloadOffset = 13;
+  const view = new DataView(data, payloadOffset);
+  if (view.byteLength < 4) {
+    return undefined;
   }
+
+  // DDS encapsulation identifier 0x0001 is CDR little-endian; 0x0000 is big-endian.
+  const littleEndian = view.getUint8(1) === 1;
+  let offset = 4;
+  offset = align(offset, 4) + 8; // builtin_interfaces/Time
+  offset = align(offset, 4);
+  if (offset + 4 > view.byteLength) {
+    return undefined;
+  }
+
+  const frameIdLength = view.getUint32(offset, littleEndian);
+  offset += 4 + frameIdLength; // CDR string length includes its trailing NUL.
+  offset = align(offset, 4);
+  if (offset + 4 > view.byteLength) {
+    return undefined;
+  }
+
+  const frameDataLength = view.getUint32(offset, littleEndian);
+  offset += 4;
+  if (offset + frameDataLength > view.byteLength) {
+    return undefined;
+  }
+  return new Uint8Array(data, payloadOffset + offset, frameDataLength);
+}
+
+function isVideoRecoveryPoint(data: unknown, encoding: string | undefined): boolean {
+  if (!(data instanceof ArrayBuffer) || data.byteLength <= 13) {
+    return false;
+  }
+
+  // Parse the serialized wrapper first rather than scanning message metadata. A false-positive IDR
+  // in a timestamp/string field could otherwise let P-frames through after a dependency was lost.
+  const frameData =
+    encoding === "ros1"
+      ? extractRos1CompressedVideoData(data)
+      : encoding === "cdr"
+        ? extractCdrCompressedVideoData(data)
+        : undefined;
+  return frameData != undefined && inspectAnnexBVideoFrame(frameData).isRecoveryPoint;
 }
 
 function sendNextMessage(): void {
@@ -133,13 +185,12 @@ function sendNextMessage(): void {
   if (!next) {
     return;
   }
-  messageQueueSizeBytes -= next.sizeInBytes;
   messageInFlight = true;
 
-  if (next.data instanceof ArrayBuffer) {
-    sendWithTransfer({ type: "message", data: next.data }, [next.data]);
+  if (next.value instanceof ArrayBuffer) {
+    sendWithTransfer({ type: "message", data: next.value }, [next.value]);
   } else {
-    send({ type: "message", data: next.data });
+    send({ type: "message", data: next.value });
   }
 }
 
@@ -147,32 +198,50 @@ function enqueueMessage(data: unknown): void {
   const subscriptionId = getSubscriptionId(data);
   const isTime = isTimeMessage(data);
   const lossExempt = subscriptionId != undefined ? isLossExemptSubscription(subscriptionId) : false;
-
-  if (subscriptionId != undefined) {
-    // Non-exempt telemetry: when the renderer is behind, only the newest unsent frame for a
-    // subscription is useful. Loss-exempt topics (/tf, /tf_static, unknown) never supersede.
-    if (!lossExempt) {
-      // Never supersede frames that were enqueued as loss-exempt (e.g. fail-safe before the
-      // topic map existed). Exempt frames neither supersede others nor are superseded.
-      const supersededIndex = messageQueue.findIndex(
-        (queued) => queued.subscriptionId === subscriptionId && !queued.lossExempt,
-      );
-      if (supersededIndex >= 0) {
-        removeQueuedMessage(supersededIndex);
-      }
-    }
-  } else if (isTime) {
-    // Only the latest TIME frame is meaningful; keep at most one unsent TIME in the queue.
-    const supersededIndex = messageQueue.findIndex((queued) => queued.isTime);
-    if (supersededIndex >= 0) {
-      removeQueuedMessage(supersededIndex);
-    }
-  }
+  const isVideo = subscriptionId != undefined && isVideoSubscription(subscriptionId);
+  const channel = subscriptionId != undefined ? channelForSubscription(subscriptionId) : undefined;
+  const retention: LiveMessageRetention = isVideo
+    ? "video"
+    : lossExempt || (subscriptionId == undefined && !isTime)
+      ? "protected"
+      : "replaceable";
+  const key =
+    subscriptionId != undefined ? `subscription:${subscriptionId}` : isTime ? "time" : undefined;
+  const protectedPriority =
+    retention === "protected" && subscriptionId == undefined && !isTime
+      ? "critical"
+      : retention === "protected" &&
+          subscriptionId != undefined &&
+          isHighPriorityProtectedSubscription(subscriptionId)
+        ? "high"
+        : "normal";
 
   const sizeInBytes = getMessageSize(data);
-  messageQueue.push({ data, sizeInBytes, subscriptionId, lossExempt, isTime });
-  messageQueueSizeBytes += sizeInBytes;
-  trimMessageQueue();
+  const enqueueResult = messageQueue.enqueue(
+    {
+      value: data,
+      sizeInBytes,
+      key,
+      retention,
+      protectedPriority,
+      isVideoRecoveryPoint: isVideo ? isVideoRecoveryPoint(data, channel?.encoding) : undefined,
+    },
+    // Ordinary telemetry remains live-first/latest-only. Video is never superseded: if memory
+    // pressure requires a drop, LiveMessageQueue discards the dependency chain as one unit.
+    { supersedeReplaceable: retention === "replaceable" },
+  );
+  if ((enqueueResult.droppedCriticalEntries ?? 0) > 0) {
+    // The worker has already applied inbound advertise/unadvertise metadata locally. Continuing
+    // after the renderer misses a protocol control frame would split their protocol state. Abort
+    // this connection so the normal reconnect path can rebuild both sides from one clean stream.
+    messageQueue.clear();
+    send({
+      type: "error",
+      error: new Error("WebSocket control message exceeded the bounded worker queue"),
+    });
+    ws?.close(1011, "bounded control queue overflow");
+    return;
+  }
   sendNextMessage();
 }
 
@@ -202,16 +271,19 @@ function trackInboundControlMessage(data: unknown): void {
           typeof (channel as { id?: unknown }).id === "number" &&
           typeof (channel as { topic?: unknown }).topic === "string"
         ) {
-          channelIdToTopic.set(
-            (channel as { id: number }).id,
-            (channel as { topic: string }).topic,
-          );
+          const schemaName = (channel as { schemaName?: unknown }).schemaName;
+          const encoding = (channel as { encoding?: unknown }).encoding;
+          channelIdToMetadata.set((channel as { id: number }).id, {
+            encoding: typeof encoding === "string" ? encoding : undefined,
+            topic: (channel as { topic: string }).topic,
+            schemaName: typeof schemaName === "string" ? schemaName : undefined,
+          });
         }
       }
     } else if (msg.op === "unadvertise" && Array.isArray(msg.channelIds)) {
       for (const channelId of msg.channelIds) {
         if (typeof channelId === "number") {
-          channelIdToTopic.delete(channelId);
+          channelIdToMetadata.delete(channelId);
         }
       }
     }
@@ -255,6 +327,7 @@ function trackOutboundControlMessage(data: unknown): void {
       for (const subscriptionId of msg.subscriptionIds) {
         if (typeof subscriptionId === "number") {
           subscriptionIdToChannelId.delete(subscriptionId);
+          messageQueue.removeKey(`subscription:${subscriptionId}`);
         }
       }
     }
@@ -269,12 +342,15 @@ self.onmessage = (event: MessageEvent<ToWorkerMessage>) => {
     case "open":
       try {
         const { data } = event.data;
-        queueLimitBytes =
+        const queueLimitBytes =
           data.queueLimitBytes != undefined &&
-          Number.isFinite(data.queueLimitBytes) &&
+          Number.isSafeInteger(data.queueLimitBytes) &&
           data.queueLimitBytes > 0
             ? data.queueLimitBytes
             : WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES;
+        messageQueue.clear();
+        messageQueue.setMaximumSize(queueLimitBytes);
+        messageInFlight = false;
         clearTopicMaps();
         ws = new WebSocket(data.wsUrl, data.protocols);
         ws.binaryType = "arraybuffer";

@@ -23,6 +23,7 @@ import PanelContext from "@lichtblick/suite-base/components/PanelContext";
 import { useStyles } from "@lichtblick/suite-base/components/PanelToolbar/PanelToolbar.style";
 import ToolbarIconButton from "@lichtblick/suite-base/components/PanelToolbar/ToolbarIconButton";
 import { PanelToolbarProps } from "@lichtblick/suite-base/components/PanelToolbar/types";
+import { useSharedRootContext } from "@lichtblick/suite-base/context/SharedRootContext";
 import { useDefaultPanelTitle } from "@lichtblick/suite-base/providers/PanelStateContextProvider";
 import { PANEL_TITLE_CONFIG_KEY } from "@lichtblick/suite-base/util/layout";
 
@@ -39,6 +40,8 @@ export default React.memo<PanelToolbarProps>(function PanelToolbar({
   isUnknownPanel = false,
 }: PanelToolbarProps) {
   const { classes, cx } = useStyles();
+  const { workspaceAppearance = "standard" } = useSharedRootContext();
+  const isEmbedded = workspaceAppearance === "embedded";
   const {
     isFullscreen,
     exitFullscreen,
@@ -88,19 +91,28 @@ export default React.memo<PanelToolbarProps>(function PanelToolbar({
   const title = customPanelTitle ?? panelContext?.title;
   return (
     <header
-      className={cx(classes.root, className)}
+      className={cx(
+        classes.root,
+        {
+          [classes.embedded]: isEmbedded,
+          [classes.embeddedWithChildren]: isEmbedded && children != undefined,
+        },
+        className,
+      )}
+      data-workspace-appearance={workspaceAppearance}
       data-testid="mosaic-drag-handle"
       ref={rootDragRef}
       style={{ backgroundColor, cursor: rootDragRef != undefined ? "grab" : "auto" }}
     >
       {children ??
-        (title && (
+        (!isEmbedded && title ? (
           <Typography noWrap variant="body2" color="text.secondary" flex="auto">
             {title}
           </Typography>
-        ))}
+        ) : undefined)}
       <PanelToolbarControls
         additionalIcons={additionalIconsWithHelp}
+        compact={isEmbedded}
         isUnknownPanel={isUnknownPanel}
         ref={controlsDragRef}
       />

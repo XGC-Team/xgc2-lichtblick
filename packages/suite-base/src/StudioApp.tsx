@@ -60,6 +60,7 @@ export function StudioApp(): React.JSX.Element {
     customWindowControlProps,
     onAppBarDoubleClick,
     AppBarComponent,
+    workspaceAppearance = "standard",
   } = useSharedRootContext();
 
   const providers = [
@@ -141,6 +142,7 @@ export function StudioApp(): React.JSX.Element {
                 onUnmaximizeWindow={customWindowControlProps?.onUnmaximizeWindow}
                 onCloseWindow={customWindowControlProps?.onCloseWindow}
                 AppBarComponent={AppBarComponent}
+                workspaceAppearance={workspaceAppearance}
               />
             </PanelCatalogProvider>
           </Suspense>

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import "@testing-library/jest-dom";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 import {
   useMessagePipeline,
@@ -27,6 +27,7 @@ import useAlertCount from "@lichtblick/suite-base/hooks/useAlertCount";
 import { useHandleFiles } from "@lichtblick/suite-base/hooks/useHandleFiles";
 import { useLayoutTransfer } from "@lichtblick/suite-base/hooks/useLayoutTransfer";
 import { PlayerPresence } from "@lichtblick/suite-base/players/types";
+import WorkspaceContextProvider from "@lichtblick/suite-base/providers/WorkspaceContextProvider";
 import { parseAppURLState } from "@lichtblick/suite-base/util/appURLState";
 
 import Workspace from "./Workspace";
@@ -65,7 +66,7 @@ jest.mock("@lichtblick/suite-base/components/Sidebars", () => ({
   default: jest.fn(() => undefined),
 }));
 jest.mock("@lichtblick/suite-base/components/AppBar", () => ({
-  AppBar: () => undefined,
+  AppBar: () => <div data-testid="workspace-app-bar" />,
 }));
 jest.mock("@lichtblick/suite-base/components/AlertsList", () => ({
   AlertsList: () => undefined,
@@ -140,6 +141,12 @@ jest.mock("@lichtblick/suite-base/components/VariablesList", () => ({
   __esModule: true,
   default: () => undefined,
 }));
+jest.mock("@lichtblick/suite-base/components/WssErrorModal", () => ({
+  __esModule: true,
+  default: ({ playerAlerts }: { playerAlerts?: readonly unknown[] }) => (
+    <div data-alert-count={playerAlerts?.length ?? 0} data-testid="workspace-wss-error-modal" />
+  ),
+}));
 jest.mock("@lichtblick/suite-base/components/WorkspaceDialogs", () => ({
   WorkspaceDialogs: () => undefined,
 }));
@@ -147,7 +154,7 @@ jest.mock("@lichtblick/suite-base/components/WorkspaceDialogs", () => ({
 // ── providers ─────────────────────────────────────────────────────────────────
 jest.mock("@lichtblick/suite-base/providers/WorkspaceContextProvider", () => ({
   __esModule: true,
-  default: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  default: jest.fn(({ children }: React.PropsWithChildren) => <>{children}</>),
 }));
 jest.mock("@lichtblick/suite-base/providers/PanelStateContextProvider", () => ({
   PanelStateContextProvider: ({ children }: React.PropsWithChildren) => <>{children}</>,
@@ -245,6 +252,7 @@ jest.mock("@lichtblick/suite-base/util/isDesktopApp", () => ({
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 const MockedSidebars = Sidebars as unknown as jest.Mock;
+const MockedWorkspaceContextProvider = WorkspaceContextProvider as unknown as jest.Mock;
 
 const mockPipelineContext = {
   playerState: {
@@ -320,6 +328,7 @@ describe("Workspace - alerts badge in leftSidebarItems", () => {
 
   afterEach(() => {
     MockedSidebars.mockClear();
+    MockedWorkspaceContextProvider.mockClear();
   });
 
   it("should not set badge on alerts sidebar item when alertCount is 0", () => {
@@ -368,6 +377,47 @@ describe("Workspace - alerts badge in leftSidebarItems", () => {
     // Then
     const leftItems = MockedSidebars.mock.lastCall?.[0]?.leftItems as Map<string, SidebarItem>;
     expect(leftItems.get("alerts")?.badge?.count).toBe(5);
+  });
+
+  it("renders the app bar in the standard workspace appearance", () => {
+    render(<Workspace workspaceAppearance="standard" />);
+
+    expect(screen.getByTestId("workspace-app-bar")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-wss-error-modal")).not.toBeInTheDocument();
+  });
+
+  it("replaces the app bar modal host without removing workspace content when embedded", () => {
+    (useAlertCount as jest.Mock).mockReturnValue({
+      playerAlerts: [{ message: "Insecure WebSocket connection", severity: "error" }],
+      sessionAlerts: [],
+      alertCount: 1,
+    });
+
+    render(<Workspace workspaceAppearance="embedded" />);
+
+    expect(screen.queryByTestId("workspace-app-bar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-wss-error-modal")).toHaveAttribute(
+      "data-alert-count",
+      "1",
+    );
+    expect(mockWorkspaceActions.sidebarActions.left.setOpen).toHaveBeenCalledWith(false);
+    expect(mockWorkspaceActions.sidebarActions.right.setOpen).toHaveBeenCalledWith(false);
+    expect(MockedSidebars).toHaveBeenCalled();
+  });
+
+  it("suppresses only the automatic initial data-source dialog when embedded", () => {
+    (useAppConfigurationValue as jest.Mock).mockReturnValue([true]);
+
+    const standard = render(<Workspace workspaceAppearance="standard" />);
+    expect(
+      MockedWorkspaceContextProvider.mock.lastCall?.[0]?.initialState.dialogs.dataSource.item,
+    ).toBe("start");
+    standard.unmount();
+
+    render(<Workspace workspaceAppearance="embedded" />);
+    expect(
+      MockedWorkspaceContextProvider.mock.lastCall?.[0]?.initialState.dialogs.dataSource.item,
+    ).toBeUndefined();
   });
 });
 

@@ -40,8 +40,12 @@ export type PlayerMemoryCaps = {
  * thread) and `xgcWorkerQueueMB` (raw backlog inside the WebSocket worker),
  * both clamped to 4..1024 MB. Absent or invalid values keep the 16 MB
  * live-first defaults. Per-topic loss policy is independent of these caps:
- * telemetry is superseded per subscription (latest frame wins), /tf and
- * /tf_static and protocol messages are never dropped.
+ * ordinary telemetry is superseded per subscription (latest frame wins),
+ * transform datatypes and protocol messages remain ordered while capacity
+ * permits, and compressed video is dropped only at complete GOP/recovery
+ * boundaries. The caps are hard: sustained protected traffic eventually
+ * evicts its oldest messages, with /tf_static and protocol control retained
+ * ahead of dynamic transforms.
  */
 export function resolvePlayerMemoryCaps(search: string | undefined): PlayerMemoryCaps {
   const defaults: PlayerMemoryCaps = {

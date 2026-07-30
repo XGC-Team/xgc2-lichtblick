@@ -16,6 +16,7 @@ import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { SharedRoot } from "./SharedRoot";
 import { useSharedRootContext } from "./context/SharedRootContext";
+import type { WorkspaceAppearance } from "./types";
 
 jest.mock("./components/ColorSchemeThemeProvider", () => ({
   ColorSchemeThemeProvider: ({ children }: React.PropsWithChildren) => <>{children}</>,
@@ -40,14 +41,19 @@ function Consumer(): React.JSX.Element {
     <>
       <span data-testid="from-provider">{params.defaultLayout ?? "none"}</span>
       <span data-testid="from-context">{ctx.appParameters?.defaultLayout ?? "none"}</span>
+      <span data-testid="workspace-appearance">{ctx.workspaceAppearance ?? "standard"}</span>
     </>
   );
 }
 
 const renderSharedRoot = (
-  options: { appParameters?: Record<string, string>; enableGlobalCss?: boolean } = {},
+  options: {
+    appParameters?: Record<string, string>;
+    enableGlobalCss?: boolean;
+    workspaceAppearance?: WorkspaceAppearance;
+  } = {},
 ) => {
-  const { appParameters, enableGlobalCss = false } = options;
+  const { appParameters, enableGlobalCss = false, workspaceAppearance } = options;
   const dataSources: IDataSourceFactory[] = [];
   return render(
     <SharedRoot
@@ -57,6 +63,7 @@ const renderSharedRoot = (
       appConfiguration={makeMockAppConfiguration()}
       appParameters={appParameters}
       enableGlobalCss={enableGlobalCss}
+      workspaceAppearance={workspaceAppearance}
     >
       <Consumer />
     </SharedRoot>,
@@ -84,5 +91,15 @@ describe("SharedRoot", () => {
   it("renders children when global CSS is enabled", () => {
     renderSharedRoot({ appParameters: { defaultLayout: layout }, enableGlobalCss: true });
     expect(screen.getByTestId("from-context").textContent).toBe(layout);
+  });
+
+  it("defaults the workspace appearance to standard", () => {
+    renderSharedRoot();
+    expect(screen.getByTestId("workspace-appearance").textContent).toBe("standard");
+  });
+
+  it("exposes the embedded workspace appearance through context", () => {
+    renderSharedRoot({ workspaceAppearance: "embedded" });
+    expect(screen.getByTestId("workspace-appearance").textContent).toBe("embedded");
   });
 });

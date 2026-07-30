@@ -57,15 +57,17 @@ function timeData(): ArrayBuffer {
   return buffer;
 }
 
-function serverAdvertise(channels: Array<{ id: number; topic: string }>): string {
+function serverAdvertise(
+  channels: Array<{ id: number; topic: string; schemaName?: string; encoding?: string }>,
+): string {
   // JSON.stringify is typed string | undefined under TS 6; these objects always serialize.
   return JSON.stringify({
     op: "advertise",
     channels: channels.map((ch) => ({
       id: ch.id,
       topic: ch.topic,
-      encoding: "cdr",
-      schemaName: "test",
+      encoding: ch.encoding ?? "cdr",
+      schemaName: ch.schemaName ?? "test",
       schema: "",
     })),
   })!;
@@ -77,18 +79,63 @@ function clientSubscribe(subscriptions: Array<{ id: number; channelId: number }>
 
 /** Build channel/subscription maps the same way a live session would. */
 function establishTopicMapping(
-  entries: Array<{ subId: number; channelId: number; topic: string }>,
+  entries: Array<{
+    subId: number;
+    channelId: number;
+    topic: string;
+    schemaName?: string;
+    encoding?: string;
+  }>,
 ): void {
   dispatch({
     type: "data",
     data: clientSubscribe(entries.map((e) => ({ id: e.subId, channelId: e.channelId }))),
   });
   MockWebSocket.lastInstance?.onmessage?.({
-    data: serverAdvertise(entries.map((e) => ({ id: e.channelId, topic: e.topic }))),
+    data: serverAdvertise(
+      entries.map((e) => ({
+        id: e.channelId,
+        topic: e.topic,
+        schemaName: e.schemaName,
+        encoding: e.encoding,
+      })),
+    ),
   } as MessageEvent);
   // Advertise is enqueued and immediately posted; ack so subsequent telemetry is not blocked.
   dispatch({ type: "ack" });
 }
+
+function compressedVideoData(
+  subscriptionId: number,
+  nalUnits: number[],
+  paddingSize = 0,
+): ArrayBuffer {
+  const format = new TextEncoder().encode("h264");
+  const serializedSize =
+    8 + // timestamp
+    4 + // empty frame_id
+    4 +
+    nalUnits.length +
+    paddingSize +
+    4 +
+    format.length;
+  const buffer = messageData(subscriptionId, serializedSize);
+  const view = new DataView(buffer);
+  let offset = 13 + 8;
+  view.setUint32(offset, 0, true);
+  offset += 4;
+  view.setUint32(offset, nalUnits.length + paddingSize, true);
+  offset += 4;
+  new Uint8Array(buffer, offset, nalUnits.length).set(nalUnits);
+  offset += nalUnits.length + paddingSize;
+  view.setUint32(offset, format.length, true);
+  offset += 4;
+  new Uint8Array(buffer, offset, format.length).set(format);
+  return buffer;
+}
+
+const H264_KEYFRAME = [0, 0, 0, 1, 0x67, 1, 0, 0, 0, 1, 0x68, 2, 0, 0, 0, 1, 0x65, 3];
+const H264_DELTA_FRAME = [0, 0, 0, 1, 0x61, 4];
 
 describe("FoxgloveWebSocketPlayer worker", () => {
   const wsUrl = BasicBuilder.string();
@@ -271,7 +318,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       expect(postMessageMock.mock.calls[0]?.[1]?.[0]).toBe(retained);
     });
 
-    it("should not supersede or trim-evict /tf and /tf_static frames under backpressure", () => {
+    it("should preserve /tf and /tf_static order while replaceable traffic can absorb pressure", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl } });
       establishTopicMapping([
@@ -286,7 +333,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       const tfA = messageData(2, 100);
       const tfB = messageData(2, 100);
       const tfStatic = messageData(3, 100);
-      // Two large ordinary frames so queue exceeds 16MB; only non-exempt telemetry is trim-eligible.
+      // Two large ordinary frames overflow the queue; replaceable traffic is discarded first.
       const bigCamera = messageData(1, 9 * 1024 * 1024);
       const bigLidar = messageData(4, 9 * 1024 * 1024);
 
@@ -311,10 +358,212 @@ describe("FoxgloveWebSocketPlayer worker", () => {
         postMessageMock.mockClear();
       }
 
-      // Then — both /tf frames kept (no supersede); /tf_static kept (no trim eviction)
+      // Then — both /tf frames and /tf_static keep their original order under ordinary pressure.
       expect(delivered).toContain(tfA);
       expect(delivered).toContain(tfB);
       expect(delivered).toContain(tfStatic);
+    });
+
+    it("drops oldest dynamic transforms before /tf_static and protocol control messages", () => {
+      // Given
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 700 } });
+      establishTopicMapping([
+        { subId: 1, channelId: 10, topic: "/tf" },
+        { subId: 2, channelId: 20, topic: "/tf_static" },
+        { subId: 3, channelId: 30, topic: "/camera/image" },
+      ]);
+      postMessageMock.mockClear();
+
+      const inFlight = messageData(3);
+      const tfOld = messageData(1, 200);
+      const tfNew = messageData(1, 200);
+      const control = JSON.stringify({ op: "status", level: 0, message: "x".repeat(100) });
+      const tfStatic = messageData(2, 200);
+
+      MockWebSocket.lastInstance?.onmessage?.({ data: inFlight } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: tfOld } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: tfNew } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: control } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: tfStatic } as MessageEvent);
+      postMessageMock.mockClear();
+
+      // When — drain the hard-bounded queue.
+      const delivered: unknown[] = [];
+      for (let i = 0; i < 5; i++) {
+        dispatch({ type: "ack" });
+        for (const call of postMessageMock.mock.calls) {
+          if (call[0]?.type === "message") {
+            delivered.push(call[0].data);
+          }
+        }
+        postMessageMock.mockClear();
+      }
+
+      // Then — under exceptional protected-only congestion, dynamic TF degrades first. Static TF
+      // and protocol control are preferred, but the queue implementation still ultimately permits
+      // their oldest entries to be dropped if no lower-priority data remains.
+      expect(delivered).not.toContain(tfOld);
+      expect(delivered).not.toContain(tfNew);
+      expect(delivered).toEqual([control, tfStatic]);
+    });
+
+    it("should protect transform messages by datatype on custom topic names", () => {
+      // Given
+      dispatch({ type: "open", data: { wsUrl } });
+      establishTopicMapping([
+        {
+          subId: 1,
+          channelId: 10,
+          topic: "/xgc/tf",
+          schemaName: "tf2_msgs/TFMessage",
+        },
+        {
+          subId: 2,
+          channelId: 20,
+          topic: "/xgc/camera/world/tf",
+          schemaName: "geometry_msgs/TransformStamped",
+        },
+        { subId: 3, channelId: 30, topic: "/camera/image" },
+      ]);
+      postMessageMock.mockClear();
+
+      const inFlight = messageData(3);
+      const tfA = messageData(1, 100);
+      const tfB = messageData(1, 100);
+      const cameraTf = messageData(2, 100);
+      const oversizedTelemetry = messageData(3, 17 * 1024 * 1024);
+
+      MockWebSocket.lastInstance?.onmessage?.({ data: inFlight } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: tfA } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: tfB } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: cameraTf } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: oversizedTelemetry } as MessageEvent);
+      postMessageMock.mockClear();
+
+      // When
+      const delivered: ArrayBuffer[] = [];
+      for (let i = 0; i < 10; i++) {
+        dispatch({ type: "ack" });
+        for (const call of postMessageMock.mock.calls) {
+          const deliveredData: unknown = call[0]?.data;
+          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
+            delivered.push(deliveredData);
+          }
+        }
+        postMessageMock.mockClear();
+      }
+
+      // Then
+      expect(delivered).toContain(tfA);
+      expect(delivered).toContain(tfB);
+      expect(delivered).toContain(cameraTf);
+    });
+
+    it("should keep complete unsent compressed-video dependency chains", () => {
+      // Given
+      dispatch({ type: "open", data: { wsUrl } });
+      establishTopicMapping([
+        {
+          subId: 1,
+          channelId: 10,
+          topic: "/camera/video",
+          schemaName: "foxglove_msgs/CompressedVideo",
+          encoding: "ros1",
+        },
+        { subId: 2, channelId: 20, topic: "/camera/image" },
+      ]);
+      postMessageMock.mockClear();
+
+      const inFlight = messageData(2);
+      const deltaA = compressedVideoData(1, H264_DELTA_FRAME);
+      const deltaB = compressedVideoData(1, H264_DELTA_FRAME);
+      MockWebSocket.lastInstance?.onmessage?.({ data: inFlight } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: deltaA } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: deltaB } as MessageEvent);
+      postMessageMock.mockClear();
+
+      // When / Then — unlike ordinary telemetry, the first delta frame is not superseded.
+      dispatch({ type: "ack" });
+      expect(postMessageMock.mock.calls[0]?.[0].data).toBe(deltaA);
+      postMessageMock.mockClear();
+      dispatch({ type: "ack" });
+      expect(postMessageMock.mock.calls[0]?.[0].data).toBe(deltaB);
+    });
+
+    it("should discard an overflowing GOP and reject deltas until the next IDR/SPS", () => {
+      // Given
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 100 } });
+      establishTopicMapping([
+        {
+          subId: 1,
+          channelId: 10,
+          topic: "/camera/video",
+          schemaName: "foxglove_msgs/CompressedVideo",
+          encoding: "ros1",
+        },
+        { subId: 2, channelId: 20, topic: "/camera/image" },
+      ]);
+      postMessageMock.mockClear();
+
+      const inFlight = messageData(2);
+      const oldIdr = compressedVideoData(1, H264_KEYFRAME, 30);
+      const overflowingDelta = compressedVideoData(1, H264_DELTA_FRAME, 30);
+      const rejectedDelta = compressedVideoData(1, H264_DELTA_FRAME);
+      // An Annex-B-looking byte pattern in wrapper metadata must not be mistaken for an IDR.
+      new Uint8Array(rejectedDelta, 13, 5).set([0, 0, 0, 1, 0x65]);
+      const nextIdr = compressedVideoData(1, H264_KEYFRAME, 10);
+
+      MockWebSocket.lastInstance?.onmessage?.({ data: inFlight } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: oldIdr } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: overflowingDelta } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: rejectedDelta } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: nextIdr } as MessageEvent);
+      postMessageMock.mockClear();
+
+      // When
+      dispatch({ type: "ack" });
+
+      // Then — no P-frame following a dropped dependency is forwarded; decoding resumes at IDR.
+      expect(postMessageMock).toHaveBeenCalledTimes(1);
+      expect(postMessageMock.mock.calls[0]?.[0].data).toBe(nextIdr);
+      expect(postMessageMock.mock.calls[0]?.[0].data).not.toBe(overflowingDelta);
+      expect(postMessageMock.mock.calls[0]?.[0].data).not.toBe(rejectedDelta);
+    });
+
+    it("should reject an oversized video frame and resume only at a fitting IDR/SPS", () => {
+      // Given
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 100 } });
+      establishTopicMapping([
+        {
+          subId: 1,
+          channelId: 10,
+          topic: "/camera/video",
+          schemaName: "foxglove_msgs/CompressedVideo",
+          encoding: "ros1",
+        },
+        { subId: 2, channelId: 20, topic: "/camera/image" },
+      ]);
+      postMessageMock.mockClear();
+
+      const inFlight = messageData(2);
+      const oversizedIdr = compressedVideoData(1, H264_KEYFRAME, 100);
+      const rejectedDelta = compressedVideoData(1, H264_DELTA_FRAME);
+      const fittingIdr = compressedVideoData(1, H264_KEYFRAME, 10);
+
+      MockWebSocket.lastInstance?.onmessage?.({ data: inFlight } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: oversizedIdr } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: rejectedDelta } as MessageEvent);
+      MockWebSocket.lastInstance?.onmessage?.({ data: fittingIdr } as MessageEvent);
+      postMessageMock.mockClear();
+
+      // When
+      dispatch({ type: "ack" });
+
+      // Then
+      expect(postMessageMock).toHaveBeenCalledTimes(1);
+      expect(postMessageMock.mock.calls[0]?.[0].data).toBe(fittingIdr);
+      expect(postMessageMock.mock.calls[0]?.[0].data).not.toBe(oversizedIdr);
+      expect(postMessageMock.mock.calls[0]?.[0].data).not.toBe(rejectedDelta);
     });
 
     it("should not supersede a fail-safe exempt frame after the topic later maps to a non-exempt topic", () => {
@@ -419,7 +668,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       expect(timeOld).not.toBe(timeNew);
     });
 
-    it("should retain a single oversized telemetry frame when protocol messages remain in queue", () => {
+    it("should reject a single oversized telemetry frame without evicting queued control", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl } });
       establishTopicMapping([{ subId: 1, channelId: 10, topic: "/camera/image" }]);
@@ -427,8 +676,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
 
       const inFlight = messageData(2);
       const protocolMsg = JSON.stringify({ op: "status", level: 0, message: "ok" });
-      // 17MB exceeds the 16MB queue limit; previously this was dropped whenever
-      // messageQueue.length !== 1 (e.g. protocol string still queued).
+      // A single 17MB entry cannot fit within the 16MB hard queue limit.
       const oversized = messageData(1, 17 * 1024 * 1024);
 
       MockWebSocket.lastInstance?.onmessage?.({ data: inFlight } as MessageEvent);
@@ -442,9 +690,32 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       postMessageMock.mockClear();
       dispatch({ type: "ack" });
 
-      // Then — oversized telemetry still delivered despite coexisting with protocol messages
-      expect(postMessageMock).toHaveBeenCalledTimes(1);
-      expect(postMessageMock.mock.calls[0]?.[0].data).toBe(oversized);
+      // Then — existing high-priority control survives and the oversized item fails closed.
+      expect(postMessageMock).not.toHaveBeenCalled();
+    });
+
+    it("should close and resynchronize if a protocol control message cannot fit", () => {
+      // Given
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 100 } });
+      const socket = MockWebSocket.lastInstance;
+      postMessageMock.mockClear();
+      const oversizedControl = JSON.stringify({
+        op: "status",
+        level: 0,
+        message: "x".repeat(100),
+      });
+
+      // When
+      socket?.onmessage?.({ data: oversizedControl } as MessageEvent);
+
+      // Then — continuing would leave the worker's metadata state ahead of the renderer.
+      expect(postMessageMock).toHaveBeenCalledWith({
+        type: "error",
+        error: expect.objectContaining({
+          message: "WebSocket control message exceeded the bounded worker queue",
+        }),
+      });
+      expect(socket?.close).toHaveBeenCalledWith(1011, "bounded control queue overflow");
     });
 
     it("should post an error message when constructing the WebSocket throws", () => {

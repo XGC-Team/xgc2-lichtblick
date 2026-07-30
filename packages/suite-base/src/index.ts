@@ -31,7 +31,7 @@ export { default as installDevtoolsFormatters } from "./util/installDevtoolsForm
 export { default as overwriteFetch } from "./util/overwriteFetch";
 export { default as waitForFonts } from "./util/waitForFonts";
 export { initI18n } from "./i18n";
-export type { Namespace } from "./types";
+export type { Namespace, WorkspaceAppearance } from "./types";
 export { RemoteExtensionLoader } from "./services/extension/RemoteExtensionLoader";
 export type {
   IExtensionLoader,

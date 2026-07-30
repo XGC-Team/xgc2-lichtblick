@@ -8,10 +8,13 @@ import { SidebarItemKey } from "@lichtblick/suite-base/context/Workspace/Workspa
 
 export type InjectedSidebarItem = [SidebarItemKey, SidebarItem];
 
+export type WorkspaceAppearance = "standard" | "embedded";
+
 export type WorkspaceProps = CustomWindowControlsProps & {
   deepLinks?: readonly string[];
   appBarLeftInset?: number;
   onAppBarDoubleClick?: () => void;
+  workspaceAppearance?: WorkspaceAppearance;
 
   disablePersistenceForStorybook?: boolean;
   AppBarComponent?: (props: AppBarProps) => React.JSX.Element;

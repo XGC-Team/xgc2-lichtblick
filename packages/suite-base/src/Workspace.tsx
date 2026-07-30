@@ -32,6 +32,7 @@ import {
 } from "@lichtblick/suite-base/components/DataSourceDialog";
 import DataSourceSidebar from "@lichtblick/suite-base/components/DataSourceSidebar/DataSourceSidebar";
 import DocumentDropListener from "@lichtblick/suite-base/components/DocumentDropListener";
+import EmbeddedWorkspaceBridge from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { EventsList } from "@lichtblick/suite-base/components/EventsList";
 import ExtensionsSettings from "@lichtblick/suite-base/components/ExtensionsSettings";
 import KeyListener from "@lichtblick/suite-base/components/KeyListener";
@@ -58,6 +59,7 @@ import { SyncAdapters } from "@lichtblick/suite-base/components/SyncAdapters";
 import { TopicList } from "@lichtblick/suite-base/components/TopicList";
 import VariablesList from "@lichtblick/suite-base/components/VariablesList";
 import { WorkspaceDialogs } from "@lichtblick/suite-base/components/WorkspaceDialogs";
+import WssErrorModal from "@lichtblick/suite-base/components/WssErrorModal";
 import { AllowedFileExtensions } from "@lichtblick/suite-base/constants/allowedFileExtensions";
 import { useAppContext } from "@lichtblick/suite-base/context/AppContext";
 import {
@@ -140,7 +142,7 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(ReactNull);
   const { availableSources, selectSource } = usePlayerSelection();
   const playerPresence = useMessagePipeline(selectPlayerPresence);
-  const { alertCount } = useAlertCount();
+  const { alertCount, playerAlerts } = useAlertCount();
 
   const dataSourceDialog = useWorkspaceStore(selectWorkspaceDataSourceDialog);
   const leftSidebarItem = useWorkspaceStore(selectWorkspaceLeftSidebarItem);
@@ -702,14 +704,32 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     playUntil,
   });
 
+  const workspaceAppearance = props.workspaceAppearance ?? "standard";
+  const isEmbedded = workspaceAppearance === "embedded";
+  const embeddedSidebarsInitialized = useRef(false);
+  useLayoutEffect(() => {
+    if (!isEmbedded) {
+      embeddedSidebarsInitialized.current = false;
+      return;
+    }
+    if (embeddedSidebarsInitialized.current) {
+      return;
+    }
+    embeddedSidebarsInitialized.current = true;
+    sidebarActions.left.setOpen(false);
+    sidebarActions.right.setOpen(false);
+  }, [isEmbedded, sidebarActions.left, sidebarActions.right]);
+
   return (
     <PanelStateContextProvider>
       {dataSourceDialog.open && <DataSourceDialog />}
+      {isEmbedded && <EmbeddedWorkspaceBridge />}
+      {isEmbedded && <WssErrorModal playerAlerts={playerAlerts} />}
       <DocumentDropListener onDrop={dropHandler} allowedExtensions={allowedDropExtensions} />
       <SyncAdapters />
       <KeyListener global keyDownHandlers={keyDownHandlers} />
       <div className={classes.container} ref={containerRef} tabIndex={0}>
-        {appBar}
+        {!isEmbedded && appBar}
         <Sidebars
           selectedKey=""
           onSelectKey={() => {}}
@@ -761,7 +781,9 @@ export default function Workspace(props: WorkspaceProps): React.JSX.Element {
   const isPlayerPresent = useMessagePipeline(selectPlayerIsPresent);
 
   const initialItem: undefined | DataSourceDialogItem =
-    isPlayerPresent || !showOpenDialogOnStartup ? undefined : "start";
+    props.workspaceAppearance === "embedded" || isPlayerPresent || !showOpenDialogOnStartup
+      ? undefined
+      : "start";
 
   const initialState: Pick<WorkspaceContextStore, "dialogs"> = {
     dialogs: {

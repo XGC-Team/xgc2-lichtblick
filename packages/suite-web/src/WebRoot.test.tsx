@@ -84,4 +84,33 @@ describe("WebRoot", () => {
     renderWebRoot();
     expect(mockSharedRootProps[0]!.appParameters).toEqual({});
   });
+
+  it("uses the standard workspace appearance by default", () => {
+    renderWebRoot();
+
+    expect(mockSharedRootProps[0]).toMatchObject({
+      enableLaunchPreferenceScreen: true,
+      workspaceAppearance: "standard",
+    });
+  });
+
+  it("maps the legacy ?xgc2Embed=1 parameter to the embedded workspace appearance", () => {
+    globalThis.history.replaceState({}, "", "/?xgc2Embed=1");
+    renderWebRoot();
+
+    expect(mockSharedRootProps[0]).toMatchObject({
+      enableLaunchPreferenceScreen: false,
+      workspaceAppearance: "embedded",
+    });
+  });
+
+  it("does not enable embedded appearance for other xgc2Embed values", () => {
+    globalThis.history.replaceState({}, "", "/?xgc2Embed=true");
+    renderWebRoot();
+
+    expect(mockSharedRootProps[0]).toMatchObject({
+      enableLaunchPreferenceScreen: true,
+      workspaceAppearance: "standard",
+    });
+  });
 });

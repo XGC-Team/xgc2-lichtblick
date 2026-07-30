@@ -58,6 +58,7 @@ import {
 } from "@lichtblick/suite-base/players/types";
 import { HIGH_FREQUENCY_ALERT } from "@lichtblick/suite-base/players/utils/constants";
 import { isTopicHighFrequency } from "@lichtblick/suite-base/players/utils/isTopicHighFrequency";
+import { COMPRESSED_VIDEO_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
 import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosDatatypesToMessageDefinition";
 
 import { JsonMessageWriter } from "./JsonMessageWriter";
@@ -74,6 +75,12 @@ import {
   ZERO_TIME,
 } from "./constants";
 import { dataTypeToFullName, statusLevelToAlertSeverity } from "./helpers";
+import {
+  inspectAnnexBVideoFrame,
+  isTransformSchemaName,
+  LiveMessageQueue,
+  LiveMessageRetention,
+} from "./liveMessageQueue";
 import {
   MessageWriter,
   MessageDefinitionMap,
@@ -105,8 +112,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #topics?: Topic[]; // Topics as published by the WebSocket.
   #topicsStats = new Map<string, TopicStats>(); // Topic names to topic statistics.
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
-  #parsedMessages: MessageEvent[] = []; // Queue of messages that we'll send in next _emitState() call.
-  #parsedMessagesBytes: number = 0;
+  #parsedMessages = new LiveMessageQueue<MessageEvent>(
+    PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes,
+  );
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
   #presence: PlayerPresence = PlayerPresence.INITIALIZING;
@@ -544,33 +552,42 @@ export default class FoxgloveWebSocketPlayer implements Player {
         }
 
         const sizeInBytes = Math.max(data.byteLength, msgSizeEstimate);
-        this.#parsedMessages.push({
+        const parsedMessage: MessageEvent = {
           topic,
           receiveTime,
           message: deserializedMessage,
           sizeInBytes,
           schemaName: chanInfo.channel.schemaName,
+        };
+        const isVideo = COMPRESSED_VIDEO_DATATYPES.has(parsedMessage.schemaName);
+        const videoData = isVideo ? (deserializedMessage as { data?: unknown }).data : undefined;
+        const retention: LiveMessageRetention = isVideo
+          ? "video"
+          : topic === "/tf" ||
+              topic === "/tf_static" ||
+              isTransformSchemaName(parsedMessage.schemaName)
+            ? "protected"
+            : "replaceable";
+        const enqueueResult = this.#parsedMessages.enqueue({
+          value: parsedMessage,
+          sizeInBytes,
+          key: topic,
+          retention,
+          protectedPriority: topic === "/tf_static" ? "high" : "normal",
+          isVideoRecoveryPoint:
+            isVideo && videoData instanceof Uint8Array
+              ? inspectAnnexBVideoFrame(videoData).isRecoveryPoint
+              : undefined,
         });
-        this.#parsedMessagesBytes += sizeInBytes;
-        if (this.#parsedMessagesBytes > PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes) {
+        if (enqueueResult.droppedEntries > 0 || enqueueResult.sizeLimitExceeded) {
           this.#alerts.addAlert(`webSocketPlayer:parsedMessageCacheFull`, {
             severity: "error",
             message: `WebSocketPlayer maximum frame size (${(
               PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes / 1_000_000
             ).toFixed(
               2,
-            )}MB) reached. Dropping old messages. This accumulation can occur if the browser tab has been inactive.`,
+            )}MB) reached. Dropping stale telemetry or complete video GOPs; sustained pressure may also drop the oldest transforms. Individually oversized messages are rejected. This accumulation can occur if the browser tab has been inactive.`,
           });
-          // Drop to 50% to recover quickly and avoid repeatedly trimming at the limit.
-          const evictUntilSize = 0.5 * PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes;
-          let droppedBytes = 0;
-          let indexToCutBefore = 0;
-          while (this.#parsedMessagesBytes - droppedBytes > evictUntilSize) {
-            droppedBytes += this.#parsedMessages[indexToCutBefore]!.sizeInBytes;
-            indexToCutBefore++;
-          }
-          this.#parsedMessages.splice(0, indexToCutBefore);
-          this.#parsedMessagesBytes -= droppedBytes;
         }
 
         // Update the message count for this topic
@@ -617,8 +634,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       const time = fromNanoSec(timestamp);
       if (this.#clockTime != undefined && isLessThan(time, this.#clockTime)) {
         this.#numTimeSeeks++;
-        this.#parsedMessages = [];
-        this.#parsedMessagesBytes = 0;
+        this.#parsedMessages.clear();
       }
 
       // Override any previous start/end time when we set a clockTime for the first time which means
@@ -923,9 +939,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#endTime = currentTime;
     }
 
-    const messages = this.#parsedMessages;
-    this.#parsedMessages = [];
-    this.#parsedMessagesBytes = 0;
+    const messages = this.#parsedMessages.drain();
     return this.#listener({
       name: this.#name,
       presence: this.#presence,
@@ -1345,7 +1359,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#endTime = undefined;
     this.#clockTime = undefined;
     this.#topicsStats = new Map();
-    this.#parsedMessages = [];
+    this.#parsedMessages.clear();
     this.#receivedBytes = 0;
     this.#alerts.clear();
     this.#parameters = new Map();

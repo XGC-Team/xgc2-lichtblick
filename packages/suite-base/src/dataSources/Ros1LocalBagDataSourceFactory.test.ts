@@ -4,6 +4,7 @@
 import { DataSourceFactoryInitializeArgs } from "@lichtblick/suite-base/context/PlayerSelectionContext";
 import { IterablePlayer } from "@lichtblick/suite-base/players/IterablePlayer";
 import { WorkerSerializedIterableSource } from "@lichtblick/suite-base/players/IterablePlayer/WorkerSerializedIterableSource";
+import { expandVideoSeekBackfill } from "@lichtblick/suite-base/players/IterablePlayer/videoSeekBackfill";
 import NoopMetricsCollector from "@lichtblick/suite-base/players/NoopMetricsCollector";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
@@ -83,6 +84,7 @@ describe("Ros1LocalBagDataSourceFactory", () => {
       name: expectedInitArgs.file?.name,
       sourceId: expect.any(String),
       readAheadDuration: { sec: 120, nsec: 0 },
+      expandBackfill: expandVideoSeekBackfill,
     });
   });
 });

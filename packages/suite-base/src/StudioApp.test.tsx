@@ -113,6 +113,7 @@ describe("StudioApp", () => {
     customWindowControlProps: undefined,
     onAppBarDoubleClick: undefined,
     AppBarComponent: undefined,
+    workspaceAppearance: "standard",
   };
 
   const renderWithContext = (contextValue: any = mockSharedRootContext) => {
@@ -186,6 +187,17 @@ describe("StudioApp", () => {
     });
 
     expect(screen.getByTestId("app-bar-component")).toBeInTheDocument();
+  });
+
+  it("should pass workspaceAppearance to Workspace", () => {
+    renderWithContext({
+      ...mockSharedRootContext,
+      workspaceAppearance: "embedded",
+    });
+
+    const workspaceProps = screen.getByTestId("workspace-props");
+    const props = JSON.parse(workspaceProps.textContent);
+    expect(props.workspaceAppearance).toBe("embedded");
   });
 
   it("should pass custom window control props to Workspace", () => {

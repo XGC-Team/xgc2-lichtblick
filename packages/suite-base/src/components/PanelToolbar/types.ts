@@ -5,6 +5,7 @@ import { CSSProperties } from "react";
 
 export type PanelToolbarControlsProps = {
   additionalIcons?: React.ReactNode;
+  compact?: boolean;
   isUnknownPanel: boolean;
 };
 

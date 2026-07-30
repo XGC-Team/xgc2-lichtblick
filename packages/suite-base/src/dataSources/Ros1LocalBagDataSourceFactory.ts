@@ -12,6 +12,7 @@ import {
 } from "@lichtblick/suite-base/context/PlayerSelectionContext";
 import { IterablePlayer } from "@lichtblick/suite-base/players/IterablePlayer";
 import { WorkerSerializedIterableSource } from "@lichtblick/suite-base/players/IterablePlayer/WorkerSerializedIterableSource";
+import { expandVideoSeekBackfill } from "@lichtblick/suite-base/players/IterablePlayer/videoSeekBackfill";
 import { Player } from "@lichtblick/suite-base/players/types";
 
 class Ros1LocalBagDataSourceFactory implements IDataSourceFactory {
@@ -55,6 +56,9 @@ class Ros1LocalBagDataSourceFactory implements IDataSourceFactory {
       name: file.name,
       sourceId: this.id,
       readAheadDuration: { sec: 120, nsec: 0 },
+      // ROS 1 bags may contain inter-frame compressed video. A seek can land on a delta frame,
+      // so replay the closest preceding GOP before delivering the seek target to the decoder.
+      expandBackfill: expandVideoSeekBackfill,
     });
   }
 }

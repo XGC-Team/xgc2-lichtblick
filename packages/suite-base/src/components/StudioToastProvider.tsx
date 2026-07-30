@@ -24,10 +24,11 @@ import { PropsWithChildren, forwardRef } from "react";
 import { makeStyles } from "tss-react/mui";
 
 import { APP_BAR_HEIGHT } from "@lichtblick/suite-base/components/AppBar/constants";
+import { useSharedRootContext } from "@lichtblick/suite-base/context/SharedRootContext";
 
-const anchorWithOffset = (origin: "top" | "bottom") => ({
+const anchorWithOffset = (origin: "top" | "bottom", topOffset: number) => ({
   "&.notistack-SnackbarContainer": {
-    top: origin === "top" ? APP_BAR_HEIGHT : undefined,
+    top: origin === "top" ? topOffset : undefined,
   },
 });
 
@@ -71,16 +72,16 @@ const useStyles = makeStyles<void, "icon" | "dismissButton">()((theme, _params, 
   },
 }));
 
-const useContainerStyles = makeStyles()({
+const useContainerStyles = makeStyles<{ topOffset: number }>()((_theme, { topOffset }) => ({
   /* eslint-disable tss-unused-classes/unused-classes */
-  containerAnchorOriginBottomCenter: anchorWithOffset("bottom"),
-  containerAnchorOriginBottomRight: anchorWithOffset("bottom"),
-  containerAnchorOriginBottomLeft: anchorWithOffset("bottom"),
-  containerAnchorOriginTopCenter: anchorWithOffset("top"),
-  containerAnchorOriginTopRight: anchorWithOffset("top"),
-  containerAnchorOriginTopLeft: anchorWithOffset("top"),
+  containerAnchorOriginBottomCenter: anchorWithOffset("bottom", topOffset),
+  containerAnchorOriginBottomRight: anchorWithOffset("bottom", topOffset),
+  containerAnchorOriginBottomLeft: anchorWithOffset("bottom", topOffset),
+  containerAnchorOriginTopCenter: anchorWithOffset("top", topOffset),
+  containerAnchorOriginTopRight: anchorWithOffset("top", topOffset),
+  containerAnchorOriginTopLeft: anchorWithOffset("top", topOffset),
   /* eslint-enable tss-unused-classes/unused-classes */
-});
+}));
 
 const CloseSnackbarAction = ({ id }: { id: SnackbarKey }) => {
   const { closeSnackbar } = useSnackbar();
@@ -105,7 +106,10 @@ const Snackbar = forwardRef<HTMLDivElement, CustomContentProps>((props, ref) => 
 Snackbar.displayName = "Snackbar";
 
 export default function StudioToastProvider({ children }: PropsWithChildren): React.JSX.Element {
-  const { classes: containerClasses } = useContainerStyles();
+  const { workspaceAppearance = "standard" } = useSharedRootContext();
+  const { classes: containerClasses } = useContainerStyles({
+    topOffset: workspaceAppearance === "embedded" ? 0 : APP_BAR_HEIGHT,
+  });
   const { classes } = useStyles();
 
   return (
