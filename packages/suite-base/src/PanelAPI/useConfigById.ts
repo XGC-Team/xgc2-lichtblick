@@ -90,7 +90,9 @@ export default function useConfigById<Config extends Record<string, unknown>>(
         return;
       }
 
-      const currentConfig = getCurrentLayoutState().selectedLayout?.data?.configById[panelId] as
+      // The layout state can be absent before the provider finishes initializing.
+      const layoutState = getCurrentLayoutState() as DeepPartial<LayoutState> | undefined;
+      const currentConfig = layoutState?.selectedLayout?.data?.configById?.[panelId] as
         | undefined
         | Config;
 
