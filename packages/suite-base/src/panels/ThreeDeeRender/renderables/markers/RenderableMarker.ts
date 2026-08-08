@@ -65,7 +65,24 @@ export class RenderableMarker extends Renderable<MarkerUserData> {
   }
 
   public getSettings(): LayerSettingsMarker | undefined {
-    return this.renderer.config.topics[this.userData.topic] as LayerSettingsMarker | undefined;
+    // Normal marker topics are keyed by topic name.
+    const byTopic = this.renderer.config.topics[this.userData.topic] as
+      | LayerSettingsMarker
+      | undefined;
+    if (byTopic) {
+      return byTopic;
+    }
+    // URDF mesh children set settingsPath to the parent layer/topic path, but
+    // their constructor "topic" is a synthetic mesh id — resolve showOutlines
+    // (and other marker settings) from that path so URDF can disable black edges.
+    const path = this.userData.settingsPath;
+    if (path.length >= 2 && path[0] === "topics" && typeof path[1] === "string") {
+      return this.renderer.config.topics[path[1]] as LayerSettingsMarker | undefined;
+    }
+    if (path.length >= 2 && path[0] === "layers" && typeof path[1] === "string") {
+      return this.renderer.config.layers[path[1]] as LayerSettingsMarker | undefined;
+    }
+    return undefined;
   }
 
   public override details(): Record<string, RosValue> {

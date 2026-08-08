@@ -71,8 +71,19 @@ export class ModelCache {
       return await promise;
     }
 
+    // Skip mesh edge overlays by default. Dense DAE/URDF meshes (quadruped,
+    // vehicles, drones) look "ink-outlined" black with EdgesGeometry; markers
+    // can still opt into outlines via showOutlines on non-mesh primitives.
     promise = this.#loadModel(url, opts, reportError)
-      .then((model) => addEdges(model, this.#edgeMaterial))
+      .then((model) => {
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        return model;
+      })
       .catch(async (err: unknown) => {
         reportError(err as Error);
         return undefined;
