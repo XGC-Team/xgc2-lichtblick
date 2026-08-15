@@ -14,15 +14,13 @@ defaults:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.os == 'windows-latest' && fromJSON('null') || 'ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0' }}
+    runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
 
     # Run each command in parallel with the same setup steps.
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
         config:
           # Specify names so that the GitHub branch protection settings for
           # required checks don't need to change if we ever change the commands used.
@@ -48,18 +46,12 @@ jobs:
             command: yarn run benchmark:build:prod
           - name: test
             command: yarn run test --maxWorkers=100%
-        include:
-          - os: windows-latest
-            config:
-              name: packages
-              command: echo complete
 
-    name: ${{ matrix.config.name }} (${{ matrix.os }})
+    name: ${{ matrix.config.name }} (ubuntu-latest)
 
     steps:
       - uses: actions/checkout@v6
       - name: Trust the workspace in the build image
-        if: runner.os != 'Windows'
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - run: corepack enable yarn
@@ -76,6 +68,14 @@ jobs:
       - run: yarn install --immutable
 
       - run: ${{ matrix.config.command }}
+
+  windows-packages:
+    # Windows cannot use a Linux job container. Keep the required-check name.
+    runs-on: windows-latest
+    name: packages (windows-latest)
+    steps:
+      - uses: actions/checkout@v6
+      - run: echo complete
 
   e2e-desktop:
     runs-on: ubuntu-latest
@@ -119,7 +119,8 @@ jobs:
       - name: Apply AppArmor Fix (Ubuntu)
         # Required for Playwright on Ubuntu to work properly
         # See: https://github.com/microsoft/playwright/issues/34251
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        # The job container may not allow sysctl; do not fail the shard for that.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
       # It must be dev build, otherwise playwright wont't have all data-testid avaiable for icons
       # https://mui.com/material-ui/migration/upgrade-to-v7/#svgicons-data-testid-removed
@@ -127,10 +128,9 @@ jobs:
         run: yarn desktop:build:dev
 
       - name: Run E2E Desktop tests - Shard ${{ matrix.shard }}/4
-        uses: coactions/setup-xvfb@v1
-        with:
-          working-directory: ./
-          run: yarn test:e2e:desktop:ci --shard=${{ matrix.shard }}/4
+        # noble-dev already has xvfb. setup-xvfb apt-gets x11-xserver-utils,
+        # which has no candidate on noble.
+        run: xvfb-run --auto-servernum yarn test:e2e:desktop:ci --shard=${{ matrix.shard }}/4
 
       - name: Upload Desktop E2E Test Reports (Shard ${{ matrix.shard }})
         if: always()
