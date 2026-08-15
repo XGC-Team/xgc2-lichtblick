@@ -4,10 +4,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   prepare-sonar-artifacts:
     name: Prepare Sonar artifacts
     runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
     if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
     permissions:
       contents: read
@@ -15,11 +20,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Trust the workspace in the build image
+        if: runner.os != 'Windows'
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
 
       - name: Enable corepack
         run: corepack enable yarn

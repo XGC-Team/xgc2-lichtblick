@@ -10,20 +10,24 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   internal-scan:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
+      - name: Trust the workspace in the build image
+        if: runner.os != 'Windows'
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
 
       - name: Enable corepack
         run: corepack enable yarn

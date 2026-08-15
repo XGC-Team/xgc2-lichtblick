@@ -9,6 +9,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+defaults:
+  run:
+    shell: bash
+
 permissions:
   id-token: write
   contents: read
@@ -17,17 +21,13 @@ jobs:
   npm:
     name: Publish to NPM
     runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
 
     steps:
       - name: Checkout ${{ github.event.release.tag_name }}
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.release.tag_name }}
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
 
       - run: corepack enable yarn
 
@@ -38,6 +38,7 @@ jobs:
   docker:
     name: Publish to GHCR
     runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
 
     permissions:
       contents: read

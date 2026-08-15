@@ -15,9 +15,14 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   fix:
     runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
     if: github.actor == 'dependabot[bot]'
 
     # IMPORTANT: setting YARN_ENABLE_SCRIPTS=false is critical to ensure that untrusted
@@ -35,10 +40,10 @@ jobs:
           # See: https://github.community/t/push-from-action-does-not-trigger-subsequent-action/16854/2
           token: ${{ secrets.LICHTBLICK_GITHUB_TOKEN }}
           ref: ${{ github.event.pull_request.head.ref }}
+      - name: Trust the workspace in the build image
+        if: runner.os != 'Windows'
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
 
       - run: corepack enable
 

@@ -7,6 +7,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+defaults:
+  run:
+    shell: bash
+
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -25,14 +29,15 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
     steps:
       - uses: actions/checkout@v6
         with:
           ref: main
+      - name: Trust the workspace in the build image
+        if: runner.os != 'Windows'
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
 
       - run: corepack enable
 
@@ -56,6 +61,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    container: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
     needs: build
     steps:
       - name: Deploy to GitHub Pages
