@@ -15,7 +15,26 @@ import {
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/constants";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
-import { clampBrightness, clampContrast } from "./utils";
+import {
+  IMAGE_MODE_MAX_DECODE_WIDTH,
+  clampBrightness,
+  clampContrast,
+  imageModeDecodeWidth,
+} from "./utils";
+
+describe("imageModeDecodeWidth", () => {
+  it("matches the live viewport without uploading a 4K texture", () => {
+    expect(imageModeDecodeWidth(1280, 1)).toBe(1280);
+    expect(imageModeDecodeWidth(640, 2)).toBe(1280);
+    expect(imageModeDecodeWidth(3840, 1)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+    expect(imageModeDecodeWidth(1920, 2)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+  });
+
+  it("uses the bounded live-preview width before the canvas is measured", () => {
+    expect(imageModeDecodeWidth(0, 1)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+    expect(imageModeDecodeWidth(Number.NaN, Number.NaN)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+  });
+});
 
 describe("clampBrightness", () => {
   it("maps brightness within limits", () => {
