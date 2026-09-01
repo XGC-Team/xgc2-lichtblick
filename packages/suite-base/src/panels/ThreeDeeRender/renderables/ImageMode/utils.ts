@@ -12,7 +12,7 @@ import {
   UPPER_CONTRAST_LIMIT,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/constants";
 
-export const IMAGE_MODE_MAX_DECODE_WIDTH = 1920;
+export const IMAGE_MODE_MAX_DECODE_WIDTH = 1280;
 
 /**
  * Decode only the pixels the live Image viewport can display. The source and
