@@ -52,7 +52,7 @@ import { RenderableLineStrip } from "./markers/RenderableLineStrip";
 
 type GradientRgba = [ColorRGBA, ColorRGBA];
 type Gradient = [string, string];
-type DisplayType = "axis" | "arrow" | "line";
+type DisplayType = "axis" | "arrow" | "line" | "line-axes";
 
 export type LayerSettingsPoseArray = BaseSettings & {
   type: DisplayType;
@@ -199,6 +199,7 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
             { label: t("threeDee:poseDisplayTypeAxis"), value: "axis" },
             { label: t("threeDee:poseDisplayTypeArrow"), value: "arrow" },
             { label: t("threeDee:poseDisplayTypeLine"), value: "line" },
+            { label: t("threeDee:poseDisplayTypeLineAxes"), value: "line-axes" },
           ],
           value: displayType,
         },
@@ -211,6 +212,14 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
           fields["arrowScale"] = fieldScaleVec3(t("threeDee:scale"), arrowScale);
           break;
         case "line":
+          fields["lineWidth"] = fieldLineWidth(
+            t("threeDee:lineWidth"),
+            lineWidth,
+            DEFAULT_LINE_WIDTH,
+          );
+          break;
+        case "line-axes":
+          fields["axisScale"] = fieldSize(t("threeDee:scale"), axisScale, DEFAULT_AXIS_SCALE);
           fields["lineWidth"] = fieldLineWidth(
             t("threeDee:lineWidth"),
             lineWidth,
@@ -412,7 +421,7 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
     renderable.userData.originalMessage = originalMessage;
 
     const { topic, settings: prevSettings } = renderable.userData;
-    const axisOrArrowSettingsChanged =
+    const displaySettingsChanged =
       settings.type !== prevSettings.type ||
       settings.axisScale !== prevSettings.axisScale ||
       !_.isEqual(settings.arrowScale, prevSettings.arrowScale) ||
@@ -424,7 +433,7 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
     const colorStart = stringToRgba(tempColor1, settings.gradient[0]);
     const colorEnd = stringToRgba(tempColor2, settings.gradient[1]);
 
-    if (axisOrArrowSettingsChanged) {
+    if (displaySettingsChanged) {
       switch (renderable.userData.settings.type) {
         case "axis":
           renderable.removeArrows();
@@ -435,34 +444,29 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
           renderable.removeLineStrip();
           break;
         case "line":
-          {
-            renderable.removeArrows();
-            renderable.removeAxes();
-
-            const lineStripMarker = createLineStripMarker(
-              poseArrayMessage,
-              settings.lineWidth,
-              colorStart,
-              colorEnd,
-            );
-
-            // Create a RenderableLineStrip if needed
-            if (!renderable.userData.lineStrip) {
-              const lineStrip = new RenderableLineStrip(
-                topic,
-                lineStripMarker,
-                undefined,
-                this.renderer,
-              );
-              renderable.userData.lineStrip = lineStrip;
-              renderable.add(lineStrip);
-            }
-
-            renderable.userData.lineStrip.update(lineStripMarker, undefined);
-          }
+          renderable.removeArrows();
+          renderable.removeAxes();
+          break;
+        case "line-axes":
+          renderable.removeArrows();
           break;
       }
     }
+
+    const updateLineStrip = (): void => {
+      const lineStripMarker = createLineStripMarker(
+        poseArrayMessage,
+        settings.lineWidth,
+        colorStart,
+        colorEnd,
+      );
+      if (!renderable.userData.lineStrip) {
+        const lineStrip = new RenderableLineStrip(topic, lineStripMarker, undefined, this.renderer);
+        renderable.userData.lineStrip = lineStrip;
+        renderable.add(lineStrip);
+      }
+      renderable.userData.lineStrip.update(lineStripMarker, undefined);
+    };
 
     // Update the pose for each pose renderable
     switch (settings.type) {
@@ -479,13 +483,15 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
         }
         break;
       case "line": {
-        const lineStripMarker = createLineStripMarker(
-          poseArrayMessage,
-          settings.lineWidth,
-          colorStart,
-          colorEnd,
-        );
-        renderable.userData.lineStrip?.update(lineStripMarker, undefined);
+        updateLineStrip();
+        break;
+      }
+      case "line-axes": {
+        this.#createAxesToMatchPoses(renderable, poseArrayMessage, topic);
+        for (let i = 0; i < poseArrayMessage.poses.length; i++) {
+          setObjectPose(renderable.userData.axes[i]!, poseArrayMessage.poses[i]!);
+        }
+        updateLineStrip();
         break;
       }
     }

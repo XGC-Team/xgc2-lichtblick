@@ -146,6 +146,7 @@ export const threeDee = {
   poseDisplayTypeArrow: "Arrow",
   poseDisplayTypeAxis: "Axis",
   poseDisplayTypeLine: "Line",
+  poseDisplayTypeLineAxes: "Line + axes",
 
   // Publish
   publish: "Publish",

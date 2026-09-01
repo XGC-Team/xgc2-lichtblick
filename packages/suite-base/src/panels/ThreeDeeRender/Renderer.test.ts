@@ -17,8 +17,12 @@ import { DEFAULT_SCENE_EXTENSION_CONFIG } from "@lichtblick/suite-base/panels/Th
 import { DEFAULT_CAMERA_STATE } from "@lichtblick/suite-base/panels/ThreeDeeRender/camera";
 import { HOVER_PICK_THROTTLE_MS } from "@lichtblick/suite-base/panels/ThreeDeeRender/constants";
 import { CameraStateSettings } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/CameraStateSettings";
+import {
+  LayerSettingsPoseArray,
+  PoseArrays,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PoseArrays";
 import { DEFAULT_PUBLISH_SETTINGS } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PublishSettings";
-import { TFMessage } from "@lichtblick/suite-base/panels/ThreeDeeRender/ros";
+import { NavPath, TFMessage } from "@lichtblick/suite-base/panels/ThreeDeeRender/ros";
 import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
@@ -458,6 +462,83 @@ describe("3D Renderer", () => {
     expect(renderer.topics).toBe(topics);
     expect(renderer.topicsByName?.get("/test")).toEqual(topics[0]);
     expect(emitSpy).toHaveBeenCalledWith("topicsChanged", renderer);
+
+    renderer.dispose();
+  });
+
+  it("renders one NavPath as a line strip with XYZ axes at every pose", () => {
+    const topic = "/prediction";
+    const pathSettings: LayerSettingsPoseArray = {
+      visible: true,
+      type: "line-axes",
+      axisScale: 0.2,
+      arrowScale: [1, 0.15, 0.15],
+      lineWidth: 0.02,
+      gradient: ["#ffbf00ff", "#ffbf0040"],
+    };
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      config: {
+        ...defaultRendererConfig,
+        topics: { [topic]: pathSettings },
+      },
+    });
+    renderer.setTopics([{ name: topic, schemaName: "nav_msgs/Path" }]);
+
+    const stamp = fromNanoSec(1n);
+    const path: NavPath = {
+      header: { frame_id: "world", stamp },
+      poses: [
+        {
+          header: { frame_id: "world", stamp },
+          pose: {
+            position: { x: 0, y: 0, z: 0 },
+            orientation: { x: 0, y: 0, z: 0, w: 1 },
+          },
+        },
+        {
+          header: { frame_id: "world", stamp },
+          pose: {
+            position: { x: 1, y: 2, z: 0 },
+            orientation: { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 },
+          },
+        },
+      ],
+    };
+    renderer.addMessageEvent({
+      topic,
+      receiveTime: stamp,
+      schemaName: "nav_msgs/Path",
+      message: path,
+      sizeInBytes: 0,
+    });
+    renderer.animationFrame();
+
+    const poseArrays = renderer.sceneExtensions.get(PoseArrays.extensionId) as PoseArrays;
+    const renderable = poseArrays.renderables.get(topic);
+    expect(renderable).toBeDefined();
+    expect(renderable?.userData.axes).toHaveLength(path.poses.length);
+    expect(renderable?.userData.arrows).toHaveLength(0);
+    expect(renderable?.userData.lineStrip?.userData.marker.points).toEqual(
+      path.poses.map(({ pose }) => pose.position),
+    );
+    expect(renderable?.userData.axes[1]?.quaternion.z).toBeCloseTo(Math.SQRT1_2);
+
+    const settingsNode = poseArrays
+      .settingsNodes()
+      .find(({ path: settingPath }) => settingPath.includes(topic));
+    expect(settingsNode?.node.fields?.type).toMatchObject({
+      value: "line-axes",
+      options: expect.arrayContaining([expect.objectContaining({ value: "line-axes" })]),
+    });
+    expect(settingsNode?.node.fields).toEqual(
+      expect.objectContaining({
+        axisScale: expect.any(Object),
+        lineWidth: expect.any(Object),
+        gradient: expect.any(Object),
+      }),
+    );
 
     renderer.dispose();
   });
