@@ -51,13 +51,11 @@ const OBJ_MIME_TYPES = ["model/obj", "text/prs.wavefront-obj"];
 export class ModelCache {
   #textDecoder = new TextDecoder();
   #models = new Map<string, Promise<LoadedModel | undefined>>();
-  #edgeMaterial: THREE.Material;
   #fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];
   #colladaTextureObjectUrls = new Map<string, string>();
   #dracoLoader?: DRACOLoader;
 
   public constructor(public readonly options: ModelCacheOptions) {
-    this.#edgeMaterial = options.edgeMaterial;
     this.#fetchAsset = options.fetchAsset;
   }
 
@@ -342,30 +340,6 @@ export class ModelCache {
 }
 
 export const EDGE_LINE_SEGMENTS_NAME = "edges";
-function addEdges(model: LoadedModel, edgeMaterial: THREE.Material): LoadedModel {
-  const edgesToAdd: [edges: THREE.LineSegments, parent: THREE.Object3D][] = [];
-
-  model.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) {
-      return;
-    }
-
-    // Enable shadows for all meshes
-    child.castShadow = true;
-    child.receiveShadow = true;
-
-    // Draw edges for all meshes
-    const edgesGeometry = new THREE.EdgesGeometry(child.geometry, 40);
-    const line = new THREE.LineSegments(edgesGeometry, edgeMaterial);
-    line.name = EDGE_LINE_SEGMENTS_NAME;
-    edgesToAdd.push([line, child]);
-  });
-
-  for (const [line, parent] of edgesToAdd) {
-    parent.add(line);
-  }
-  return model;
-}
 
 function fixDaeMaterials(model: LoadedModel): LoadedModel {
   model.traverse((child) => {
