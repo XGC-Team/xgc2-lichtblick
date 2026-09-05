@@ -6,6 +6,8 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { Ruler20Filled, Ruler20Regular } from "@fluentui/react-icons";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import {
   Button,
   IconButton,
@@ -17,13 +19,14 @@ import {
   Tooltip,
   useTheme,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLongPress } from "react-use";
 import tc from "tinycolor2";
 import { makeStyles } from "tss-react/mui";
 
 import { LayoutActions } from "@lichtblick/suite";
+import PanelContext from "@lichtblick/suite-base/components/PanelContext";
 import {
   PanelContextMenu,
   PanelContextMenuItem,
@@ -62,6 +65,15 @@ const useStyles = makeStyles()((theme) => ({
     alignItems: "flex-end",
     gap: 10,
     pointerEvents: "none",
+  },
+  tools: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: 10,
+  },
+  toolsHidden: {
+    display: "none",
   },
   iconButton: {
     position: "relative",
@@ -163,7 +175,10 @@ function extractHoverMetadata(
  */
 export function RendererOverlay(props: Props): React.JSX.Element {
   const { t } = useTranslation("threeDee");
-  const { classes } = useStyles();
+  const { classes, cx } = useStyles();
+  const panelContext = useContext(PanelContext);
+  const toolsElementId = useId();
+  const toolsIdentity = `${panelContext?.id ?? toolsElementId}:3d-tools`;
   const [clickedPosition, setClickedPosition] = useState<{ clientX: number; clientY: number }>({
     clientX: 0,
     clientY: 0,
@@ -440,6 +455,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
     return renderer?.getContextMenuItems() ?? [];
   }, [renderer]);
 
+  const [toolsExpanded, setToolsExpanded] = useState(true);
   const mousePresenceRef = useRef<HTMLDivElement>(ReactNull);
   const mousePresent = usePanelMousePresence(mousePresenceRef);
 
@@ -447,59 +463,91 @@ export function RendererOverlay(props: Props): React.JSX.Element {
     <>
       {props.interfaceMode === "image" && <PanelContextMenu getItems={getContextMenuItems} />}
       <div ref={mousePresenceRef} className={classes.root}>
-        {
-          // Only show on hover for image panel
-          (props.interfaceMode === "3d" || mousePresent) && (
-            <Interactions
-              addPanel={props.addPanel}
-              interactionsTabType={interactionsTabType}
-              onShowTopicSettings={props.onShowTopicSettings}
-              selectedObject={selectedObject}
-              setInteractionsTabType={setInteractionsTabType}
-              timezone={props.timezone}
-            />
-          )
-        }
         {props.interfaceMode === "3d" && (
-          <Paper square={false} elevation={4} style={{ display: "flex", flexDirection: "column" }}>
-            <Tooltip
-              placement="left"
-              title={
-                <>
-                  {`Switch to ${props.perspective ? "2" : "3"}D camera `}
-                  <kbd className={classes.kbd}>3</kbd>
-                </>
-              }
-            >
-              <IconButton
-                className={classes.iconButton}
-                size="small"
-                color={props.perspective ? "info" : "inherit"}
-                onClick={props.onTogglePerspective}
-              >
-                <span className={classes.threeDeeButton}>3D</span>
-              </IconButton>
-            </Tooltip>
-            <Tooltip
-              placement="left"
-              title={props.measureActive ? "Cancel measuring" : "Measure distance"}
-            >
-              <IconButton
-                data-testid="measure-button"
-                className={classes.iconButton}
-                size="small"
-                color={props.measureActive ? "info" : "inherit"}
-                onClick={props.onClickMeasure}
-              >
-                <div className={classes.rulerIcon}>
-                  {props.measureActive ? <Ruler20Filled /> : <Ruler20Regular />}
-                </div>
-              </IconButton>
-            </Tooltip>
-
-            {publishControls}
-          </Paper>
+          <IconButton
+            className={classes.iconButton}
+            size="small"
+            aria-label={toolsExpanded ? "Collapse 3D tools" : "Expand 3D tools"}
+            aria-expanded={toolsExpanded}
+            aria-controls={toolsElementId}
+            data-xgc-role="lichtblick-3d-tools-trigger"
+            data-xgc-id={toolsIdentity}
+            onClick={() => {
+              setPublishMenuExpanded(false);
+              setToolsExpanded((expanded) => !expanded);
+            }}
+          >
+            {toolsExpanded ? (
+              <ExpandLessIcon fontSize="small" />
+            ) : (
+              <ExpandMoreIcon fontSize="small" />
+            )}
+          </IconButton>
         )}
+        <div
+          id={toolsElementId}
+          className={cx(classes.tools, {
+            [classes.toolsHidden]: props.interfaceMode === "3d" && !toolsExpanded,
+          })}
+        >
+          {
+            // Only show on hover for image panel
+            (props.interfaceMode === "3d" || mousePresent) && (
+              <Interactions
+                addPanel={props.addPanel}
+                interactionsTabType={interactionsTabType}
+                onShowTopicSettings={props.onShowTopicSettings}
+                selectedObject={selectedObject}
+                setInteractionsTabType={setInteractionsTabType}
+                timezone={props.timezone}
+              />
+            )
+          }
+          {props.interfaceMode === "3d" && (
+            <Paper
+              square={false}
+              elevation={4}
+              style={{ display: "flex", flexDirection: "column" }}
+            >
+              <Tooltip
+                placement="left"
+                title={
+                  <>
+                    {`Switch to ${props.perspective ? "2" : "3"}D camera `}
+                    <kbd className={classes.kbd}>3</kbd>
+                  </>
+                }
+              >
+                <IconButton
+                  className={classes.iconButton}
+                  size="small"
+                  color={props.perspective ? "info" : "inherit"}
+                  onClick={props.onTogglePerspective}
+                >
+                  <span className={classes.threeDeeButton}>3D</span>
+                </IconButton>
+              </Tooltip>
+              <Tooltip
+                placement="left"
+                title={props.measureActive ? "Cancel measuring" : "Measure distance"}
+              >
+                <IconButton
+                  data-testid="measure-button"
+                  className={classes.iconButton}
+                  size="small"
+                  color={props.measureActive ? "info" : "inherit"}
+                  onClick={props.onClickMeasure}
+                >
+                  <div className={classes.rulerIcon}>
+                    {props.measureActive ? <Ruler20Filled /> : <Ruler20Regular />}
+                  </div>
+                </IconButton>
+              </Tooltip>
+
+              {publishControls}
+            </Paper>
+          )}
+        </div>
       </div>
       {clickedObjects.length > 1 && !selectedObject && (
         <InteractionContextMenu

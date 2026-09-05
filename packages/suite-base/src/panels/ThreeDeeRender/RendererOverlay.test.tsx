@@ -5,7 +5,7 @@
 
 import "@testing-library/jest-dom";
 
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 
@@ -41,7 +41,7 @@ jest.mock("@lichtblick/suite-base/hooks/usePanelMousePresence", () => {
 jest.mock("react-use", () => {
   return {
     __esModule: true,
-    useLongPress: () => ({}),
+    useLongPress: (onLongPress: () => void) => ({ onContextMenu: onLongPress }),
   };
 });
 
@@ -65,7 +65,7 @@ const mockRenderer = {
   setSelectedRenderable: jest.fn(),
   canResetView: jest.fn(() => false),
   getContextMenuItems: jest.fn(() => []),
-  fixedFrameId: undefined,
+  fixedFrameId: undefined as string | undefined,
 };
 
 jest.mock("./RendererContext", () => {
@@ -82,10 +82,14 @@ describe("<RendererOverlay /> hover wiring", () => {
   beforeEach(() => {
     mockRendererEventCallbacks.clear();
     mockLastHoverTooltipProps = undefined;
+    mockRenderer.fixedFrameId = undefined;
     jest.clearAllMocks();
   });
 
-  function renderOverlay(canvas: HTMLCanvasElement | ReactNull) {
+  function renderOverlay(
+    canvas: HTMLCanvasElement | ReactNull,
+    overrides: Partial<React.ComponentProps<typeof RendererOverlay>> = {},
+  ) {
     return render(
       <ThemeProvider isDark={false}>
         <RendererOverlay
@@ -104,10 +108,61 @@ describe("<RendererOverlay /> hover wiring", () => {
           publishActive={false}
           publishClickType="point"
           timezone={undefined}
+          {...overrides}
         />
       </ThemeProvider>,
     );
   }
+
+  it("collapses tools without invoking or unmounting the measurement control", () => {
+    const onClickMeasure = jest.fn();
+    renderOverlay(document.createElement("canvas"), { measureActive: true, onClickMeasure });
+    const measure = screen.getByTestId("measure-button");
+    const toggle = screen.getByRole("button", { name: "Collapse 3D tools" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toContainElement(
+      measure,
+    );
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(measure).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Expand 3D tools" }));
+    expect(screen.getByTestId("measure-button")).toBe(measure);
+    expect(screen.getByRole("button", { name: "Cancel measuring" })).toBe(measure);
+    expect(measure).toBeVisible();
+    expect(onClickMeasure).not.toHaveBeenCalled();
+  });
+
+  it("closes the portaled publish menu when collapsing without publishing", () => {
+    mockRenderer.fixedFrameId = "map";
+    const onClickPublish = jest.fn();
+    const onChangePublishClickType = jest.fn();
+    renderOverlay(document.createElement("canvas"), {
+      canPublish: true,
+      onClickPublish,
+      onChangePublishClickType,
+    });
+    fireEvent.contextMenu(screen.getByTestId("publish-button"));
+    expect(screen.getByRole("menu")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse 3D tools", hidden: true }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(onClickPublish).not.toHaveBeenCalled();
+    expect(onChangePublishClickType).not.toHaveBeenCalled();
+  });
+
+  it("keeps collapse identities distinct for separate renderer instances", () => {
+    renderOverlay(document.createElement("canvas"));
+    renderOverlay(document.createElement("canvas"));
+    const toggles = screen.getAllByRole("button", { name: "Collapse 3D tools" });
+    expect(new Set(toggles.map((toggle) => toggle.getAttribute("data-xgc-id"))).size).toBe(2);
+    expect(new Set(toggles.map((toggle) => toggle.getAttribute("aria-controls"))).size).toBe(2);
+  });
+
+  it("does not expose the 3D collapse control in image mode", () => {
+    renderOverlay(document.createElement("canvas"), { interfaceMode: "image" });
+    expect(screen.queryByRole("button", { name: "Collapse 3D tools" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("measure-button")).not.toBeInTheDocument();
+  });
 
   it("maps hovered selections into HoverTooltip entities and absolute client position", async () => {
     const canvas = document.createElement("canvas");

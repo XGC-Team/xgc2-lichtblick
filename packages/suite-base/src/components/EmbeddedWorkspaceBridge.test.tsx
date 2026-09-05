@@ -6,6 +6,7 @@
 import { act, render } from "@testing-library/react";
 
 import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
+import { useWorkspaceStore } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
 import EmbeddedWorkspaceBridge, {
@@ -17,6 +18,7 @@ import EmbeddedWorkspaceBridge, {
 } from "./EmbeddedWorkspaceBridge";
 
 jest.mock("@lichtblick/suite-base/context/Workspace/useWorkspaceActions");
+jest.mock("@lichtblick/suite-base/context/Workspace/WorkspaceContext");
 jest.mock("@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext");
 
 const selectLeftItem = jest.fn();
@@ -29,7 +31,7 @@ function hostCommand(surface: Xgc2EmbeddedHostCommand["surface"]): Xgc2EmbeddedH
     channel: XGC2_EMBED_CHANNEL,
     version: XGC2_EMBED_VERSION,
     sender: "xgc2",
-    type: "open-surface",
+    type: "toggle-surface",
     surface,
   };
 }
@@ -47,6 +49,9 @@ function dispatchHostMessage(data: unknown, overrides: Partial<MessageEventInit>
 
 describe("EmbeddedWorkspaceBridge", () => {
   beforeEach(() => {
+    jest
+      .mocked(useWorkspaceStore)
+      .mockReturnValue({ left: { open: false }, right: { open: false } });
     jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue({
       hidePanelControls,
       panelControlsVisible: false,
@@ -81,6 +86,7 @@ describe("EmbeddedWorkspaceBridge", () => {
         sender: "lichtblick",
         type: "ready",
         capabilities: XGC2_EMBED_SURFACES,
+        visibleSurfaces: [],
       },
       window.location.origin,
     );
@@ -101,7 +107,7 @@ describe("EmbeddedWorkspaceBridge", () => {
 
     expect(selectLeftItem).toHaveBeenCalledWith(surface);
     expect(selectRightItem).not.toHaveBeenCalled();
-    expect(hidePanelControls).toHaveBeenCalledTimes(1);
+    expect(hidePanelControls).not.toHaveBeenCalled();
     expect(togglePanelControls).not.toHaveBeenCalled();
   });
 
@@ -115,7 +121,7 @@ describe("EmbeddedWorkspaceBridge", () => {
 
     expect(selectRightItem).toHaveBeenCalledWith("variables");
     expect(selectLeftItem).not.toHaveBeenCalled();
-    expect(hidePanelControls).toHaveBeenCalledTimes(1);
+    expect(hidePanelControls).not.toHaveBeenCalled();
     expect(togglePanelControls).not.toHaveBeenCalled();
   });
 
@@ -131,6 +137,84 @@ describe("EmbeddedWorkspaceBridge", () => {
     expect(hidePanelControls).not.toHaveBeenCalled();
     expect(selectLeftItem).not.toHaveBeenCalled();
     expect(selectRightItem).not.toHaveBeenCalled();
+  });
+
+  it("reports independent visible surfaces and toggles an open sidebar closed", () => {
+    jest.mocked(useWorkspaceStore).mockReturnValue({
+      left: { open: true, item: "topics" },
+      right: { open: true, item: "variables" },
+    });
+    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue({
+      hidePanelControls,
+      togglePanelControls,
+      panelControlsVisible: true,
+    });
+    const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
+    render(<EmbeddedWorkspaceBridge />);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibleSurfaces: ["topics", "variables", "panel-controls"],
+      }),
+      window.location.origin,
+    );
+    act(() => {
+      dispatchHostMessage(hostCommand("topics"));
+    });
+    expect(selectLeftItem).toHaveBeenCalledWith(undefined);
+  });
+
+  it("closes the visible variables sidebar without changing left or panel controls", () => {
+    jest.mocked(useWorkspaceStore).mockReturnValue({
+      left: { open: true, item: "topics" },
+      right: { open: true, item: "variables" },
+    });
+    jest.spyOn(window.parent, "postMessage").mockImplementation();
+    render(<EmbeddedWorkspaceBridge />);
+    act(() => {
+      dispatchHostMessage(hostCommand("variables"));
+    });
+    expect(selectRightItem).toHaveBeenCalledWith(undefined);
+    expect(selectLeftItem).not.toHaveBeenCalled();
+    expect(hidePanelControls).not.toHaveBeenCalled();
+    expect(togglePanelControls).not.toHaveBeenCalled();
+  });
+
+  it("reports current surfaces after local sidebar and panel-control state changes", () => {
+    const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
+    const { rerender } = render(<EmbeddedWorkspaceBridge />);
+    jest.mocked(useWorkspaceStore).mockReturnValue({
+      left: { open: true, item: "layouts" },
+      right: { open: true, item: "variables" },
+    });
+    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue({
+      hidePanelControls,
+      togglePanelControls,
+      panelControlsVisible: true,
+    });
+    rerender(<EmbeddedWorkspaceBridge />);
+    expect(postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        version: 2,
+        visibleSurfaces: ["layouts", "variables", "panel-controls"],
+      }),
+      window.location.origin,
+    );
+    jest.mocked(useWorkspaceStore).mockReturnValue({
+      left: { open: false, item: "layouts" },
+      right: { open: true, item: "variables" },
+    });
+    rerender(<EmbeddedWorkspaceBridge />);
+    expect(postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        visibleSurfaces: ["variables", "panel-controls"],
+      }),
+      window.location.origin,
+    );
+    act(() => {
+      dispatchHostMessage(hostCommand("layouts"));
+    });
+    expect(selectLeftItem).toHaveBeenCalledTimes(1);
+    expect(selectLeftItem).toHaveBeenCalledWith("layouts");
   });
 
   it("rejects commands from a different origin or window", () => {
@@ -149,10 +233,10 @@ describe("EmbeddedWorkspaceBridge", () => {
   it.each([
     null,
     [],
-    "open-surface",
+    "toggle-surface",
     {},
     { ...hostCommand("topics"), channel: "other" },
-    { ...hostCommand("topics"), version: 2 },
+    { ...hostCommand("topics"), version: 1 },
     { ...hostCommand("topics"), sender: "lichtblick" },
     { ...hostCommand("topics"), type: "close-surface" },
     { ...hostCommand("topics"), surface: "extensions" },
