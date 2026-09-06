@@ -277,6 +277,7 @@ function createPlayerListener(args: {
   let closed = false;
   let prevPlayerId: string | undefined;
   let resolveFn: undefined | (() => void);
+  let frameTimer: ReturnType<typeof setTimeout> | undefined;
   const listener = async (listenerPlayerState: PlayerState) => {
     if (closed) {
       return;
@@ -305,7 +306,7 @@ function createPlayerListener(args: {
     // animation frame to invoke pause.
     let called = false;
     function renderDone() {
-      if (called) {
+      if (called || closed) {
         return;
       }
       called = true;
@@ -315,7 +316,8 @@ function createPlayerListener(args: {
       const frameTime = Math.max(0, msPerFrameRef.current - delta);
 
       // Panels have the remaining frame time to invoke pause
-      setTimeout(async () => {
+      frameTimer = setTimeout(async () => {
+        frameTimer = undefined;
         if (closed) {
           return;
         }
@@ -351,7 +353,11 @@ function createPlayerListener(args: {
     listener,
     cleanupListener() {
       closed = true;
-      resolveFn = undefined;
+      clearTimeout(frameTimer);
+      frameTimer = undefined;
+      // Unblock the old player even when its last frame never reaches a React layout effect.
+      resolveFn?.();
+      promisesToWaitForRef.current = [];
     },
   };
 }

@@ -5,116 +5,126 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import moize from "moize";
-import * as R from "ramda";
-
 import { Immutable } from "@lichtblick/suite";
 import { applySamplingGuardToSubscription } from "@lichtblick/suite-base/players/samplingGuard";
-import { InternalSubscribePayload, SubscribePayload } from "@lichtblick/suite-base/players/types";
+import { InternalSubscribePayload } from "@lichtblick/suite-base/players/types";
 
-/**
- * Create a deep equal memoized identify function. Used for stabilizing the subscription payloads we
- * send on to the player.
- *
- * Note that this has unlimited cache size so it should be managed by some containing scope.
- */
-export function makeSubscriptionMemoizer(): (val: SubscribePayload) => SubscribePayload {
-  return moize((val: SubscribePayload) => val, { isDeepEqual: true, maxSize: Infinity });
+type Subscription = Immutable<InternalSubscribePayload>;
+type Accumulator = {
+  first: Subscription;
+  count: number;
+  allEmpty: boolean;
+  whole: boolean;
+  fields: Set<string>;
+  samplingRequest: Subscription["samplingRequest"];
+  samplingAuthorized: Subscription["samplingAuthorized"];
+};
+
+function addFields(fields: Set<string>, values: readonly string[] | undefined): void {
+  for (const value of values ?? []) {
+    const field = value.trim();
+    if (field.length > 0) {
+      fields.add(field);
+    }
+  }
 }
 
-/**
- * Merge two SubscribePayloads, using either all of the fields or the union of
- * the specific fields requested.
- *
- * Sampling note:
- * - We keep sampling only when both payloads request the same sampling mode.
- * - Authorization is OR'ed so one trusted subscriber can authorize sampling for the merged output.
- */
-function mergeSubscription(
-  a: Immutable<InternalSubscribePayload>,
-  b: Immutable<InternalSubscribePayload>,
-): Immutable<InternalSubscribePayload> {
-  const isAllFields = a.fields == undefined || b.fields == undefined;
-  const fields = R.pipe(
-    R.chain((payload: Immutable<SubscribePayload>): readonly string[] => payload.fields ?? []),
-    R.map((v) => v.trim()),
-    R.filter((v: string) => v.length > 0),
-    R.uniq,
-  )([a, b]);
-
+function accumulate(groups: Record<string, Accumulator>, subscription: Subscription): void {
+  let group = groups[subscription.topic];
+  if (group == undefined) {
+    group = {
+      first: subscription,
+      count: 1,
+      allEmpty: subscription.fields?.length === 0,
+      whole: subscription.fields == undefined,
+      fields: new Set(),
+      samplingRequest: subscription.samplingRequest,
+      samplingAuthorized: subscription.samplingAuthorized,
+    };
+    addFields(group.fields, subscription.fields);
+    groups[subscription.topic] = group;
+    return;
+  }
+  group.count++;
+  group.allEmpty = group.allEmpty && subscription.fields?.length === 0;
+  if (!group.whole) {
+    addFields(group.fields, subscription.fields);
+    // Preserve the established left-fold behavior: an empty normalized union means all fields.
+    group.whole = subscription.fields == undefined || group.fields.size === 0;
+  }
   const sameSamplingMode =
-    a.samplingRequest?.mode != undefined && a.samplingRequest.mode === b.samplingRequest?.mode;
-  const samplingRequest = sameSamplingMode ? a.samplingRequest : undefined;
-  const samplingAuthorized =
-    sameSamplingMode && (a.samplingAuthorized === true || b.samplingAuthorized === true)
+    group.samplingRequest?.mode != undefined &&
+    group.samplingRequest.mode === subscription.samplingRequest?.mode;
+  group.samplingRequest = sameSamplingMode ? group.samplingRequest : undefined;
+  group.samplingAuthorized =
+    sameSamplingMode &&
+    (group.samplingAuthorized === true || subscription.samplingAuthorized === true)
       ? true
       : undefined;
+}
 
-  return {
-    ...a,
-    fields: fields.length > 0 && !isAllFields ? fields : undefined,
-    samplingRequest,
-    samplingAuthorized,
-  };
+function finish(groups: Record<string, Accumulator>, output: Subscription[]): void {
+  for (const group of Object.values(groups)) {
+    if (group.allEmpty) {
+      continue;
+    }
+    const merged =
+      group.count === 1
+        ? group.first
+        : {
+            ...group.first,
+            fields: group.whole ? undefined : [...group.fields],
+            samplingRequest: group.samplingRequest,
+            samplingAuthorized: group.samplingAuthorized,
+          };
+    output.push(applySamplingGuardToSubscription(merged));
+  }
 }
 
 /**
- * Merge subscriptions that subscribe to the same topic, paying attention to
- * the fields they need. This ignores `preloadType`.
- */
-function denormalizeSubscriptions(
-  subscriptions: Immutable<InternalSubscribePayload[]>,
-): Immutable<InternalSubscribePayload[]> {
-  return R.pipe(
-    R.groupBy((v: Immutable<InternalSubscribePayload>) => v.topic),
-    R.values,
-    // Filter out any set of payloads that contains _only_ empty `fields`
-    R.filter((payloads: Immutable<InternalSubscribePayload[]> | undefined) => {
-      // Handle this later
-      if (payloads == undefined) {
-        return true;
-      }
-
-      return !payloads.every((v: Immutable<InternalSubscribePayload>) => v.fields?.length === 0);
-    }),
-    // Now reduce them down to a single payload for each topic
-    R.chain(
-      (
-        payloads: Immutable<InternalSubscribePayload[]> | undefined,
-      ): Immutable<InternalSubscribePayload>[] => {
-        const first = payloads?.[0];
-        if (payloads == undefined || first == undefined || payloads.length === 0) {
-          return [];
-        }
-        const merged = R.reduce(mergeSubscription, first, payloads.slice(1));
-        return [applySamplingGuardToSubscription(merged)];
-      },
-    ),
-  )(subscriptions);
-}
-
-/**
- * Merges individual topic subscriptions into a set of subscriptions to send on to the player.
- *
- * If any client requests a "whole" subscription to a topic then all fields will be fetched for that
- * topic. If various clients request different slices of a topic then we request the union of all
- * requested slices.
+ * One pass over subscriptions and their fields, rather than repeatedly copying growing unions.
+ * Full subscriptions imply partial subscriptions. Whole-message requests win over field slices;
+ * sampling survives only when every request agrees and the shared authorization guard approves it.
  */
 export function mergeSubscriptions(
   subscriptions: Immutable<InternalSubscribePayload[]>,
 ): Immutable<InternalSubscribePayload[]> {
-  return R.pipe(
-    R.chain((v: Immutable<InternalSubscribePayload>): Immutable<InternalSubscribePayload>[] => {
-      const { preloadType } = v;
-      if (preloadType !== "full") {
-        return [v];
-      }
+  const full: Record<string, Accumulator> = Object.create(null);
+  const partial: Record<string, Accumulator> = Object.create(null);
+  for (const subscription of subscriptions) {
+    if (subscription.preloadType === "full") {
+      accumulate(full, subscription);
+      accumulate(partial, { ...subscription, preloadType: "partial" });
+    } else {
+      accumulate(partial, subscription);
+    }
+  }
+  const output: Subscription[] = [];
+  finish(full, output);
+  finish(partial, output);
+  return output;
+}
 
-      // a "full" subscription to all fields implies a "partial" subscription
-      // to those fields, too
-      return [v, { ...v, preloadType: "partial" }];
-    }),
-    R.partition((v: Immutable<InternalSubscribePayload>) => v.preloadType === "full"),
-    ([full, partial]) => [...denormalizeSubscriptions(full), ...denormalizeSubscriptions(partial)],
-  )(subscriptions);
+/** Compare effective requests, treating absent optional properties like explicit undefined. */
+export function subscriptionsEqual(
+  left: readonly Subscription[],
+  right: readonly Subscription[],
+): boolean {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((subscription, index) => {
+        const other = right[index]!;
+        return (
+          subscription.topic === other.topic &&
+          subscription.preloadType === other.preloadType &&
+          subscription.samplingRequest?.mode === other.samplingRequest?.mode &&
+          subscription.samplingAuthorized === other.samplingAuthorized &&
+          (subscription.fields === other.fields ||
+            (subscription.fields != undefined &&
+              subscription.fields.length === other.fields?.length &&
+              subscription.fields.every((field, i) => field === other.fields?.[i])))
+        );
+      }))
+  );
 }

@@ -1,0 +1,111 @@
+{
+  "baselineCommit": "b3cd154046d0ad17596faacb6db244b6bb32c3dd",
+  "node": "v24.20.0",
+  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "platform": "linux",
+  "arch": "x64",
+  "warmups": 5,
+  "sampleCount": 15,
+  "routing": [
+    {
+      "panels": 2,
+      "kind": "identical",
+      "messages": 20000,
+      "before": { "medianMs": 1.380846, "p95Ms": 3.512515, "cpuMicroseconds": 37631 },
+      "after": { "medianMs": 0.696612, "p95Ms": 1.614763, "cpuMicroseconds": 22077 },
+      "beforeRetained": { "arrays": 2, "messageReferences": 40000 },
+      "afterRetained": { "arrays": 1, "messageReferences": 20000 }
+    },
+    {
+      "panels": 12,
+      "kind": "identical",
+      "messages": 20000,
+      "before": { "medianMs": 4.901554, "p95Ms": 7.211307, "cpuMicroseconds": 83923 },
+      "after": { "medianMs": 0.724674, "p95Ms": 1.076906, "cpuMicroseconds": 14000 },
+      "beforeRetained": { "arrays": 12, "messageReferences": 240000 },
+      "afterRetained": { "arrays": 1, "messageReferences": 20000 }
+    },
+    {
+      "panels": 48,
+      "kind": "identical",
+      "messages": 20000,
+      "before": { "medianMs": 22.016623, "p95Ms": 26.093347, "cpuMicroseconds": 333933 },
+      "after": { "medianMs": 0.72141, "p95Ms": 1.109996, "cpuMicroseconds": 14543 },
+      "beforeRetained": { "arrays": 48, "messageReferences": 960000 },
+      "afterRetained": { "arrays": 1, "messageReferences": 20000 }
+    },
+    {
+      "panels": 48,
+      "kind": "distinct",
+      "messages": 20000,
+      "before": { "medianMs": 3.165343, "p95Ms": 5.077638, "cpuMicroseconds": 53695 },
+      "after": { "medianMs": 1.72659, "p95Ms": 2.361962, "cpuMicroseconds": 29615 },
+      "beforeRetained": { "arrays": 47, "messageReferences": 160000 },
+      "afterRetained": { "arrays": 47, "messageReferences": 160000 }
+    },
+    {
+      "panels": 12,
+      "kind": "sparse",
+      "messages": 20000,
+      "before": { "medianMs": 0.828889, "p95Ms": 1.256393, "cpuMicroseconds": 16006 },
+      "after": { "medianMs": 0.537708, "p95Ms": 0.909308, "cpuMicroseconds": 11185 },
+      "beforeRetained": { "arrays": 12, "messageReferences": 15000 },
+      "afterRetained": { "arrays": 12, "messageReferences": 15000 }
+    }
+  ],
+  "queue": [
+    {
+      "count": 1000,
+      "kind": "batch",
+      "before": { "medianMs": 9.740632, "p95Ms": 14.511976, "cpuMicroseconds": 160880 },
+      "after": { "medianMs": 0.457118, "p95Ms": 1.228061, "cpuMicroseconds": 13799 }
+    },
+    {
+      "count": 5000,
+      "kind": "batch",
+      "before": { "medianMs": 203.951497, "p95Ms": 207.645614, "cpuMicroseconds": 3078543 },
+      "after": { "medianMs": 0.421295, "p95Ms": 2.07768, "cpuMicroseconds": 24678 }
+    },
+    {
+      "count": 10000,
+      "kind": "batch",
+      "before": { "medianMs": 771.193811, "p95Ms": 801.394082, "cpuMicroseconds": 11623887 },
+      "after": { "medianMs": 1.300687, "p95Ms": 5.487753, "cpuMicroseconds": 52641 }
+    },
+    {
+      "count": 10000,
+      "kind": "supersede",
+      "before": { "medianMs": 2.38851, "p95Ms": 10.273165, "cpuMicroseconds": 75747 },
+      "after": { "medianMs": 1.887548, "p95Ms": 2.46313, "cpuMicroseconds": 36074 }
+    },
+    {
+      "count": 2000,
+      "kind": "pressure",
+      "before": { "medianMs": 1.527814, "p95Ms": 3.591272, "cpuMicroseconds": 41918 },
+      "after": { "medianMs": 1.152618, "p95Ms": 4.757201, "cpuMicroseconds": 39500 }
+    }
+  ],
+  "subscriptions": {
+    "test": "subscription differential",
+    "cases": 10000,
+    "status": "passed",
+    "node": "v24.20.0",
+    "samples": [
+      { "count": 100, "before": { "medianMs": 2.011982 }, "after": { "medianMs": 0.032158 } },
+      { "count": 1000, "before": { "medianMs": 160.773217 }, "after": { "medianMs": 0.138655 } }
+    ]
+  },
+  "validation": {
+    "targetedSuitesPassed": 16,
+    "targetedTestsPassed": 208,
+    "queueDifferentialOperations": 225000,
+    "queueCompactionWorkloads": 3,
+    "subscriptionDifferentialCases": 10000
+  },
+  "evidence": {
+    "run": "https://github.com/XGC-Team/xgc2-lichtblick/actions/runs/34067574977",
+    "artifact": "https://github.com/XGC-Team/xgc2-lichtblick/actions/runs/34067574977/artifacts/9999457548",
+    "implementationCommit": "98a131436d11f1876ba16ab9eecf6c8c70591973",
+    "note": "Historical implementation checkpoint. Tests and benchmarks passed; seven lint findings were corrected in the PR branch. Check PR-head CI for final status. Raw per-sample measurements and CPU/allocation profiles are in the run artifact. Rounded aggregate milliseconds are reported here."
+  }
+}

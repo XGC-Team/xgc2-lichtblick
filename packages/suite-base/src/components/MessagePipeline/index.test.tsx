@@ -311,6 +311,20 @@ describe("MessagePipelineProvider/useMessagePipeline", () => {
     }).rejects.toThrow("New playerState was emitted before last playerState was rendered.");
   });
 
+  it("settles an in-flight emission when the provider unmounts", async () => {
+    const player = new FakePlayer();
+    const { Hook, Wrapper } = makeTestHook({ player });
+    const { unmount } = renderHook(Hook, { wrapper: Wrapper });
+    let emission: Promise<void> | undefined;
+    act(() => {
+      emission = player.emit();
+    });
+    unmount();
+    await expect(emission).resolves.toBeUndefined();
+    // A late emission from the closed listener is ignored, not left pending.
+    await expect(player.emit()).resolves.toBeUndefined();
+  });
+
   it("sets subscriptions", async () => {
     const player = new FakePlayer();
     const { Hook, Wrapper } = makeTestHook({ player });

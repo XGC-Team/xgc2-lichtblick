@@ -181,3 +181,36 @@ describe("mergeSubscriptions", () => {
     expect(result).toEqual([{ topic: "a", preloadType: "partial" }]);
   });
 });
+
+describe("subscription accumulator compatibility", () => {
+  it("preserves the empty-union whole-message behavior and does not mutate inputs", () => {
+    const subscriptions = [
+      { topic: "/a", fields: [" "] },
+      { topic: "/a", fields: [""] },
+      { topic: "/a", fields: ["value"] },
+    ];
+    const snapshot = JSON.stringify(subscriptions);
+    expect(mergeSubscriptions(subscriptions)[0]?.fields).toBeUndefined();
+    expect(JSON.stringify(subscriptions)).toBe(snapshot);
+  });
+
+  it("trims a merged union once and preserves singleton fields", () => {
+    expect(
+      mergeSubscriptions([
+        { topic: "/a", fields: [" x ", "y"] },
+        { topic: "/a", fields: ["x", " z ", ""] },
+        { topic: "/single", fields: [" x "] },
+      ]),
+    ).toEqual([
+      { topic: "/a", fields: ["x", "y", "z"] },
+      { topic: "/single", fields: [" x "] },
+    ]);
+  });
+
+  it("keeps prototype-like topic names separate", () => {
+    expect(mergeSubscriptions([{ topic: "__proto__" }, { topic: "constructor" }])).toEqual([
+      { topic: "__proto__" },
+      { topic: "constructor" },
+    ]);
+  });
+});

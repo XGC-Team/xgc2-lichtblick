@@ -1,0 +1,86 @@
+name: Message pipeline performance
+
+on:
+  push:
+    branches: [xgc2, "perf/**"]
+    paths:
+      - "packages/suite-base/src/components/MessagePipeline/**"
+      - "packages/suite-base/src/players/FoxgloveWebSocketPlayer/**"
+      - "packages/suite-base/src/players/samplingGuard*"
+      - "benchmark/message-pipeline/**"
+      - "benchmark/package.json"
+      - "packages/suite-base/package.json"
+      - "yarn.lock"
+      - ".github/workflows/message-pipeline-performance.yml"
+  pull_request:
+    branches: [xgc2]
+    paths:
+      - "packages/suite-base/src/components/MessagePipeline/**"
+      - "packages/suite-base/src/players/FoxgloveWebSocketPlayer/**"
+      - "packages/suite-base/src/players/samplingGuard*"
+      - "benchmark/message-pipeline/**"
+      - "benchmark/package.json"
+      - "packages/suite-base/package.json"
+      - "yarn.lock"
+      - ".github/workflows/message-pipeline-performance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-perf-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: corepack enable yarn
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .yarn/cache
+            **/node_modules
+          key: v5-${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: v5-${{ runner.os }}-yarn-
+      - run: yarn install --immutable
+      - name: Load pinned baseline source for differential comparisons
+        run: |
+          git fetch --no-tags --depth=1 origin b3cd154046d0ad17596faacb6db244b6bb32c3dd
+          mkdir -p performance-results
+          git rev-parse HEAD > performance-results/revision.txt
+      - name: Check performance code quality
+        run: |
+          yarn biome format benchmark/message-pipeline packages/suite-base/src/components/MessagePipeline packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.ts packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.test.ts
+          yarn eslint --config eslint.config.ci.mjs benchmark/message-pipeline/*.cjs packages/suite-base/src/components/MessagePipeline/messageDispatch*.ts packages/suite-base/src/components/MessagePipeline/subscriptions.ts packages/suite-base/src/components/MessagePipeline/store.ts packages/suite-base/src/components/MessagePipeline/store.test.ts packages/suite-base/src/components/MessagePipeline/index.tsx packages/suite-base/src/components/MessagePipeline/index.test.tsx packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.ts packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.test.ts
+      - name: Pipeline, player and extension adapter regression coverage
+        run: yarn test --runInBand --testPathPatterns='components/MessagePipeline|players/FoxgloveWebSocketPlayer|components/PanelExtensionAdapter|players/samplingGuard' --json --outputFile=performance-results/jest.json
+      - name: Differential queue and subscription contracts
+        run: |
+          yarn node benchmark/message-pipeline/queue-differential.cjs > performance-results/queue-differential.json
+          yarn node benchmark/message-pipeline/subscriptions-differential.cjs > performance-results/subscriptions.json
+      - name: Before/after performance and structural allocation budgets
+        run: |
+          yarn node --expose-gc benchmark/message-pipeline/run.cjs --check > performance-results/routing.json
+          cat performance-results/routing.json
+      - name: Warm CPU and allocation profiles
+        run: |
+          yarn node --expose-gc benchmark/message-pipeline/profile.cjs --before
+          yarn node --expose-gc benchmark/message-pipeline/profile.cjs
+      - name: Preserve measurements and profiles
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pipeline-results-${{ github.sha }}
+          path: performance-results/
+          retention-days: 30
