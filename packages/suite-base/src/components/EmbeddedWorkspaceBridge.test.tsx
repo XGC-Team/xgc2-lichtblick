@@ -28,10 +28,7 @@ const togglePanelControls = jest.fn();
 const toggleThreeDTools = jest.fn();
 
 function mockControls(
-  overrides: {
-    panelControlsVisible?: boolean;
-    threeDToolsVisible?: boolean;
-  } = {},
+  overrides: { panelControlsVisible?: boolean; threeDToolsVisible?: boolean } = {},
 ) {
   return {
     hidePanelControls,
@@ -175,9 +172,9 @@ describe("EmbeddedWorkspaceBridge", () => {
       left: { open: true, item: "topics" },
       right: { open: true, item: "variables" },
     });
-    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue(
-      mockControls({ panelControlsVisible: true, threeDToolsVisible: true }),
-    );
+    jest
+      .mocked(useEmbeddedWorkspaceControls)
+      .mockReturnValue(mockControls({ panelControlsVisible: true, threeDToolsVisible: true }));
     const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
     render(<EmbeddedWorkspaceBridge />);
     expect(postMessage).toHaveBeenCalledWith(
@@ -215,9 +212,9 @@ describe("EmbeddedWorkspaceBridge", () => {
       left: { open: true, item: "layouts" },
       right: { open: true, item: "variables" },
     });
-    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue(
-      mockControls({ panelControlsVisible: true }),
-    );
+    jest
+      .mocked(useEmbeddedWorkspaceControls)
+      .mockReturnValue(mockControls({ panelControlsVisible: true }));
     rerender(<EmbeddedWorkspaceBridge />);
     expect(postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({

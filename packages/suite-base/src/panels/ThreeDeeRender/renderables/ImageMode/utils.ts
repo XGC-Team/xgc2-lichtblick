@@ -21,9 +21,10 @@ export const IMAGE_MODE_MAX_DECODE_WIDTH = 1280;
  */
 export function imageModeDecodeWidth(canvasWidth: number, pixelRatio: number): number {
   const ratio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1;
-  const requested = Number.isFinite(canvasWidth) && canvasWidth > 0
-    ? Math.ceil(canvasWidth * ratio)
-    : IMAGE_MODE_MAX_DECODE_WIDTH;
+  const requested =
+    Number.isFinite(canvasWidth) && canvasWidth > 0
+      ? Math.ceil(canvasWidth * ratio)
+      : IMAGE_MODE_MAX_DECODE_WIDTH;
   return Math.min(IMAGE_MODE_MAX_DECODE_WIDTH, Math.max(1, requested));
 }
 

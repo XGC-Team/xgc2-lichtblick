@@ -59,6 +59,8 @@ jobs:
           git fetch --no-tags --depth=1 origin b3cd154046d0ad17596faacb6db244b6bb32c3dd
           mkdir -p performance-results
           git rev-parse HEAD > performance-results/revision.txt
+      - name: Typecheck the shared application and regression tests
+        run: yarn tsc --noEmit -p packages/suite-base/tsconfig.json
       - name: Check performance code quality
         run: |
           yarn biome format benchmark/message-pipeline packages/suite-base/src/components/MessagePipeline packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.ts packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.test.ts

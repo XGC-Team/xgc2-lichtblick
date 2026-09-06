@@ -23,7 +23,8 @@ export function compileMessageDispatch(
       continue;
     }
     // Encoding is only done when subscriptions change, never on the message hot path.
-    const key = JSON.stringify(topics);
+    // A defined array of strings always serializes to a string.
+    const key = JSON.stringify(topics)!;
     const existingGroup = groupByInterests.get(key);
     if (existingGroup != undefined) {
       groups[existingGroup]!.push(id);
