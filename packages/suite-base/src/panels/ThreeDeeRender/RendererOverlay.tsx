@@ -34,6 +34,7 @@ import {
 import PublishGoalIcon from "@lichtblick/suite-base/components/PublishGoalIcon";
 import PublishPointIcon from "@lichtblick/suite-base/components/PublishPointIcon";
 import PublishPoseEstimateIcon from "@lichtblick/suite-base/components/PublishPoseEstimateIcon";
+import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { usePanelMousePresence } from "@lichtblick/suite-base/hooks/usePanelMousePresence";
 import { HUD } from "@lichtblick/suite-base/panels/ThreeDeeRender/HUD";
 import { customTypography } from "@lichtblick/theme";
@@ -378,6 +379,8 @@ export function RendererOverlay(props: Props): React.JSX.Element {
           ref={publickClickButtonRef}
           onClick={props.onClickPublish}
           data-testid="publish-button"
+          data-xgc-role="lichtblick-publish-tool"
+          data-xgc-id={`${panelContext?.id ?? toolsElementId}:publish`}
         >
           {selectedPublishClickIcon}
           <div
@@ -455,7 +458,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
     return renderer?.getContextMenuItems() ?? [];
   }, [renderer]);
 
-  const [toolsExpanded, setToolsExpanded] = useState(true);
+  const { threeDToolsVisible, toggleThreeDTools } = useEmbeddedWorkspaceControls();
   const mousePresenceRef = useRef<HTMLDivElement>(ReactNull);
   const mousePresent = usePanelMousePresence(mousePresenceRef);
 
@@ -467,17 +470,17 @@ export function RendererOverlay(props: Props): React.JSX.Element {
           <IconButton
             className={classes.iconButton}
             size="small"
-            aria-label={toolsExpanded ? "Collapse 3D tools" : "Expand 3D tools"}
-            aria-expanded={toolsExpanded}
+            aria-label={threeDToolsVisible ? "Collapse 3D tools" : "Expand 3D tools"}
+            aria-expanded={threeDToolsVisible}
             aria-controls={toolsElementId}
             data-xgc-role="lichtblick-3d-tools-trigger"
             data-xgc-id={toolsIdentity}
             onClick={() => {
               setPublishMenuExpanded(false);
-              setToolsExpanded((expanded) => !expanded);
+              toggleThreeDTools();
             }}
           >
-            {toolsExpanded ? (
+            {threeDToolsVisible ? (
               <ExpandLessIcon fontSize="small" />
             ) : (
               <ExpandMoreIcon fontSize="small" />
@@ -487,20 +490,25 @@ export function RendererOverlay(props: Props): React.JSX.Element {
         <div
           id={toolsElementId}
           className={cx(classes.tools, {
-            [classes.toolsHidden]: props.interfaceMode === "3d" && !toolsExpanded,
+            [classes.toolsHidden]: props.interfaceMode === "3d" && !threeDToolsVisible,
           })}
         >
           {
             // Only show on hover for image panel
             (props.interfaceMode === "3d" || mousePresent) && (
-              <Interactions
-                addPanel={props.addPanel}
-                interactionsTabType={interactionsTabType}
-                onShowTopicSettings={props.onShowTopicSettings}
-                selectedObject={selectedObject}
-                setInteractionsTabType={setInteractionsTabType}
-                timezone={props.timezone}
-              />
+              <div
+                data-xgc-role="lichtblick-inspect-tool"
+                data-xgc-id={`${panelContext?.id ?? toolsElementId}:inspect`}
+              >
+                <Interactions
+                  addPanel={props.addPanel}
+                  interactionsTabType={interactionsTabType}
+                  onShowTopicSettings={props.onShowTopicSettings}
+                  selectedObject={selectedObject}
+                  setInteractionsTabType={setInteractionsTabType}
+                  timezone={props.timezone}
+                />
+              </div>
             )
           }
           {props.interfaceMode === "3d" && (
@@ -522,6 +530,8 @@ export function RendererOverlay(props: Props): React.JSX.Element {
                   className={classes.iconButton}
                   size="small"
                   color={props.perspective ? "info" : "inherit"}
+                  data-xgc-role="lichtblick-3d-perspective-toggle"
+                  data-xgc-id={`${panelContext?.id ?? toolsElementId}:perspective`}
                   onClick={props.onTogglePerspective}
                 >
                   <span className={classes.threeDeeButton}>3D</span>
@@ -533,6 +543,8 @@ export function RendererOverlay(props: Props): React.JSX.Element {
               >
                 <IconButton
                   data-testid="measure-button"
+                  data-xgc-role="lichtblick-measure-tool"
+                  data-xgc-id={`${panelContext?.id ?? toolsElementId}:measure`}
                   className={classes.iconButton}
                   size="small"
                   color={props.measureActive ? "info" : "inherit"}

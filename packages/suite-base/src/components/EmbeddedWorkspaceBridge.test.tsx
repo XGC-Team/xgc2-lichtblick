@@ -25,6 +25,23 @@ const selectLeftItem = jest.fn();
 const selectRightItem = jest.fn();
 const hidePanelControls = jest.fn();
 const togglePanelControls = jest.fn();
+const toggleThreeDTools = jest.fn();
+
+function mockControls(
+  overrides: {
+    panelControlsVisible?: boolean;
+    threeDToolsVisible?: boolean;
+  } = {},
+) {
+  return {
+    hidePanelControls,
+    panelControlsVisible: false,
+    threeDToolsVisible: false,
+    togglePanelControls,
+    toggleThreeDTools,
+    ...overrides,
+  };
+}
 
 function hostCommand(surface: Xgc2EmbeddedHostCommand["surface"]): Xgc2EmbeddedHostCommand {
   return {
@@ -52,11 +69,7 @@ describe("EmbeddedWorkspaceBridge", () => {
     jest
       .mocked(useWorkspaceStore)
       .mockReturnValue({ left: { open: false }, right: { open: false } });
-    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue({
-      hidePanelControls,
-      panelControlsVisible: false,
-      togglePanelControls,
-    });
+    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue(mockControls());
     jest.mocked(useWorkspaceActions).mockReturnValue({
       sidebarActions: {
         left: { selectItem: selectLeftItem },
@@ -71,6 +84,7 @@ describe("EmbeddedWorkspaceBridge", () => {
     selectRightItem.mockReset();
     hidePanelControls.mockReset();
     togglePanelControls.mockReset();
+    toggleThreeDTools.mockReset();
   });
 
   it("announces the exact versioned capabilities to its same-origin parent", () => {
@@ -109,6 +123,7 @@ describe("EmbeddedWorkspaceBridge", () => {
     expect(selectRightItem).not.toHaveBeenCalled();
     expect(hidePanelControls).not.toHaveBeenCalled();
     expect(togglePanelControls).not.toHaveBeenCalled();
+    expect(toggleThreeDTools).not.toHaveBeenCalled();
   });
 
   it("opens the variables right sidebar for a valid parent command", () => {
@@ -123,6 +138,7 @@ describe("EmbeddedWorkspaceBridge", () => {
     expect(selectLeftItem).not.toHaveBeenCalled();
     expect(hidePanelControls).not.toHaveBeenCalled();
     expect(togglePanelControls).not.toHaveBeenCalled();
+    expect(toggleThreeDTools).not.toHaveBeenCalled();
   });
 
   it("toggles pane controls only for the panel-controls capability", () => {
@@ -135,6 +151,21 @@ describe("EmbeddedWorkspaceBridge", () => {
 
     expect(togglePanelControls).toHaveBeenCalledTimes(1);
     expect(hidePanelControls).not.toHaveBeenCalled();
+    expect(toggleThreeDTools).not.toHaveBeenCalled();
+    expect(selectLeftItem).not.toHaveBeenCalled();
+    expect(selectRightItem).not.toHaveBeenCalled();
+  });
+
+  it("toggles overlay 3D tools through the host 3d-tools surface", () => {
+    jest.spyOn(window.parent, "postMessage").mockImplementation();
+    render(<EmbeddedWorkspaceBridge />);
+
+    act(() => {
+      dispatchHostMessage(hostCommand("3d-tools"));
+    });
+
+    expect(toggleThreeDTools).toHaveBeenCalledTimes(1);
+    expect(togglePanelControls).not.toHaveBeenCalled();
     expect(selectLeftItem).not.toHaveBeenCalled();
     expect(selectRightItem).not.toHaveBeenCalled();
   });
@@ -144,16 +175,14 @@ describe("EmbeddedWorkspaceBridge", () => {
       left: { open: true, item: "topics" },
       right: { open: true, item: "variables" },
     });
-    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue({
-      hidePanelControls,
-      togglePanelControls,
-      panelControlsVisible: true,
-    });
+    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue(
+      mockControls({ panelControlsVisible: true, threeDToolsVisible: true }),
+    );
     const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
     render(<EmbeddedWorkspaceBridge />);
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        visibleSurfaces: ["topics", "variables", "panel-controls"],
+        visibleSurfaces: ["3d-tools", "topics", "variables", "panel-controls"],
       }),
       window.location.origin,
     );
@@ -186,11 +215,9 @@ describe("EmbeddedWorkspaceBridge", () => {
       left: { open: true, item: "layouts" },
       right: { open: true, item: "variables" },
     });
-    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue({
-      hidePanelControls,
-      togglePanelControls,
-      panelControlsVisible: true,
-    });
+    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue(
+      mockControls({ panelControlsVisible: true }),
+    );
     rerender(<EmbeddedWorkspaceBridge />);
     expect(postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({

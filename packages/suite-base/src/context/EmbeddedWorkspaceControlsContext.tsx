@@ -20,13 +20,17 @@ export const EMBEDDED_PANEL_CONTROLS_ATTRIBUTE = "data-xgc2-panel-controls";
 type EmbeddedWorkspaceControls = {
   hidePanelControls: () => void;
   panelControlsVisible: boolean;
+  threeDToolsVisible: boolean;
   togglePanelControls: () => void;
+  toggleThreeDTools: () => void;
 };
 
 const defaultValue: EmbeddedWorkspaceControls = {
   hidePanelControls: () => {},
   panelControlsVisible: false,
+  threeDToolsVisible: true,
   togglePanelControls: () => {},
+  toggleThreeDTools: () => {},
 };
 
 export const EmbeddedWorkspaceControlsContext =
@@ -41,11 +45,15 @@ export function EmbeddedWorkspaceControlsProvider({
   children,
 }: PropsWithChildren): React.JSX.Element {
   const [panelControlsVisible, setPanelControlsVisible] = useState(false);
+  const [threeDToolsVisible, setThreeDToolsVisible] = useState(true);
   const hidePanelControls = useCallback(() => {
     setPanelControlsVisible(false);
   }, []);
   const togglePanelControls = useCallback(() => {
     setPanelControlsVisible((visible) => !visible);
+  }, []);
+  const toggleThreeDTools = useCallback(() => {
+    setThreeDToolsVisible((visible) => !visible);
   }, []);
 
   useEffect(() => {
@@ -78,8 +86,20 @@ export function EmbeddedWorkspaceControlsProvider({
   }, [hidePanelControls, panelControlsVisible]);
 
   const value = useMemo(
-    () => ({ hidePanelControls, panelControlsVisible, togglePanelControls }),
-    [hidePanelControls, panelControlsVisible, togglePanelControls],
+    () => ({
+      hidePanelControls,
+      panelControlsVisible,
+      threeDToolsVisible,
+      togglePanelControls,
+      toggleThreeDTools,
+    }),
+    [
+      hidePanelControls,
+      panelControlsVisible,
+      threeDToolsVisible,
+      togglePanelControls,
+      toggleThreeDTools,
+    ],
   );
 
   return (

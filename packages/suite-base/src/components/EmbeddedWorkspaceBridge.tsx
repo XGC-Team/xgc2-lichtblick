@@ -14,6 +14,7 @@ import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/us
 export const XGC2_EMBED_CHANNEL = "xgc2.lichtblick.embed";
 export const XGC2_EMBED_VERSION = 2;
 export const XGC2_EMBED_SURFACES = [
+  "3d-tools",
   "panel-settings",
   "alerts",
   "topics",
@@ -81,7 +82,8 @@ export function isXgc2EmbeddedHostCommand(value: unknown): value is Xgc2Embedded
  */
 export default function EmbeddedWorkspaceBridge(): null {
   const { sidebarActions } = useWorkspaceActions();
-  const { panelControlsVisible, togglePanelControls } = useEmbeddedWorkspaceControls();
+  const { panelControlsVisible, threeDToolsVisible, togglePanelControls, toggleThreeDTools } =
+    useEmbeddedWorkspaceControls();
 
   const sidebars = useWorkspaceStore((store) => store.sidebars);
 
@@ -119,6 +121,9 @@ export default function EmbeddedWorkspaceBridge(): null {
         case "panel-controls":
           togglePanelControls();
           break;
+        case "3d-tools":
+          toggleThreeDTools();
+          break;
       }
     };
 
@@ -133,8 +138,10 @@ export default function EmbeddedWorkspaceBridge(): null {
       visibleSurfaces: XGC2_EMBED_SURFACES.filter((surface) =>
         surface === "panel-controls"
           ? panelControlsVisible
-          : (sidebars.left.open && sidebars.left.item === surface) ||
-            (sidebars.right.open && sidebars.right.item === surface),
+          : surface === "3d-tools"
+            ? threeDToolsVisible
+            : (sidebars.left.open && sidebars.left.item === surface) ||
+              (sidebars.right.open && sidebars.right.item === surface),
       ),
     };
     parentWindow.postMessage(readyMessage, expectedOrigin);
@@ -142,7 +149,14 @@ export default function EmbeddedWorkspaceBridge(): null {
     return () => {
       window.removeEventListener("message", handleMessage);
     };
-  }, [panelControlsVisible, sidebarActions, sidebars, togglePanelControls]);
+  }, [
+    panelControlsVisible,
+    sidebarActions,
+    sidebars,
+    threeDToolsVisible,
+    togglePanelControls,
+    toggleThreeDTools,
+  ]);
 
   return null;
 }

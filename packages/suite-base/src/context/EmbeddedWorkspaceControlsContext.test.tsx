@@ -13,13 +13,20 @@ import {
 } from "./EmbeddedWorkspaceControlsContext";
 
 function ControlsHarness(): React.JSX.Element {
-  const { hidePanelControls, panelControlsVisible, togglePanelControls } =
-    useEmbeddedWorkspaceControls();
+  const {
+    hidePanelControls,
+    panelControlsVisible,
+    threeDToolsVisible,
+    togglePanelControls,
+    toggleThreeDTools,
+  } = useEmbeddedWorkspaceControls();
 
   return (
     <>
       <output data-testid="visibility">{String(panelControlsVisible)}</output>
+      <output data-testid="three-d-tools">{String(threeDToolsVisible)}</output>
       <button onClick={togglePanelControls}>Toggle</button>
+      <button onClick={toggleThreeDTools}>Toggle 3D tools</button>
       <button onClick={hidePanelControls}>Hide</button>
       <div {...{ [EMBEDDED_PANEL_CONTROLS_ATTRIBUTE]: "" }} data-testid="inside-toolbar" />
       <div data-testid="outside-toolbar" />
@@ -36,6 +43,15 @@ function renderProvider() {
 }
 
 describe("EmbeddedWorkspaceControlsProvider", () => {
+  it("shows overlay 3D tools by default and toggles them independently of pane controls", () => {
+    renderProvider();
+
+    expect(screen.getByTestId("three-d-tools")).toHaveTextContent("true");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle 3D tools" }));
+    expect(screen.getByTestId("three-d-tools")).toHaveTextContent("false");
+    expect(screen.getByTestId("visibility")).toHaveTextContent("false");
+  });
+
   it("starts hidden, toggles explicitly, and ignores clicks inside a pane toolbar", () => {
     renderProvider();
 

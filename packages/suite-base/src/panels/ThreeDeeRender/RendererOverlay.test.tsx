@@ -7,6 +7,7 @@ import "@testing-library/jest-dom";
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+import { EmbeddedWorkspaceControlsProvider } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 
 import { RendererOverlay } from "./RendererOverlay";
@@ -92,24 +93,26 @@ describe("<RendererOverlay /> hover wiring", () => {
   ) {
     return render(
       <ThemeProvider isDark={false}>
-        <RendererOverlay
-          addPanel={jest.fn() as any}
-          canPublish={false}
-          canvas={canvas}
-          enableStats={false}
-          interfaceMode="3d"
-          measureActive={false}
-          onChangePublishClickType={jest.fn()}
-          onClickMeasure={jest.fn()}
-          onClickPublish={jest.fn()}
-          onShowTopicSettings={jest.fn()}
-          onTogglePerspective={jest.fn()}
-          perspective={false}
-          publishActive={false}
-          publishClickType="point"
-          timezone={undefined}
-          {...overrides}
-        />
+        <EmbeddedWorkspaceControlsProvider>
+          <RendererOverlay
+            addPanel={jest.fn() as any}
+            canPublish={false}
+            canvas={canvas}
+            enableStats={false}
+            interfaceMode="3d"
+            measureActive={false}
+            onChangePublishClickType={jest.fn()}
+            onClickMeasure={jest.fn()}
+            onClickPublish={jest.fn()}
+            onShowTopicSettings={jest.fn()}
+            onTogglePerspective={jest.fn()}
+            perspective={false}
+            publishActive={false}
+            publishClickType="point"
+            timezone={undefined}
+            {...overrides}
+          />
+        </EmbeddedWorkspaceControlsProvider>
       </ThemeProvider>,
     );
   }
@@ -118,7 +121,12 @@ describe("<RendererOverlay /> hover wiring", () => {
     const onClickMeasure = jest.fn();
     renderOverlay(document.createElement("canvas"), { measureActive: true, onClickMeasure });
     const measure = screen.getByTestId("measure-button");
+    const perspective = screen.getByRole("button", { name: "3D" });
     const toggle = screen.getByRole("button", { name: "Collapse 3D tools" });
+    expect(measure).toHaveAttribute("data-xgc-role", "lichtblick-measure-tool");
+    expect(perspective).toHaveAttribute("data-xgc-role", "lichtblick-3d-perspective-toggle");
+    expect(measure.parentElement).toBe(perspective.parentElement);
+    expect(document.querySelector('[data-xgc-role="lichtblick-inspect-tool"]')).not.toBeNull();
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toContainElement(
       measure,
