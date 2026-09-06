@@ -161,7 +161,7 @@ describe("<RendererOverlay /> hover wiring", () => {
     });
     fireEvent.contextMenu(screen.getByTestId("publish-button"));
     expect(screen.getByRole("menu")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Hide overlay tools" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide overlay tools", hidden: true }));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(onClickPublish).not.toHaveBeenCalled();
     expect(onChangePublishClickType).not.toHaveBeenCalled();
