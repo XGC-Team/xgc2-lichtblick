@@ -6,8 +6,6 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { Ruler20Filled, Ruler20Regular } from "@fluentui/react-icons";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import {
   Button,
   IconButton,
@@ -179,7 +177,6 @@ export function RendererOverlay(props: Props): React.JSX.Element {
   const { classes, cx } = useStyles();
   const panelContext = useContext(PanelContext);
   const toolsElementId = useId();
-  const toolsIdentity = `${panelContext?.id ?? toolsElementId}:3d-tools`;
   const [clickedPosition, setClickedPosition] = useState<{ clientX: number; clientY: number }>({
     clientX: 0,
     clientY: 0,
@@ -458,35 +455,20 @@ export function RendererOverlay(props: Props): React.JSX.Element {
     return renderer?.getContextMenuItems() ?? [];
   }, [renderer]);
 
-  const { threeDToolsVisible, toggleThreeDTools } = useEmbeddedWorkspaceControls();
+  const { threeDToolsVisible } = useEmbeddedWorkspaceControls();
   const mousePresenceRef = useRef<HTMLDivElement>(ReactNull);
   const mousePresent = usePanelMousePresence(mousePresenceRef);
+
+  useEffect(() => {
+    if (!threeDToolsVisible) {
+      setPublishMenuExpanded(false);
+    }
+  }, [threeDToolsVisible]);
 
   return (
     <>
       {props.interfaceMode === "image" && <PanelContextMenu getItems={getContextMenuItems} />}
       <div ref={mousePresenceRef} className={classes.root}>
-        {props.interfaceMode === "3d" && (
-          <IconButton
-            className={classes.iconButton}
-            size="small"
-            aria-label={threeDToolsVisible ? "Collapse 3D tools" : "Expand 3D tools"}
-            aria-expanded={threeDToolsVisible}
-            aria-controls={toolsElementId}
-            data-xgc-role="lichtblick-3d-tools-trigger"
-            data-xgc-id={toolsIdentity}
-            onClick={() => {
-              setPublishMenuExpanded(false);
-              toggleThreeDTools();
-            }}
-          >
-            {threeDToolsVisible ? (
-              <ExpandLessIcon fontSize="small" />
-            ) : (
-              <ExpandMoreIcon fontSize="small" />
-            )}
-          </IconButton>
-        )}
         <div
           id={toolsElementId}
           className={cx(classes.tools, {

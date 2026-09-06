@@ -7,7 +7,10 @@ import "@testing-library/jest-dom";
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { EmbeddedWorkspaceControlsProvider } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
+import {
+  EmbeddedWorkspaceControlsProvider,
+  useEmbeddedWorkspaceControls,
+} from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 
 import { RendererOverlay } from "./RendererOverlay";
@@ -87,6 +90,15 @@ describe("<RendererOverlay /> hover wiring", () => {
     jest.clearAllMocks();
   });
 
+  function HostToolsVisibilityToggle() {
+    const { threeDToolsVisible, toggleThreeDTools } = useEmbeddedWorkspaceControls();
+    return (
+      <button type="button" onClick={toggleThreeDTools}>
+        {threeDToolsVisible ? "Hide overlay tools" : "Show overlay tools"}
+      </button>
+    );
+  }
+
   function renderOverlay(
     canvas: HTMLCanvasElement | ReactNull,
     overrides: Partial<React.ComponentProps<typeof RendererOverlay>> = {},
@@ -94,6 +106,7 @@ describe("<RendererOverlay /> hover wiring", () => {
     return render(
       <ThemeProvider isDark={false}>
         <EmbeddedWorkspaceControlsProvider>
+          <HostToolsVisibilityToggle />
           <RendererOverlay
             addPanel={jest.fn() as any}
             canPublish={false}
@@ -117,31 +130,27 @@ describe("<RendererOverlay /> hover wiring", () => {
     );
   }
 
-  it("collapses tools without invoking or unmounting the measurement control", () => {
+  it("hides overlay tools from host Tools without a viewer collapse tab", () => {
     const onClickMeasure = jest.fn();
     renderOverlay(document.createElement("canvas"), { measureActive: true, onClickMeasure });
     const measure = screen.getByTestId("measure-button");
     const perspective = screen.getByRole("button", { name: "3D" });
-    const toggle = screen.getByRole("button", { name: "Collapse 3D tools" });
     expect(measure).toHaveAttribute("data-xgc-role", "lichtblick-measure-tool");
     expect(perspective).toHaveAttribute("data-xgc-role", "lichtblick-3d-perspective-toggle");
     expect(measure.parentElement).toBe(perspective.parentElement);
     expect(document.querySelector('[data-xgc-role="lichtblick-inspect-tool"]')).not.toBeNull();
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toContainElement(
-      measure,
-    );
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector('[data-xgc-role="lichtblick-3d-tools-trigger"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: "Collapse 3D tools" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hide overlay tools" }));
     expect(measure).not.toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Expand 3D tools" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show overlay tools" }));
     expect(screen.getByTestId("measure-button")).toBe(measure);
     expect(screen.getByRole("button", { name: "Cancel measuring" })).toBe(measure);
     expect(measure).toBeVisible();
     expect(onClickMeasure).not.toHaveBeenCalled();
   });
 
-  it("closes the portaled publish menu when collapsing without publishing", () => {
+  it("closes the portaled publish menu when host Tools hides overlay tools", () => {
     mockRenderer.fixedFrameId = "map";
     const onClickPublish = jest.fn();
     const onChangePublishClickType = jest.fn();
@@ -152,22 +161,15 @@ describe("<RendererOverlay /> hover wiring", () => {
     });
     fireEvent.contextMenu(screen.getByTestId("publish-button"));
     expect(screen.getByRole("menu")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Collapse 3D tools", hidden: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide overlay tools" }));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(onClickPublish).not.toHaveBeenCalled();
     expect(onChangePublishClickType).not.toHaveBeenCalled();
   });
 
-  it("keeps collapse identities distinct for separate renderer instances", () => {
-    renderOverlay(document.createElement("canvas"));
-    renderOverlay(document.createElement("canvas"));
-    const toggles = screen.getAllByRole("button", { name: "Collapse 3D tools" });
-    expect(new Set(toggles.map((toggle) => toggle.getAttribute("data-xgc-id"))).size).toBe(2);
-    expect(new Set(toggles.map((toggle) => toggle.getAttribute("aria-controls"))).size).toBe(2);
-  });
-
-  it("does not expose the 3D collapse control in image mode", () => {
+  it("does not expose a 3D collapse control in image mode", () => {
     renderOverlay(document.createElement("canvas"), { interfaceMode: "image" });
+    expect(document.querySelector('[data-xgc-role="lichtblick-3d-tools-trigger"]')).toBeNull();
     expect(screen.queryByRole("button", { name: "Collapse 3D tools" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("measure-button")).not.toBeInTheDocument();
   });
