@@ -51,7 +51,12 @@ test("alternates both warmups and paired samples; GC stays outside timings", () 
     "after",
     "before",
   ]);
-  assert.deepEqual(result.sampleOrder, ["before,after", "after,before", "before,after", "after,before"]);
+  assert.deepEqual(result.sampleOrder, [
+    "before,after",
+    "after,before",
+    "before,after",
+    "after,before",
+  ]);
   assert.deepEqual(result.before.samplesInOrderMs, [2, 2, 2, 2]);
   assert.deepEqual(result.after.samplesInOrderMs, [1, 1, 1, 1]);
   assert.equal(result.before.cpuMicroseconds, 12);
@@ -59,7 +64,12 @@ test("alternates both warmups and paired samples; GC stays outside timings", () 
 
 test("reverses the first pair without changing counts", () => {
   const { result } = fixture(["--samples=4", "--warmups=0", "--first=after"]);
-  assert.deepEqual(result.sampleOrder, ["after,before", "before,after", "after,before", "before,after"]);
+  assert.deepEqual(result.sampleOrder, [
+    "after,before",
+    "before,after",
+    "after,before",
+    "before,after",
+  ]);
   assert.equal(result.before.samplesMs.length, 4);
   assert.equal(result.after.samplesMs.length, 4);
 });
