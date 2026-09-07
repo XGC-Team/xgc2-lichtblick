@@ -15,13 +15,20 @@ import {
   ForwardAnalyticsContextProvider,
   useForwardAnalytics,
 } from "@lichtblick/suite-base/components/ForwardAnalyticsContextProvider";
+import {
+  ForwardEmbeddedWorkspaceControls,
+  useForwardEmbeddedWorkspaceControls,
+} from "@lichtblick/suite-base/components/ForwardEmbeddedWorkspaceControls";
 import Panel from "@lichtblick/suite-base/components/Panel";
 import PanelContext from "@lichtblick/suite-base/components/PanelContext";
 import {
   BuiltinPanelExtensionContext,
   PanelExtensionAdapter,
 } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
-import { INJECTED_FEATURE_KEYS, useAppContext } from "@lichtblick/suite-base/context/AppContext";
+import {
+  INJECTED_FEATURE_KEYS,
+  useAppContext,
+} from "@lichtblick/suite-base/context/AppContext";
 import { useExtensionCatalog } from "@lichtblick/suite-base/context/ExtensionCatalogContext";
 import { createSyncRoot } from "@lichtblick/suite-base/panels/createSyncRoot";
 import { SaveConfig } from "@lichtblick/suite-base/types/panels";
@@ -33,6 +40,7 @@ function initPanel(args: InitPanelArgs, context: BuiltinPanelExtensionContext) {
   const {
     crash,
     forwardedAnalytics,
+    forwardedEmbeddedControls,
     interfaceMode,
     testOptions,
     customSceneExtensions,
@@ -43,15 +51,17 @@ function initPanel(args: InitPanelArgs, context: BuiltinPanelExtensionContext) {
   return createSyncRoot(
     <CaptureErrorBoundary onError={crash}>
       <ForwardAnalyticsContextProvider forwardedAnalytics={forwardedAnalytics}>
-        <ThreeDeeRender
-          context={context}
-          interfaceMode={interfaceMode}
-          testOptions={testOptions}
-          customSceneExtensions={customSceneExtensions}
-          customCameraModels={customCameraModels}
-          enqueueSnackbarFromParent={enqueueSnackbarFromParent}
-          logError={logError}
-        />
+        <ForwardEmbeddedWorkspaceControls store={forwardedEmbeddedControls}>
+          <ThreeDeeRender
+            context={context}
+            interfaceMode={interfaceMode}
+            testOptions={testOptions}
+            customSceneExtensions={customSceneExtensions}
+            customCameraModels={customCameraModels}
+            enqueueSnackbarFromParent={enqueueSnackbarFromParent}
+            logError={logError}
+          />
+        </ForwardEmbeddedWorkspaceControls>
       </ForwardAnalyticsContextProvider>
     </CaptureErrorBoundary>,
     context.panelElement,
@@ -75,14 +85,16 @@ function ThreeDeeRenderAdapter(interfaceMode: InterfaceMode, props: Props) {
   ) as CameraModelsMap;
 
   const forwardedAnalytics = useForwardAnalytics();
+  const forwardedEmbeddedControls = useForwardEmbeddedWorkspaceControls();
   const { injectedFeatures } = useAppContext();
   const customSceneExtensions = useMemo(() => {
     if (injectedFeatures == undefined) {
       return undefined;
     }
     const injectedSceneExtensions =
-      injectedFeatures.availableFeatures[INJECTED_FEATURE_KEYS.customSceneExtensions]
-        ?.customSceneExtensions;
+      injectedFeatures.availableFeatures[
+        INJECTED_FEATURE_KEYS.customSceneExtensions
+      ]?.customSceneExtensions;
     return injectedSceneExtensions;
   }, [injectedFeatures]);
 
@@ -91,6 +103,7 @@ function ThreeDeeRenderAdapter(interfaceMode: InterfaceMode, props: Props) {
       initPanel.bind(undefined, {
         crash,
         forwardedAnalytics,
+        forwardedEmbeddedControls,
         interfaceMode,
         testOptions: {
           onDownloadImage: props.onDownloadImage,
@@ -109,6 +122,7 @@ function ThreeDeeRenderAdapter(interfaceMode: InterfaceMode, props: Props) {
     [
       crash,
       forwardedAnalytics,
+      forwardedEmbeddedControls,
       interfaceMode,
       props.onDownloadImage,
       props.debugPicking,

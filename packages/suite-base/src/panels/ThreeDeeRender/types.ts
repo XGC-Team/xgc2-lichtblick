@@ -10,8 +10,12 @@ import { DeepPartial } from "ts-essentials";
 import { CameraModelsMap } from "@lichtblick/den/image/types";
 import { useCrash } from "@lichtblick/hooks";
 import { ForwardedAnalytics } from "@lichtblick/suite-base/components/ForwardAnalyticsContextProvider";
+import { ForwardedEmbeddedWorkspaceControls } from "@lichtblick/suite-base/components/ForwardEmbeddedWorkspaceControls";
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
-import { FollowMode, TestOptions } from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
+import {
+  FollowMode,
+  TestOptions,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
 import { SceneExtensionConfig } from "@lichtblick/suite-base/panels/ThreeDeeRender/SceneExtensionConfig";
 import { CameraState } from "@lichtblick/suite-base/panels/ThreeDeeRender/camera";
 
@@ -42,6 +46,7 @@ export type ThreeDeeRenderProps = {
 export type InitPanelArgs = {
   crash: ReturnType<typeof useCrash>;
   forwardedAnalytics: ForwardedAnalytics;
+  forwardedEmbeddedControls: ForwardedEmbeddedWorkspaceControls;
   interfaceMode: InterfaceMode;
   testOptions: TestOptions;
   customSceneExtensions?: DeepPartial<SceneExtensionConfig>;
