@@ -759,10 +759,7 @@ export class ImageMode
     }
 
     renderable.userData.receiveTime = receiveTime;
-    const resizeWidth = imageModeDecodeWidth(
-      this.renderer.input.canvasSize.width,
-      this.renderer.getPixelRatio(),
-    );
+    const resizeWidth = imageModeDecodeWidth(this.#cameraModel?.info.width);
     renderable.setImage(image, resizeWidth, () => {
       if (this.#fallbackCameraModelActive()) {
         this.#updateFallbackCameraModel(renderable);

@@ -14,17 +14,11 @@ import {
 
 export const IMAGE_MODE_MAX_DECODE_WIDTH = 1920;
 
-/**
- * Decode only the pixels the live Image viewport can display. The source and
- * recording stay full resolution; this bounds the per-frame ImageBitmap and
- * WebGL texture upload that otherwise stalls the host browser on 4K video.
- */
-export function imageModeDecodeWidth(canvasWidth: number, pixelRatio: number): number {
-  const ratio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1;
-  const requested = Number.isFinite(canvasWidth) && canvasWidth > 0
-    ? Math.ceil(canvasWidth * ratio)
+/** Keep detail available for image-panel zoom, independent of docked pane size. */
+export function imageModeDecodeWidth(sourceWidth?: number): number {
+  return sourceWidth != undefined && Number.isFinite(sourceWidth) && sourceWidth > 0
+    ? Math.min(IMAGE_MODE_MAX_DECODE_WIDTH, Math.max(1, Math.floor(sourceWidth)))
     : IMAGE_MODE_MAX_DECODE_WIDTH;
-  return Math.min(IMAGE_MODE_MAX_DECODE_WIDTH, Math.max(1, requested));
 }
 
 function mapRange(

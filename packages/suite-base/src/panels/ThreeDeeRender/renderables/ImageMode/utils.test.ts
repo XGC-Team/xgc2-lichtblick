@@ -23,17 +23,20 @@ import {
 } from "./utils";
 
 describe("imageModeDecodeWidth", () => {
-  it("matches the live viewport without uploading a 4K texture", () => {
-    expect(imageModeDecodeWidth(960, 1)).toBe(960);
-    expect(imageModeDecodeWidth(640, 2)).toBe(1280);
-    expect(imageModeDecodeWidth(1920, 1)).toBe(1920);
-    expect(imageModeDecodeWidth(3840, 1)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
-    expect(imageModeDecodeWidth(1920, 2)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+  it("retains a 1920-wide preview of 4K sources regardless of pane size", () => {
+    expect(imageModeDecodeWidth(3840)).toBe(1920);
+    expect(imageModeDecodeWidth(1920)).toBe(1920);
   });
 
-  it("uses the bounded live-preview width before the canvas is measured", () => {
-    expect(imageModeDecodeWidth(0, 1)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
-    expect(imageModeDecodeWidth(Number.NaN, Number.NaN)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+  it("does not upscale smaller sources", () => {
+    expect(imageModeDecodeWidth(1280)).toBe(1280);
+    expect(imageModeDecodeWidth(640)).toBe(640);
+  });
+
+  it("uses the preview budget before source dimensions are known", () => {
+    expect(imageModeDecodeWidth()).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+    expect(imageModeDecodeWidth(0)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+    expect(imageModeDecodeWidth(Number.NaN)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
   });
 });
 
