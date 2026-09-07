@@ -20,10 +20,10 @@ function parseOptions(args) {
     assert(!seen.has(name), `duplicate option: ${name}`);
     seen.add(name);
     if (name === "--stress" || name === "--check") {
-      assert(value === undefined, `${name} does not take a value`);
+      assert(value == undefined, `${name} does not take a value`);
       options[name.slice(2)] = true;
     } else if (name === "--samples" || name === "--warmups") {
-      assert(extra === undefined && /^\d+$/.test(value ?? ""), `invalid integer: ${arg}`);
+      assert(extra == undefined && /^\d+$/.test(value ?? ""), `invalid integer: ${arg}`);
       const count = Number(value);
       const minimum = name === "--samples" ? 1 : 0;
       const maximum = name === "--samples" ? 1000 : 100;
@@ -34,7 +34,7 @@ function parseOptions(args) {
       options[name === "--samples" ? "sampleCount" : "warmups"] = count;
     } else if (name === "--only" || name === "--first") {
       assert(
-        extra === undefined && (value === "before" || value === "after"),
+        extra == undefined && (value === "before" || value === "after"),
         `invalid variant: ${arg}`,
       );
       options[name.slice(2)] = value;

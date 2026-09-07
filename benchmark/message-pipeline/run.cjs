@@ -8,12 +8,12 @@ const { execFileSync } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
 
-const { measurePair, parseOptions } = require("./measurement.cjs");
-const options = parseOptions(process.argv.slice(2));
-const { warmups, sampleCount } = options;
-
 const { route } = require("./baseline.cjs");
 const { load, queuePath, queueBlob } = require("./load.cjs");
+const { measurePair, parseOptions } = require("./measurement.cjs");
+
+const options = parseOptions(process.argv.slice(2));
+const { warmups, sampleCount } = options;
 
 const { compileMessageDispatch, dispatchMessages } = load(
   "packages/suite-base/src/components/MessagePipeline/messageDispatch.ts",
