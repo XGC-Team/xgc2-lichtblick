@@ -73,6 +73,8 @@ jobs:
           git rev-parse HEAD > performance-results/revision.txt
       - name: Typecheck the shared application and regression tests
         run: yarn tsc --noEmit -p packages/suite-base/tsconfig.json
+      - name: Test paired measurement protocol
+        run: yarn node --test benchmark/message-pipeline/measurement-check.cjs
       - name: Check performance code quality
         run: |
           yarn biome format benchmark/message-pipeline packages/suite-base/src/components/MessagePipeline packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.ts packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.test.ts
@@ -87,6 +89,33 @@ jobs:
         run: |
           yarn node --expose-gc benchmark/message-pipeline/run.cjs --check > performance-results/routing.json
           cat performance-results/routing.json
+      - name: Repeated paired pressure and supersession tails on the same runner
+        run: |
+          for repeat in 1 2 3; do
+            first=before
+            if [ "$repeat" = 2 ]; then first=after; fi
+            yarn node --expose-gc benchmark/message-pipeline/run.cjs --stress --samples=100 --warmups=20 --first="$first" > "performance-results/pressure-$repeat.json"
+          done
+          yarn node - <<'NODE'
+          const fs = require("node:fs");
+          for (const repeat of [1, 2, 3]) {
+            const report = JSON.parse(fs.readFileSync(`performance-results/pressure-${repeat}.json`, "utf8"));
+            console.log(JSON.stringify({
+              repeat, revision: report.candidateCommit, cpu: report.cpu, samples: report.sampleCount,
+              cases: report.queue.map((q) => ({
+                kind: q.kind, capacityBytes: q.capacityBytes,
+                beforeMedianMs: q.before.medianMs, afterMedianMs: q.after.medianMs,
+                beforeP95Ms: q.before.p95Ms, afterP95Ms: q.after.p95Ms,
+                p95Ratio: q.after.p95Ms / q.before.p95Ms,
+              })),
+            }));
+          }
+          NODE
+      - name: Pressure CPU and GC profiles separate from acceptance timings
+        run: |
+          for variant in before after; do
+            yarn node --expose-gc --cpu-prof --cpu-prof-dir=performance-results --cpu-prof-name="pressure-$variant.cpuprofile" --trace-gc benchmark/message-pipeline/run.cjs --stress --only="$variant" --samples=30 --warmups=10 > "performance-results/pressure-$variant-profile.log"
+          done
       - name: Warm CPU and allocation profiles
         run: |
           yarn node --expose-gc benchmark/message-pipeline/profile.cjs --before
