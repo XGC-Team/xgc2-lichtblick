@@ -12,10 +12,7 @@ import { useCrash } from "@lichtblick/hooks";
 import { ForwardedAnalytics } from "@lichtblick/suite-base/components/ForwardAnalyticsContextProvider";
 import { ForwardedEmbeddedWorkspaceControls } from "@lichtblick/suite-base/components/ForwardEmbeddedWorkspaceControls";
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
-import {
-  FollowMode,
-  TestOptions,
-} from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
+import { FollowMode, TestOptions } from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
 import { SceneExtensionConfig } from "@lichtblick/suite-base/panels/ThreeDeeRender/SceneExtensionConfig";
 import { CameraState } from "@lichtblick/suite-base/panels/ThreeDeeRender/camera";
 
