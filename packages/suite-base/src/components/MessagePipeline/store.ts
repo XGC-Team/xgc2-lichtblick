@@ -14,8 +14,8 @@ import { Condvar } from "@lichtblick/den/async";
 import { Time } from "@lichtblick/rostime";
 import { Immutable, MessageEvent } from "@lichtblick/suite";
 import {
-  makeSubscriptionMemoizer,
   mergeSubscriptions,
+  subscriptionsEqual,
 } from "@lichtblick/suite-base/components/MessagePipeline/subscriptions";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
 import {
@@ -27,6 +27,7 @@ import {
 } from "@lichtblick/suite-base/players/types";
 import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
 
+import { compileMessageDispatch, dispatchMessages, MessageDispatchPlan } from "./messageDispatch";
 import { FramePromise } from "./pauseFrameForPromise";
 import { MessagePipelineContext } from "./types";
 
@@ -53,20 +54,11 @@ export type MessagePipelineInternalState = {
 
   /** used to keep track of whether we need to update public.startPlayback/playUntil/etc. */
   lastCapabilities: string[];
-  /** Preserves reference equality of subscriptions to minimize player subscription churn. */
-  subscriptionMemoizer: (sub: SubscribePayload) => SubscribePayload;
   subscriptionsById: Map<string, Immutable<SubscribePayload[]>>;
   publishersById: { [key: string]: AdvertiseOptions[] };
   allPublishers: AdvertiseOptions[];
-  /**
-   * A map of topic name to the IDs that are subscribed to that topic. Incoming messages
-   * are bucketed by ID so only the messages a panel subscribed to are sent to it.
-   *
-   * Note: Even though we avoid storing the same ID twice in the array, we use an array rather than
-   * a Set because iterating over array elements is faster than iterating a Set and the "hot" path
-   * for dispatching messages needs to iterate over the array of IDs.
-   */
-  subscriberIdsByTopic: Map<string, string[]>;
+  /** Compiled topic interests; equivalent consumers share immutable frame arrays. */
+  messageDispatchPlan: MessageDispatchPlan;
   /** This holds the last message emitted by the player on each topic. Attempt to use this before falling back to player backfill.
    */
   lastMessageEventByTopic: Map<string, MessageEvent>;
@@ -104,10 +96,10 @@ export function createMessagePipelineStore({
     player: initialPlayer,
     publishersById: {},
     allPublishers: [],
-    subscriptionMemoizer: makeSubscriptionMemoizer(),
+
     subscriptionsById: new Map(),
-    subscriberIdsByTopic: new Map(),
-    newTopicsBySubscriberId: new Map(),
+    messageDispatchPlan: compileMessageDispatch(new Map()),
+
     lastMessageEventByTopic: new Map(),
     lastCapabilities: [],
 
@@ -120,10 +112,10 @@ export function createMessagePipelineStore({
         ...prev,
         publishersById: {},
         allPublishers: [],
-        subscriptionMemoizer: makeSubscriptionMemoizer(),
+
         subscriptionsById: new Map(),
-        subscriberIdsByTopic: new Map(),
-        newTopicsBySubscriberId: new Map(),
+        messageDispatchPlan: compileMessageDispatch(new Map()),
+
         lastMessageEventByTopic: new Map(),
         lastCapabilities: [],
         public: {
@@ -242,6 +234,13 @@ function updateSubscriberAction(
   action: UpdateSubscriberAction,
 ): MessagePipelineInternalState {
   const previousSubscriptionsById = prevState.subscriptionsById;
+  const previousPayloads = previousSubscriptionsById.get(action.id);
+  if (
+    (previousPayloads == undefined && action.payloads.length === 0) ||
+    _.isEqual(previousPayloads, action.payloads)
+  ) {
+    return prevState;
+  }
 
   const subscriptionsById = new Map(previousSubscriptionsById);
 
@@ -252,23 +251,7 @@ function updateSubscriberAction(
     subscriptionsById.set(action.id, action.payloads);
   }
 
-  const subscriberIdsByTopic = new Map<string, string[]>();
-
-  // make a map of topics to subscriber ids
-  for (const [id, subs] of subscriptionsById) {
-    for (const subscription of subs) {
-      const topic = subscription.topic;
-
-      const ids = subscriberIdsByTopic.get(topic) ?? [];
-      // If the id is already present in the array for the topic then we should not add it again.
-      // If we add it again it will be given frame messages again when bucketing incoming messages
-      // by subscriber id.
-      if (!ids.includes(id)) {
-        ids.push(id);
-      }
-      subscriberIdsByTopic.set(topic, ids);
-    }
-  }
+  const messageDispatchPlan = compileMessageDispatch(subscriptionsById);
 
   // Record any _new_ topics for this subscriber so that we can emit last messages on these topics
   const newTopicsForId = new Set<string>();
@@ -288,7 +271,7 @@ function updateSubscriberAction(
     // This fixes the case where if a panel unsubscribes, triggers playback, and then resubscribes,
     // they won't get this old stale message when they resubscribe again before getting the message
     // at the current time frome seek-backfill.
-    if (!subscriberIdsByTopic.has(topic)) {
+    if (!messageDispatchPlan.groupsByTopic.has(topic)) {
       lastMessageEventByTopic.delete(topic);
     }
   }
@@ -303,6 +286,10 @@ function updateSubscriberAction(
   }
 
   let newMessagesBySubscriberId;
+  if (action.payloads.length === 0 && prevState.public.messageEventsBySubscriberId.has(action.id)) {
+    newMessagesBySubscriberId = new Map(prevState.public.messageEventsBySubscriberId);
+    newMessagesBySubscriberId.delete(action.id);
+  }
 
   if (messagesForSubscriber.length > 0) {
     newMessagesBySubscriberId = new Map<string, readonly MessageEvent[]>(
@@ -312,7 +299,11 @@ function updateSubscriberAction(
     newMessagesBySubscriberId.set(action.id, messagesForSubscriber);
   }
 
-  const subscriptions = mergeSubscriptions(Array.from(subscriptionsById.values()).flat());
+  const merged = mergeSubscriptions(Array.from(subscriptionsById.values()).flat());
+  // Adding an equivalent panel must not invalidate player caches or restart its subscriptions.
+  const subscriptions = subscriptionsEqual(merged, prevState.public.subscriptions)
+    ? prevState.public.subscriptions
+    : merged;
 
   const newPublicState = {
     ...prevState.public,
@@ -325,7 +316,7 @@ function updateSubscriberAction(
     ...prevState,
     lastMessageEventByTopic,
     subscriptionsById,
-    subscriberIdsByTopic,
+    messageDispatchPlan,
     public: newPublicState,
   };
 }
@@ -338,39 +329,13 @@ function updatePlayerStateAction(
 ): MessagePipelineInternalState {
   const messages = action.playerState.activeData?.messages;
 
-  const seenTopics = new Set<string>();
-
-  // We need a new set of message arrays for each subscriber since downstream users rely
-  // on object instance reference checks to determine if there are new messages
-  const messagesBySubscriberId = new Map<string, MessageEvent[]>();
-
-  const subscriberIdsByTopic = prevState.subscriberIdsByTopic;
-
   const lastMessageEventByTopic = prevState.lastMessageEventByTopic;
-
-  // Put messages into per-subscriber queues
-  if (messages && messages !== prevState.public.playerState.activeData?.messages) {
-    for (const messageEvent of messages) {
-      // Save the last message on every topic to send the last message
-      // to newly subscribed panels.
-      lastMessageEventByTopic.set(messageEvent.topic, messageEvent);
-
-      seenTopics.add(messageEvent.topic);
-      const ids = subscriberIdsByTopic.get(messageEvent.topic);
-      if (!ids) {
-        continue;
-      }
-
-      for (const id of ids) {
-        const subscriberMessageEvents = messagesBySubscriberId.get(id);
-        if (!subscriberMessageEvents) {
-          messagesBySubscriberId.set(id, [messageEvent]);
-        } else {
-          subscriberMessageEvents.push(messageEvent);
-        }
-      }
-    }
-  }
+  // A repeated player-state update must not redeliver the same frame. Fresh frames always own
+  // fresh arrays, but equivalent subscribers within a frame can safely share those arrays.
+  const messagesBySubscriberId =
+    messages && messages !== prevState.public.playerState.activeData?.messages
+      ? dispatchMessages(messages, prevState.messageDispatchPlan, lastMessageEventByTopic)
+      : new Map<string, readonly MessageEvent[]>();
 
   const newPublicState = {
     ...prevState.public,

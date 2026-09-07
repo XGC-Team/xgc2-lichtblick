@@ -58,7 +58,11 @@ type TrimPlan<T> = {
  * individually larger than the cap is rejected without disturbing already queued entries.
  */
 export class LiveMessageQueue<T> {
-  readonly #entries: LiveMessageQueueEntry<T>[] = [];
+  // Removed slots release payloads immediately. Compact geometrically, not on every shift.
+  readonly #entries: (LiveMessageQueueEntry<T> | undefined)[] = [];
+  readonly #replaceableEntriesByKey = new Map<string, Set<number>>();
+  #head = 0;
+  #entryCount = 0;
   readonly #videoStreamsAwaitingRecovery = new Set<string>();
   #maximumSizeBytes: number;
   #sizeInBytes = 0;
@@ -70,8 +74,12 @@ export class LiveMessageQueue<T> {
 
   public setMaximumSize(maximumSizeBytes: number): number {
     LiveMessageQueue.#validateByteCount(maximumSizeBytes, "maximumSizeBytes");
+    if (this.#sizeInBytes <= maximumSizeBytes) {
+      this.#maximumSizeBytes = maximumSizeBytes;
+      return 0;
+    }
     const plan = this.#createTrimPlan(
-      [...this.#entries],
+      this.#snapshot(),
       BigInt(this.#sizeInBytes),
       maximumSizeBytes,
       new Set(this.#videoStreamsAwaitingRecovery),
@@ -91,6 +99,19 @@ export class LiveMessageQueue<T> {
 
   public getSizeInBytes(): number {
     return this.#sizeInBytes;
+  }
+
+  /** On-demand diagnostics; no payloads or mutable storage are exposed. */
+  public getStorageStats(): {
+    queuedEntries: number;
+    allocatedSlots: number;
+    replaceableKeys: number;
+  } {
+    return {
+      queuedEntries: this.#entryCount,
+      allocatedSlots: this.#entries.length,
+      replaceableKeys: this.#replaceableEntriesByKey.size,
+    };
   }
 
   public enqueue(
@@ -139,7 +160,39 @@ export class LiveMessageQueue<T> {
       }
     }
 
-    const workingEntries = [...this.#entries];
+    // Admission without pressure is the common path. Looking up only the samples being
+    // superseded avoids copying/scanning the whole queue for every incoming message.
+    const supersededIndices =
+      entry.retention === "replaceable" &&
+      entry.key != undefined &&
+      options.supersedeReplaceable === true
+        ? this.#replaceableEntriesByKey.get(entry.key)
+        : undefined;
+    let supersededSize = 0;
+    if (supersededIndices != undefined) {
+      for (const index of supersededIndices) {
+        supersededSize += this.#entries[index]!.sizeInBytes;
+      }
+    }
+    // Subtract before comparing: adding two safe byte counts can overflow MAX_SAFE_INTEGER.
+    if (entry.sizeInBytes <= this.#maximumSizeBytes - (this.#sizeInBytes - supersededSize)) {
+      const droppedEntries = supersededIndices?.size ?? 0;
+      if (supersededIndices != undefined) {
+        for (const index of supersededIndices) {
+          this.#removeAt(index);
+        }
+      }
+      if (videoKey != undefined) {
+        this.#videoStreamsAwaitingRecovery.delete(videoKey);
+      }
+      this.#append({ ...entry });
+      this.#compact();
+      return this.#enqueueResult({ accepted: true, droppedEntries, sizeLimitExceeded: false });
+    }
+
+    // Under pressure preserve the transactional eviction policy, including video dependency
+    // chains, protected priority and rollback when a larger replacement cannot be admitted.
+    const workingEntries = this.#snapshot();
     let workingSizeInBytes = BigInt(this.#sizeInBytes);
     const workingRecoveryState = new Set(this.#videoStreamsAwaitingRecovery);
     let supersededEntries = 0;
@@ -195,41 +248,112 @@ export class LiveMessageQueue<T> {
   }
 
   public shift(): LiveMessageQueueEntry<T> | undefined {
-    const entry = this.#entries.shift();
-    if (entry != undefined) {
-      this.#sizeInBytes -= entry.sizeInBytes;
+    while (this.#head < this.#entries.length) {
+      const index = this.#head++;
+      const entry = this.#entries[index];
+      if (entry != undefined) {
+        this.#removeAt(index);
+        this.#compact();
+        return entry;
+      }
     }
-    return entry;
+    return undefined;
   }
 
   /** Drain queued values while retaining per-video recovery state established by prior drops. */
   public drain(): T[] {
-    const values = this.#entries.map((entry) => entry.value);
-    this.#entries.length = 0;
-    this.#sizeInBytes = 0;
+    const values: T[] = [];
+    for (let index = this.#head; index < this.#entries.length; index++) {
+      const entry = this.#entries[index];
+      if (entry != undefined) {
+        values.push(entry.value);
+      }
+    }
+    this.#resetEntries();
     return values;
   }
 
   /** Reset both queued data and dependency state, e.g. for a new connection or a time seek. */
   public clear(): void {
-    this.#entries.length = 0;
-    this.#sizeInBytes = 0;
+    this.#resetEntries();
     this.#videoStreamsAwaitingRecovery.clear();
   }
 
   /** Remove queued entries and dependency state for a subscription which no longer exists. */
   public removeKey(key: string): number {
     let removedEntries = 0;
-    for (let index = this.#entries.length - 1; index >= 0; index--) {
-      const entry = this.#entries[index]!;
-      if (entry.key === key) {
-        this.#entries.splice(index, 1);
-        this.#sizeInBytes -= entry.sizeInBytes;
+    for (let index = this.#head; index < this.#entries.length; index++) {
+      if (this.#entries[index]?.key === key) {
+        this.#removeAt(index);
         removedEntries++;
       }
     }
+    this.#compact();
     this.#videoStreamsAwaitingRecovery.delete(key);
     return removedEntries;
+  }
+
+  #append(entry: LiveMessageQueueEntry<T>): void {
+    const index = this.#entries.length;
+    this.#entries.push(entry);
+    this.#entryCount++;
+    this.#sizeInBytes += entry.sizeInBytes;
+    if (entry.retention === "replaceable" && entry.key != undefined) {
+      let indices = this.#replaceableEntriesByKey.get(entry.key);
+      if (indices == undefined) {
+        indices = new Set();
+        this.#replaceableEntriesByKey.set(entry.key, indices);
+      }
+      indices.add(index);
+    }
+  }
+
+  #removeAt(index: number): void {
+    const entry = this.#entries[index];
+    if (entry == undefined) {
+      return;
+    }
+    this.#entries[index] = undefined;
+    this.#entryCount--;
+    this.#sizeInBytes -= entry.sizeInBytes;
+    if (entry.retention === "replaceable" && entry.key != undefined) {
+      const indices = this.#replaceableEntriesByKey.get(entry.key);
+      indices?.delete(index);
+      if (indices?.size === 0) {
+        this.#replaceableEntriesByKey.delete(entry.key);
+      }
+    }
+  }
+
+  #snapshot(): LiveMessageQueueEntry<T>[] {
+    const entries: LiveMessageQueueEntry<T>[] = [];
+    for (let index = this.#head; index < this.#entries.length; index++) {
+      const entry = this.#entries[index];
+      if (entry != undefined) {
+        entries.push(entry);
+      }
+    }
+    return entries;
+  }
+
+  #resetEntries(): void {
+    this.#entries.length = 0;
+    this.#head = 0;
+    this.#entryCount = 0;
+    this.#sizeInBytes = 0;
+    this.#replaceableEntriesByKey.clear();
+  }
+
+  #compact(): void {
+    if (this.#entryCount === 0) {
+      this.#resetEntries();
+    } else if (this.#entries.length > 1024 && this.#entries.length > this.#entryCount * 2) {
+      const entries = this.#snapshot();
+      this.#resetEntries();
+      for (const entry of entries) {
+        this.#append(entry);
+      }
+    }
   }
 
   #createTrimPlan(
@@ -338,11 +462,9 @@ export class LiveMessageQueue<T> {
   }
 
   #commitPlan(plan: TrimPlan<T>): void {
-    this.#entries.length = 0;
-    this.#sizeInBytes = 0;
+    this.#resetEntries();
     for (const entry of plan.entries) {
-      this.#entries.push(entry);
-      this.#sizeInBytes += entry.sizeInBytes;
+      this.#append(entry);
     }
     this.#videoStreamsAwaitingRecovery.clear();
     for (const key of plan.videoStreamsAwaitingRecovery) {

@@ -567,3 +567,52 @@ describe("inspectAnnexBVideoFrame", () => {
     });
   });
 });
+
+describe("LiveMessageQueue indexed storage", () => {
+  it("preserves ordering across head advancement, supersession and compaction", () => {
+    const queue = new LiveMessageQueue<number>(10000);
+    for (let i = 0; i < 4000; i++) {
+      queue.enqueue({ value: i, sizeInBytes: 1, retention: "protected" });
+    }
+    for (let i = 0; i < 3000; i++) {
+      expect(queue.shift()?.value).toBe(i);
+    }
+    for (let i = 0; i < 4000; i++) {
+      queue.enqueue(
+        { value: i, sizeInBytes: 1, key: "latest", retention: "replaceable" },
+        { supersedeReplaceable: true },
+      );
+    }
+    expect(queue.getSizeInBytes()).toBe(1001);
+    expect(queue.getStorageStats().allocatedSlots).toBeLessThanOrEqual(2002);
+    expect(queue.getStorageStats().replaceableKeys).toBe(1);
+    expect(queue.drain()).toEqual([...Array.from({ length: 1000 }, (_, i) => i + 3000), 3999]);
+    expect(queue.getSizeInBytes()).toBe(0);
+    expect(queue.getStorageStats()).toEqual({
+      queuedEntries: 0,
+      allocatedSlots: 0,
+      replaceableKeys: 0,
+    });
+    expect(queue.shift()).toBeUndefined();
+  });
+
+  it("removes all indexed samples and releases stale indices after drain and clear", () => {
+    const queue = new LiveMessageQueue<string>(100);
+    queue.enqueue({ value: "a", sizeInBytes: 1, key: "key", retention: "replaceable" });
+    queue.enqueue({ value: "b", sizeInBytes: 2, key: "key", retention: "replaceable" });
+    const replacement = {
+      value: "c",
+      sizeInBytes: 3,
+      key: "key",
+      retention: "replaceable" as const,
+    };
+    expect(queue.enqueue(replacement, { supersedeReplaceable: true }).droppedEntries).toBe(2);
+    expect(queue.removeKey("key")).toBe(1);
+    queue.enqueue(replacement);
+    expect(queue.drain()).toEqual(["c"]);
+    queue.enqueue(replacement);
+    queue.clear();
+    expect(queue.enqueue(replacement, { supersedeReplaceable: true }).droppedEntries).toBe(0);
+    expect(queue.getSizeInBytes()).toBe(3);
+  });
+});

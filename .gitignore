@@ -33,3 +33,8 @@ test-results/*
 .scannerwork
 eslint-report.json
 blob-report/*
+
+# Local performance measurements and profiles
+performance-results/
+*.cpuprofile
+*.heapprofile
