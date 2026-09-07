@@ -59,7 +59,7 @@ type TrimPlan<T> = {
  */
 export class LiveMessageQueue<T> {
   // Removed slots release payloads immediately. Compact geometrically, not on every shift.
-  readonly #entries: (LiveMessageQueueEntry<T> | undefined)[] = [];
+  #entries: (LiveMessageQueueEntry<T> | undefined)[] = [];
   readonly #replaceableEntriesByKey = new Map<string, Set<number>>();
   #head = 0;
   #entryCount = 0;
@@ -188,6 +188,18 @@ export class LiveMessageQueue<T> {
       this.#append({ ...entry });
       this.#compact();
       return this.#enqueueResult({ accepted: true, droppedEntries, sizeLimitExceeded: false });
+    }
+
+    // With only normal protected entries, pressure eviction is exactly FIFO. Inspect in place
+    // instead of allocating a detached snapshot and rebuilding every survivor. Keep mixed
+    // retention/priority, video recovery and replaceable rollback on the planner below.
+    if (
+      entry.retention === "protected" &&
+      entry.protectedPriority !== "high" &&
+      entry.protectedPriority !== "critical" &&
+      this.#hasOnlyNormalProtectedEntries()
+    ) {
+      return this.#enqueueNormalProtected(entry);
     }
 
     // Under pressure preserve the transactional eviction policy, including video dependency
@@ -325,7 +337,44 @@ export class LiveMessageQueue<T> {
     }
   }
 
+  #enqueueNormalProtected(entry: LiveMessageQueueEntry<T>): LiveMessageEnqueueResult {
+    // Copy before mutation. Subtract before comparing to avoid adding safe byte counts
+    // whose sum could exceed MAX_SAFE_INTEGER. Oversized entries were already rejected.
+    const queuedEntry = { ...entry };
+    const targetSize = this.#maximumSizeBytes - queuedEntry.sizeInBytes;
+    let droppedEntries = 0;
+    while (this.#sizeInBytes > targetSize) {
+      const index = this.#head++;
+      if (this.#entries[index] != undefined) {
+        this.#removeAt(index);
+        droppedEntries++;
+      }
+    }
+    this.#append(queuedEntry);
+    this.#compact();
+    return this.#enqueueResult({ accepted: true, droppedEntries, sizeLimitExceeded: false });
+  }
+
+  #hasOnlyNormalProtectedEntries(): boolean {
+    for (let index = this.#head; index < this.#entries.length; index++) {
+      const entry = this.#entries[index];
+      if (
+        entry != undefined &&
+        (entry.retention !== "protected" ||
+          entry.protectedPriority === "high" ||
+          entry.protectedPriority === "critical")
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   #snapshot(): LiveMessageQueueEntry<T>[] {
+    if (this.#entryCount === this.#entries.length - this.#head) {
+      // A dense suffix needs no per-slot filtering. The detached copy still owns the plan.
+      return this.#entries.slice(this.#head) as LiveMessageQueueEntry<T>[];
+    }
     const entries: LiveMessageQueueEntry<T>[] = [];
     for (let index = this.#head; index < this.#entries.length; index++) {
       const entry = this.#entries[index];
@@ -462,9 +511,23 @@ export class LiveMessageQueue<T> {
   }
 
   #commitPlan(plan: TrimPlan<T>): void {
-    this.#resetEntries();
-    for (const entry of plan.entries) {
-      this.#append(entry);
+    // The planner owns this detached, dense array and never exposes it to callers. Adopt it
+    // instead of copying every survivor through #append. The bounded bigint total is exact.
+    this.#entries = plan.entries;
+    this.#head = 0;
+    this.#entryCount = plan.entries.length;
+    this.#sizeInBytes = Number(plan.sizeInBytes);
+    this.#replaceableEntriesByKey.clear();
+    for (let index = 0; index < plan.entries.length; index++) {
+      const entry = plan.entries[index]!;
+      if (entry.retention === "replaceable" && entry.key != undefined) {
+        let indices = this.#replaceableEntriesByKey.get(entry.key);
+        if (indices == undefined) {
+          indices = new Set();
+          this.#replaceableEntriesByKey.set(entry.key, indices);
+        }
+        indices.add(index);
+      }
     }
     this.#videoStreamsAwaitingRecovery.clear();
     for (const key of plan.videoStreamsAwaitingRecovery) {

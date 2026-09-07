@@ -73,8 +73,8 @@ jobs:
           git rev-parse HEAD > performance-results/revision.txt
       - name: Typecheck the shared application and regression tests
         run: yarn tsc --noEmit -p packages/suite-base/tsconfig.json
-      - name: Test paired measurement protocol
-        run: yarn node --test benchmark/message-pipeline/measurement-check.cjs
+      - name: Test paired measurement protocol and queue storage contracts
+        run: yarn node --test benchmark/message-pipeline/measurement-check.cjs benchmark/message-pipeline/queue-storage-check.cjs
       - name: Check performance code quality
         run: |
           yarn biome format benchmark/message-pipeline packages/suite-base/src/components/MessagePipeline packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.ts packages/suite-base/src/players/FoxgloveWebSocketPlayer/liveMessageQueue.test.ts
@@ -120,6 +120,40 @@ jobs:
         run: |
           yarn node --expose-gc benchmark/message-pipeline/profile.cjs --before
           yarn node --expose-gc benchmark/message-pipeline/profile.cjs
+      - name: Enforce protected-pressure median and p95 budgets
+        run: |
+          yarn node - <<'NODE'
+          const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const revision = fs.readFileSync("performance-results/revision.txt", "utf8").trim();
+          const failures = [];
+          for (const repeat of [1, 2, 3]) {
+            const report = JSON.parse(fs.readFileSync(`performance-results/pressure-${repeat}.json`, "utf8"));
+            assert.equal(report.candidateCommit, revision);
+            assert.equal(report.baselineCommit, "b3cd154046d0ad17596faacb6db244b6bb32c3dd");
+            assert.equal(report.measurementMode, "paired");
+            assert.equal(report.sampleCount, 100);
+            assert.equal(report.warmups, 20);
+            const pressure = report.queue.filter((q) => q.kind === "pressure");
+            assert.deepEqual(pressure.map((q) => q.capacityBytes), [512, 4096, 16384]);
+            for (const q of pressure) {
+              for (const variant of [q.before, q.after]) {
+                assert.equal(variant.samplesInOrderMs.length, 100);
+                assert(variant.samplesInOrderMs.every((ms) => Number.isFinite(ms) && ms >= 0));
+                const sorted = [...variant.samplesInOrderMs].sort((a, b) => a - b);
+                assert.equal(variant.medianMs, sorted[50]);
+                assert.equal(variant.p95Ms, sorted[94]);
+              }
+              for (const metric of ["medianMs", "p95Ms"]) {
+                if (q.after[metric] > q.before[metric]) {
+                  failures.push(`repeat ${repeat}, ${q.capacityBytes}B ${metric}: ${q.before[metric]} -> ${q.after[metric]}`);
+                }
+              }
+            }
+          }
+          assert.equal(failures.length, 0, failures.join("\n"));
+          console.log("All three protected-pressure repeats satisfy median and p95 budgets.");
+          NODE
       - name: Preserve measurements and profiles
         if: always()
         uses: actions/upload-artifact@v7
