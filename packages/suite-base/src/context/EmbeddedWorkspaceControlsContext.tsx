@@ -43,9 +43,10 @@ export function useEmbeddedWorkspaceControls(): EmbeddedWorkspaceControls {
 
 export function EmbeddedWorkspaceControlsProvider({
   children,
-}: PropsWithChildren): React.JSX.Element {
+  defaultThreeDToolsVisible = true,
+}: PropsWithChildren<{ defaultThreeDToolsVisible?: boolean }>): React.JSX.Element {
   const [panelControlsVisible, setPanelControlsVisible] = useState(false);
-  const [threeDToolsVisible, setThreeDToolsVisible] = useState(true);
+  const [threeDToolsVisible, setThreeDToolsVisible] = useState(defaultThreeDToolsVisible);
   const hidePanelControls = useCallback(() => {
     setPanelControlsVisible(false);
   }, []);
