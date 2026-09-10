@@ -52,7 +52,7 @@ export function createGeometry(shape: SceneGeometry): THREE.BufferGeometry {
 }
 
 function part(id: string, geometry: SceneGeometry, position?: Vec3): ScenePart {
-  return { id, geometry, pose: initialPose(position), color: [0.9, 0.6, 0.1, 0.8] };
+  return { id, geometry, pose: initialPose(position), color: [1, 0.5, 0.1, 1] };
 }
 
 function box(id: string, size: Vec3, position: Vec3): ScenePart {
