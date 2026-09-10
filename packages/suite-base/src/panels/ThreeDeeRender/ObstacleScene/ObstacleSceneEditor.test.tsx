@@ -13,7 +13,6 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import * as THREE from "three";
 
 import { embeddedSceneBridge } from "@lichtblick/suite-base/components/EmbeddedSceneBridge";
-
 import {
   EmbeddedWorkspaceControlsProvider,
   useEmbeddedWorkspaceControls,
@@ -113,7 +112,7 @@ function setup() {
       </EmbeddedWorkspaceControlsProvider>
     </RendererContext.Provider>,
   );
-  act(() => extension.session!.accept(envelope));
+  act(() => { extension.session!.accept(envelope); });
   return {
     extension,
     command,
@@ -191,7 +190,7 @@ describe("obstacle editor operator flow", () => {
   it("retains a live edit after a write failure and allows retry without another mutation", async () => {
     const { extension, command, dispose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled());
+    await waitFor(() => { expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled(); });
     const current = extension.session!.getSnapshot().envelope!;
     const accepted = {
       ...current,
@@ -209,7 +208,7 @@ describe("obstacle editor operator flow", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add obstacle" }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Retry save YAML" })).toBeEnabled(),
+      { expect(screen.getByRole("button", { name: "Retry save YAML" })).toBeEnabled(); },
     );
     expect(extension.session!.getSnapshot().envelope!.document.obstacles).toHaveLength(2);
     expect(screen.getByText("Live changes · YAML not saved")).toBeInTheDocument();
@@ -220,7 +219,7 @@ describe("obstacle editor operator flow", () => {
       savedRevision: 2,
     });
     fireEvent.click(screen.getByRole("button", { name: "Retry save YAML" }));
-    await waitFor(() => expect(screen.getByText("Autosaved")).toBeInTheDocument());
+    await waitFor(() => { expect(screen.getByText("Autosaved")).toBeInTheDocument(); });
     expect(command).toHaveBeenLastCalledWith(
       "/xgc/scene",
       expect.objectContaining({ operation: "save", expectedRevision: 2 }),
