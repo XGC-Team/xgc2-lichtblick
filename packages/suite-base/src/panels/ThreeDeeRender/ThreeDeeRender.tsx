@@ -231,7 +231,10 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         // This needs to be before `setConfig` otherwise flickering will occur during
         // non-follow mode playback
         renderer.setCameraState(newCameraState);
-        setConfig((prevConfig) => ({ ...prevConfig, cameraState: newCameraState }));
+        setConfig((prevConfig) => ({
+          ...prevConfig,
+          cameraState: newCameraState,
+        }));
 
         if (config.scene.syncCamera === true) {
           context.setSharedPanelState({
@@ -843,8 +846,12 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   useEffect(() => {
     const datatypes =
       context.dataSourceProfile === "ros2" ? PublishRos2Datatypes : PublishRos1Datatypes;
-    context.advertise?.(publishTopics.goal, "geometry_msgs/PoseStamped", { datatypes });
-    context.advertise?.(publishTopics.point, "geometry_msgs/PointStamped", { datatypes });
+    context.advertise?.(publishTopics.goal, "geometry_msgs/PoseStamped", {
+      datatypes,
+    });
+    context.advertise?.(publishTopics.point, "geometry_msgs/PointStamped", {
+      datatypes,
+    });
     context.advertise?.(publishTopics.pose, "geometry_msgs/PoseWithCovarianceStamped", {
       datatypes,
     });
@@ -993,6 +1000,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
             measureActive={measureActive}
             onClickMeasure={onClickMeasure}
             canPublish={canPublish}
+            sceneIsLive={context.dataSourceIsLive && isRosDataSource}
             publishActive={publishActive}
             onClickPublish={onClickPublish}
             onShowTopicSettings={onShowTopicSettings}

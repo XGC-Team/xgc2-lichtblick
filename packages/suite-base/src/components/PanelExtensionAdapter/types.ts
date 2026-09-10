@@ -64,6 +64,8 @@ export type MessagePathDropConfig = {
  * extensions.
  */
 export type BuiltinPanelExtensionContext = {
+  /** A connected live stream, independent of message publishing permission. */
+  readonly dataSourceIsLive: boolean;
   /**
    * Fetch an asset from Studio's asset manager.
    *

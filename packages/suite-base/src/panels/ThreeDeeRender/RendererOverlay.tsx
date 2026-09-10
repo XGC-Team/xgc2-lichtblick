@@ -113,6 +113,7 @@ const useStyles = makeStyles()((theme) => ({
 type Props = {
   addPanel: LayoutActions["addPanel"];
   canPublish: boolean;
+  sceneIsLive: boolean;
   canvas: HTMLCanvasElement | ReactNull;
   enableStats: boolean;
   interfaceMode: InterfaceMode;
@@ -178,7 +179,10 @@ export function RendererOverlay(props: Props): React.JSX.Element {
   const { classes, cx } = useStyles();
   const panelContext = useContext(PanelContext);
   const toolsElementId = useId();
-  const [clickedPosition, setClickedPosition] = useState<{ clientX: number; clientY: number }>({
+  const [clickedPosition, setClickedPosition] = useState<{
+    clientX: number;
+    clientY: number;
+  }>({
     clientX: 0,
     clientY: 0,
   });
@@ -188,7 +192,10 @@ export function RendererOverlay(props: Props): React.JSX.Element {
   );
   const [interactionsTabType, setInteractionsTabType] = useState<TabType | undefined>(undefined);
   const [hoveredEntities, setHoveredEntities] = useState<HoverEntityInfo[]>([]);
-  const [hoverPosition, setHoverPosition] = useState<{ clientX: number; clientY: number }>({
+  const [hoverPosition, setHoverPosition] = useState<{
+    clientX: number;
+    clientY: number;
+  }>({
     clientX: 0,
     clientY: 0,
   });
@@ -554,7 +561,9 @@ export function RendererOverlay(props: Props): React.JSX.Element {
           selectObject={(selection) => {
             if (selection) {
               const renderable = (
-                selection.object as unknown as { interactionData: { renderable: Renderable } }
+                selection.object as unknown as {
+                  interactionData: { renderable: Renderable };
+                }
               ).interactionData.renderable;
               const instanceIndex = selection.instanceIndex;
               setSelectedRenderables([]);
@@ -563,7 +572,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
           }}
         />
       )}
-      {props.interfaceMode === "3d" && <ObstacleSceneEditor live={props.canPublish} />}
+      {props.interfaceMode === "3d" && <ObstacleSceneEditor live={props.sceneIsLive} />}
       <HUD renderer={renderer} />
       <HoverTooltip entities={hoveredEntities} position={hoverPosition} canvas={props.canvas} />
       {stats}

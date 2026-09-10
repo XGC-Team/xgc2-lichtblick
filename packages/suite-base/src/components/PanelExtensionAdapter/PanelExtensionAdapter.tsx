@@ -96,7 +96,9 @@ function getConverterForSubscription(
   return convertersForTopic.find((conv) => conv.toSchemaName === sub.convertTo);
 }
 
-type VersionedPanelConfig = Record<string, unknown> & { [VERSION_CONFIG_KEY]: number };
+type VersionedPanelConfig = Record<string, unknown> & {
+  [VERSION_CONFIG_KEY]: number;
+};
 
 export const VERSION_CONFIG_KEY = "foxgloveConfigVersion";
 
@@ -112,8 +114,7 @@ function isVersionedPanelConfig(config: unknown): config is VersionedPanelConfig
 type PanelExtensionAdapterProps = {
   /** function that initializes the panel extension */
   initPanel:
-    | ExtensionPanelRegistration["initPanel"]
-    | ((context: BuiltinPanelExtensionContext) => void);
+    ExtensionPanelRegistration["initPanel"] | ((context: BuiltinPanelExtensionContext) => void);
   /**
    * If defined, the highest supported version of config the panel supports.
    * Used to prevent older implementations of a panel from trying to access
@@ -440,6 +441,9 @@ function PanelExtensionAdapter(
         : undefined,
 
       dataSourceProfile,
+      dataSourceIsLive:
+        playerPresence === PlayerPresence.PRESENT &&
+        !capabilities.includes(PLAYER_CAPABILITIES.playbackControl),
 
       setParameter: (name: string, value: ParameterValue) => {
         if (!isMounted()) {
@@ -716,6 +720,7 @@ function PanelExtensionAdapter(
     initialState,
     seekPlayback,
     dataSourceProfile,
+    playerPresence,
     setSharedPanelState,
     capabilities,
     isMounted,

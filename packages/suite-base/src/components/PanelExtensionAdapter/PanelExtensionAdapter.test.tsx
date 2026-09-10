@@ -30,8 +30,41 @@ import PanelSetup, { Fixture } from "@lichtblick/suite-base/stories/PanelSetup";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 
 import PanelExtensionAdapter from "./PanelExtensionAdapter";
+import { BuiltinPanelExtensionContext } from "./types";
 
 describe("PanelExtensionAdapter", () => {
+  it.each([false, true])(
+    "identifies live read-only streams without publish permission (playback %s)",
+    async (playback) => {
+      const ready = signal();
+      let observed: BuiltinPanelExtensionContext | undefined;
+      render(
+        <ThemeProvider isDark>
+          <MockPanelContextProvider>
+            <PanelSetup
+              fixture={{
+                capabilities: playback ? [PLAYER_CAPABILITIES.playbackControl] : [],
+                profile: "ros1",
+              }}
+            >
+              <PanelExtensionAdapter
+                config={{}}
+                saveConfig={() => {}}
+                initPanel={(context: BuiltinPanelExtensionContext) => {
+                  observed = context;
+                  ready.resolve();
+                }}
+              />
+            </PanelSetup>
+          </MockPanelContextProvider>
+        </ThemeProvider>,
+      );
+      await ready;
+      expect(typeof observed?.publish).toBe("undefined");
+      expect(observed?.dataSourceIsLive).toBe(!playback);
+    },
+  );
+
   it("should call initPanel", async () => {
     expect.assertions(1);
 
@@ -69,10 +102,12 @@ describe("PanelExtensionAdapter", () => {
   });
 
   it("sets didSeek=true when seeking", async () => {
-    const mockRAF = jest
-      .spyOn(window, "requestAnimationFrame")
-      // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
-      .mockImplementation((cb) => queueMicrotask(() => cb(performance.now())) as any);
+    const mockRAF = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      queueMicrotask(() => {
+        cb(performance.now());
+      });
+      return 0;
+    });
 
     const renderStates: Immutable<RenderState>[] = [];
 
@@ -297,7 +332,10 @@ describe("PanelExtensionAdapter", () => {
                 if (passed) {
                   return;
                 }
-                expect(request).toEqual({ topic: "/some/topic", msg: { foo: "bar" } });
+                expect(request).toEqual({
+                  topic: "/some/topic",
+                  msg: { foo: "bar" },
+                });
                 passed = true;
                 sig.resolve();
               },
@@ -487,7 +525,13 @@ describe("PanelExtensionAdapter", () => {
         getState: () => undefined,
       });
       expect(openSiblingPanel.mock.calls).toEqual([
-        [{ panelType: "X", updateIfExists: true, siblingConfigCreator: expect.any(Function) }],
+        [
+          {
+            panelType: "X",
+            updateIfExists: true,
+            siblingConfigCreator: expect.any(Function),
+          },
+        ],
       ]);
       sig.resolve();
     };
@@ -554,7 +598,11 @@ describe("PanelExtensionAdapter", () => {
     const sig = signal();
     const initPanel = (context: PanelExtensionContext) => {
       context.subscribe([
-        { topic: "/test", convertTo: "dst", sampling: { mode: "latest-per-render-tick" } },
+        {
+          topic: "/test",
+          convertTo: "dst",
+          sampling: { mode: "latest-per-render-tick" },
+        },
       ]);
     };
 
@@ -633,7 +681,11 @@ describe("PanelExtensionAdapter", () => {
     const sig = signal();
     const initPanel = (context: PanelExtensionContext) => {
       context.subscribe([
-        { topic: "/test", convertTo: "src", sampling: { mode: "latest-per-render-tick" } },
+        {
+          topic: "/test",
+          convertTo: "src",
+          sampling: { mode: "latest-per-render-tick" },
+        },
       ]);
     };
 
@@ -666,7 +718,11 @@ describe("PanelExtensionAdapter", () => {
     const sig = signal();
     const initPanel = (context: PanelExtensionContext) => {
       context.subscribe([
-        { topic: "/test", convertTo: "dst", sampling: { mode: "latest-per-render-tick" } },
+        {
+          topic: "/test",
+          convertTo: "dst",
+          sampling: { mode: "latest-per-render-tick" },
+        },
       ]);
     };
 
@@ -749,10 +805,12 @@ describe("PanelExtensionAdapter", () => {
   });
 
   it("should get and set variables", async () => {
-    const mockRAF = jest
-      .spyOn(window, "requestAnimationFrame")
-      // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
-      .mockImplementation((cb) => queueMicrotask(() => cb(performance.now())) as any);
+    const mockRAF = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      queueMicrotask(() => {
+        cb(performance.now());
+      });
+      return 0;
+    });
 
     let sequence = 0;
     const renderStates: Immutable<RenderState>[] = [];
@@ -865,10 +923,12 @@ describe("PanelExtensionAdapter", () => {
     };
 
     // Setup the request animation frame to take some time
-    const mockRAF = jest
-      .spyOn(window, "requestAnimationFrame")
-      // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
-      .mockImplementation((cb) => queueMicrotask(() => cb(performance.now())) as any);
+    const mockRAF = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      queueMicrotask(() => {
+        cb(performance.now());
+      });
+      return 0;
+    });
 
     const resumeFrameWait = pauseFrameCond.wait();
     render(<Wrapper currentTime={{ sec: 1, nsec: 0 }} />);
@@ -1106,7 +1166,12 @@ describe("PanelExtensionAdapter", () => {
                     {
                       name: "some_msgs/Data",
                       definitions: [
-                        { name: "value", type: "uint32", isArray: false, isComplex: false },
+                        {
+                          name: "value",
+                          type: "uint32",
+                          isArray: false,
+                          isComplex: false,
+                        },
                       ],
                     },
                   ],
@@ -1152,7 +1217,12 @@ describe("PanelExtensionAdapter", () => {
                     {
                       name: "some_msgs/Data",
                       definitions: [
-                        { name: "value", type: "uint32", isArray: false, isComplex: false },
+                        {
+                          name: "value",
+                          type: "uint32",
+                          isArray: false,
+                          isComplex: false,
+                        },
                       ],
                     },
                   ],
@@ -1220,7 +1290,12 @@ describe("PanelExtensionAdapter", () => {
                     {
                       name: "some_msgs/Data",
                       definitions: [
-                        { name: "value", type: "uint32", isArray: false, isComplex: false },
+                        {
+                          name: "value",
+                          type: "uint32",
+                          isArray: false,
+                          isComplex: false,
+                        },
                       ],
                     },
                   ],
@@ -1268,7 +1343,12 @@ describe("PanelExtensionAdapter", () => {
                     {
                       name: "known_schema/Data",
                       definitions: [
-                        { name: "value", type: "uint32", isArray: false, isComplex: false },
+                        {
+                          name: "value",
+                          type: "uint32",
+                          isArray: false,
+                          isComplex: false,
+                        },
                       ],
                     },
                   ],
@@ -1314,7 +1394,12 @@ describe("PanelExtensionAdapter", () => {
                     {
                       name: "known_schema/Data",
                       definitions: [
-                        { name: "value", type: "uint32", isArray: false, isComplex: false },
+                        {
+                          name: "value",
+                          type: "uint32",
+                          isArray: false,
+                          isComplex: false,
+                        },
                       ],
                     },
                   ],
@@ -1382,7 +1467,12 @@ describe("PanelExtensionAdapter", () => {
                     {
                       name: "known_schema/Data",
                       definitions: [
-                        { name: "value", type: "uint32", isArray: false, isComplex: false },
+                        {
+                          name: "value",
+                          type: "uint32",
+                          isArray: false,
+                          isComplex: false,
+                        },
                       ],
                     },
                   ],

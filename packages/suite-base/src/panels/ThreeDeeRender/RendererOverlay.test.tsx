@@ -16,6 +16,13 @@ import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 import { RendererOverlay } from "./RendererOverlay";
 
 let mockLastHoverTooltipProps: any = undefined;
+let mockSceneIsLive: boolean | undefined;
+jest.mock("./ObstacleScene/ObstacleSceneEditor", () => ({
+  ObstacleSceneEditor: ({ live }: { live: boolean }) => {
+    mockSceneIsLive = live;
+    return undefined;
+  },
+}));
 
 jest.mock("./Interactions/HoverTooltip", () => {
   return {
@@ -90,6 +97,14 @@ describe("<RendererOverlay /> hover wiring", () => {
     jest.clearAllMocks();
   });
 
+  it("keeps the host-authorized live scene editor independent of ROS publishing", () => {
+    renderOverlay(document.createElement("canvas"), {
+      canPublish: false,
+      sceneIsLive: true,
+    });
+    expect(mockSceneIsLive).toBe(true);
+  });
+
   function HostToolsVisibilityToggle() {
     const { threeDToolsVisible, toggleThreeDTools } = useEmbeddedWorkspaceControls();
     return (
@@ -110,6 +125,7 @@ describe("<RendererOverlay /> hover wiring", () => {
           <RendererOverlay
             addPanel={jest.fn() as any}
             canPublish={false}
+            sceneIsLive={false}
             canvas={canvas}
             enableStats={false}
             interfaceMode="3d"
@@ -132,7 +148,10 @@ describe("<RendererOverlay /> hover wiring", () => {
 
   it("hides overlay tools from host Tools without a viewer collapse tab", () => {
     const onClickMeasure = jest.fn();
-    renderOverlay(document.createElement("canvas"), { measureActive: true, onClickMeasure });
+    renderOverlay(document.createElement("canvas"), {
+      measureActive: true,
+      onClickMeasure,
+    });
     const measure = screen.getByTestId("measure-button");
     const perspective = screen.getByRole("button", { name: "3D" });
     expect(measure).toHaveAttribute("data-xgc-role", "lichtblick-measure-tool");
@@ -229,7 +248,10 @@ describe("<RendererOverlay /> hover wiring", () => {
 
     await waitFor(() => {
       expect(mockLastHoverTooltipProps).toBeDefined();
-      expect(mockLastHoverTooltipProps.position).toEqual({ clientX: 110, clientY: 220 });
+      expect(mockLastHoverTooltipProps.position).toEqual({
+        clientX: 110,
+        clientY: 220,
+      });
       expect(mockLastHoverTooltipProps.entities).toHaveLength(1);
     });
 
@@ -283,8 +305,13 @@ describe("<RendererOverlay /> hover wiring", () => {
       topic: "/t",
       name: "n",
       userData: { entityId: "n" },
-      details: jest.fn(() => ({ metadata: [{ key: "wrong", value: "wrong" }] })),
-      instanceDetails: jest.fn(() => ({ metadata: [{ key: "ok", value: "yes" }], id: 9 })),
+      details: jest.fn(() => ({
+        metadata: [{ key: "wrong", value: "wrong" }],
+      })),
+      instanceDetails: jest.fn(() => ({
+        metadata: [{ key: "ok", value: "yes" }],
+        id: 9,
+      })),
     };
 
     act(() => {
