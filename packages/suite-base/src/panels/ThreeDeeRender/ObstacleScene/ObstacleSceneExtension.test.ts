@@ -127,7 +127,7 @@ describe("3D obstacle authoring", () => {
     expect(renderer.cameraHandler.setInteractionEnabled).toHaveBeenLastCalledWith({
       enabled: true,
     });
-    expect(extension.children[0]!.children[0]!.children[2]!.position.x).toBe(0);
+    expect(extension.children[0]!.children[0]!.children[2]!.position.x).toBe(2);
     dispose();
   });
 

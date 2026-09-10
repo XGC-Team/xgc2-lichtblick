@@ -26,14 +26,21 @@ const selectRightItem = jest.fn();
 const hidePanelControls = jest.fn();
 const togglePanelControls = jest.fn();
 const toggleThreeDTools = jest.fn();
+const toggleObstacleScene = jest.fn();
 
 function mockControls(
-  overrides: { panelControlsVisible?: boolean; threeDToolsVisible?: boolean } = {},
+  overrides: {
+    panelControlsVisible?: boolean;
+    threeDToolsVisible?: boolean;
+    obstacleSceneVisible?: boolean;
+  } = {},
 ) {
   return {
     hidePanelControls,
     panelControlsVisible: false,
     threeDToolsVisible: false,
+    obstacleSceneVisible: false,
+    toggleObstacleScene,
     togglePanelControls,
     toggleThreeDTools,
     ...overrides,

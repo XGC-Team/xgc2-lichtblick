@@ -24,8 +24,6 @@ export type BaseSettings = {
 };
 
 export type LayerSettingsEntity = BaseSettings & {
-  /** Draw triangle annotations above scene geometry without changing their world pose. */
-  triangleOverlay?: boolean;
   showOutlines: boolean | undefined;
   color: string | undefined;
   selectedIdVariable: string | undefined;

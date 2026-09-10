@@ -58,6 +58,7 @@ export class ObstacleSceneExtension extends SceneExtension {
   #unsubscribe: (() => void) | undefined;
   #accepted: SceneEnvelope | undefined;
   #drag: Drag | undefined;
+  #committing: { obstacleId: string } | undefined;
   #suppressClick = false;
   #lastState: { epoch: string; revision: number; poses: Map<string, ScenePose> } | undefined;
   #mode: "translate" | "rotate" | "scale" = "translate";
@@ -159,12 +160,14 @@ export class ObstacleSceneExtension extends SceneExtension {
     const envelope = state?.envelope;
     if (!envelope) {
       this.cancelPreview();
+      this.#committing = undefined;
       this.#clearGeometry();
       this.#accepted = undefined;
       return;
     }
     if (envelope.epoch !== this.#accepted?.epoch || envelope.revision !== this.#accepted.revision) {
       this.cancelPreview();
+      this.#committing = undefined;
       this.#clearGeometry();
       this.renderer.addCoordinateFrame(envelope.document.frame);
       for (const obstacle of envelope.document.obstacles) {
@@ -207,7 +210,10 @@ export class ObstacleSceneExtension extends SceneExtension {
       return;
     }
     for (const obstacle of envelope.document.obstacles) {
-      if (this.#drag?.selection.obstacleId === obstacle.id) {
+      if (
+        this.#drag?.selection.obstacleId === obstacle.id ||
+        this.#committing?.obstacleId === obstacle.id
+      ) {
         continue;
       }
       const group = this.#groups.get(obstacle.id);
@@ -381,9 +387,14 @@ export class ObstacleSceneExtension extends SceneExtension {
       } else {
         obstacle = withObstaclePose(obstacle, pose);
       }
-      // End the local preview before sending: the scene remains at its last accepted geometry until acknowledged.
-      this.#restoreAccepted();
-      void this.session?.command({ operation: "update", obstacle });
+      const committing = { obstacleId: obstacle.id };
+      this.#committing = committing;
+      void this.session?.command({ operation: "update", obstacle }).finally(() => {
+        if (this.#committing === committing) {
+          this.#committing = undefined;
+          this.#restoreAccepted();
+        }
+      });
     } catch (error) {
       this.#restoreAccepted();
       this.session?.reportError(error);

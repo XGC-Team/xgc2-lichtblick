@@ -53,59 +53,28 @@ const entity: SceneEntity = {
   ],
 };
 
-it("keeps triangle annotations above opaque models without moving the ground geometry", () => {
+it.each([
+  1, 0.5,
+])("preserves ordinary occlusion when a pooled triangle changes opacity (alpha %s)", (alpha) => {
   const renderable = new RenderableTriangles({} as IRenderer);
-  renderable.update(
-    "/projection",
-    entity,
-    { ...settings, triangleOverlay: true },
-    1n,
-  );
+  renderable.update("/projection", entity, settings, 1n);
   const mesh = renderable.children[0] as THREE.Mesh<
     THREE.BufferGeometry,
     THREE.MeshStandardMaterial
   >;
-  expect(mesh.material.depthTest).toBe(false);
-  expect(mesh.material.depthWrite).toBe(false);
-  expect(mesh.material.transparent).toBe(true);
-  expect(mesh.material.opacity).toBe(1);
-  expect(mesh.renderOrder).toBe(Number.MAX_SAFE_INTEGER);
-  expect(mesh.position.z).toBe(0);
-  const positions = mesh.geometry.getAttribute("position");
-  for (let i = 0; i < 3; i++) {
-    expect(positions.getZ(i)).toBe(0);
-  }
+  renderable.prepareForReuse();
+  const obstacle = {
+    ...entity,
+    triangles: entity.triangles.map((tri) => ({
+      ...tri,
+      color: { ...tri.color, a: alpha },
+    })),
+  };
+  renderable.update("/obstacles", obstacle, settings, 2n);
+  expect(renderable.children[0]).toBe(mesh);
+  expect(mesh.material.depthTest).toBe(true);
+  expect(mesh.material.depthWrite).toBe(alpha === 1);
+  expect(mesh.material.transparent).toBe(alpha < 1);
+  expect(mesh.renderOrder).toBe(0);
   renderable.dispose();
 });
-
-it.each([1, 0.5])(
-  "restores ordinary occlusion when a pooled overlay becomes a scene mesh (alpha %s)",
-  (alpha) => {
-    const renderable = new RenderableTriangles({} as IRenderer);
-    renderable.update(
-      "/projection",
-      entity,
-      { ...settings, triangleOverlay: true },
-      1n,
-    );
-    const mesh = renderable.children[0] as THREE.Mesh<
-      THREE.BufferGeometry,
-      THREE.MeshStandardMaterial
-    >;
-    renderable.prepareForReuse();
-    const obstacle = {
-      ...entity,
-      triangles: entity.triangles.map((tri) => ({
-        ...tri,
-        color: { ...tri.color, a: alpha },
-      })),
-    };
-    renderable.update("/obstacles", obstacle, settings, 2n);
-    expect(renderable.children[0]).toBe(mesh);
-    expect(mesh.material.depthTest).toBe(true);
-    expect(mesh.material.depthWrite).toBe(alpha === 1);
-    expect(mesh.material.transparent).toBe(alpha < 1);
-    expect(mesh.renderOrder).toBe(0);
-    renderable.dispose();
-  },
-);

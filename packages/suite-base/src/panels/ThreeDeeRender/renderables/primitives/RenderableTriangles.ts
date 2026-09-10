@@ -187,18 +187,11 @@ export class RenderableTriangles extends RenderablePrimitive {
         }
       }
 
-      const overlay = this.userData.settings.triangleOverlay === true;
-      const renderTransparent = transparent || overlay;
-      if (
-        material.transparent !== renderTransparent ||
-        material.depthTest === overlay
-      ) {
-        material.transparent = renderTransparent;
-        material.depthTest = !overlay;
-        material.depthWrite = !renderTransparent;
+      if (material.transparent !== transparent) {
+        material.transparent = transparent;
+        material.depthWrite = !transparent;
         material.needsUpdate = true;
       }
-      mesh.renderOrder = overlay ? Number.MAX_SAFE_INTEGER : 0;
 
       const indices = primitive.indices;
       if (indices.length > 0) {

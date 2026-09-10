@@ -17,6 +17,7 @@ import { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProto
 export { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProtocol";
 export const XGC2_EMBED_SURFACES = [
   "3d-tools",
+  "obstacle-scene",
   "panel-settings",
   "alerts",
   "topics",
@@ -84,8 +85,14 @@ export function isXgc2EmbeddedHostCommand(value: unknown): value is Xgc2Embedded
  */
 export default function EmbeddedWorkspaceBridge(): null {
   const { sidebarActions } = useWorkspaceActions();
-  const { panelControlsVisible, threeDToolsVisible, togglePanelControls, toggleThreeDTools } =
-    useEmbeddedWorkspaceControls();
+  const {
+    panelControlsVisible,
+    threeDToolsVisible,
+    obstacleSceneVisible,
+    toggleObstacleScene,
+    togglePanelControls,
+    toggleThreeDTools,
+  } = useEmbeddedWorkspaceControls();
 
   const sidebars = useWorkspaceStore((store) => store.sidebars);
 
@@ -125,6 +132,9 @@ export default function EmbeddedWorkspaceBridge(): null {
         case "panel-controls":
           togglePanelControls();
           break;
+        case "obstacle-scene":
+          toggleObstacleScene();
+          break;
         case "3d-tools":
           toggleThreeDTools();
           break;
@@ -142,10 +152,12 @@ export default function EmbeddedWorkspaceBridge(): null {
       visibleSurfaces: XGC2_EMBED_SURFACES.filter((surface) =>
         surface === "panel-controls"
           ? panelControlsVisible
-          : surface === "3d-tools"
-            ? threeDToolsVisible
-            : (sidebars.left.open && sidebars.left.item === surface) ||
-              (sidebars.right.open && sidebars.right.item === surface),
+          : surface === "obstacle-scene"
+            ? obstacleSceneVisible
+            : surface === "3d-tools"
+              ? threeDToolsVisible
+              : (sidebars.left.open && sidebars.left.item === surface) ||
+                (sidebars.right.open && sidebars.right.item === surface),
       ),
     };
     parentWindow.postMessage(readyMessage, expectedOrigin);
@@ -158,6 +170,8 @@ export default function EmbeddedWorkspaceBridge(): null {
     sidebarActions,
     sidebars,
     threeDToolsVisible,
+    obstacleSceneVisible,
+    toggleObstacleScene,
     togglePanelControls,
     toggleThreeDTools,
   ]);

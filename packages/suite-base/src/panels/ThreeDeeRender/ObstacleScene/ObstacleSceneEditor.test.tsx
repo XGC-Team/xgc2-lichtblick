@@ -9,16 +9,15 @@
 
 import "@testing-library/jest-dom";
 
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as THREE from "three";
 
 import { embeddedSceneBridge } from "@lichtblick/suite-base/components/EmbeddedSceneBridge";
+
+import {
+  EmbeddedWorkspaceControlsProvider,
+  useEmbeddedWorkspaceControls,
+} from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 
 import { ObstacleSceneEditor } from "./ObstacleSceneEditor";
 import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
@@ -30,6 +29,11 @@ import { RendererContext } from "../RendererContext";
 jest.mock("react-i18next", () => ({
   useTranslation: () => ({ i18n: { language: "en" } }),
 }));
+
+function SceneTools() {
+  const { toggleObstacleScene } = useEmbeddedWorkspaceControls();
+  return <button onClick={toggleObstacleScene}>Obstacle scene</button>;
+}
 
 function setup() {
   const canvas = document.createElement("canvas");
@@ -103,7 +107,10 @@ function setup() {
   renderer.sceneExtensions.set(ObstacleSceneExtension.extensionId, extension);
   const view = render(
     <RendererContext.Provider value={renderer}>
-      <ObstacleSceneEditor live />
+      <EmbeddedWorkspaceControlsProvider>
+        <SceneTools />
+        <ObstacleSceneEditor live />
+      </EmbeddedWorkspaceControlsProvider>
     </RendererContext.Provider>,
   );
   return {
@@ -123,9 +130,7 @@ describe("obstacle editor operator flow", () => {
     const { command, dispose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Add obstacle" }),
-      ).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
     });
     fireEvent.click(screen.getByRole("button", { name: "Add obstacle" }));
     await waitFor(() => {
@@ -138,9 +143,7 @@ describe("obstacle editor operator flow", () => {
         obstacle: expect.objectContaining({ name: "Box" }),
       }),
     );
-    expect(
-      screen.getByRole("button", { name: "Retry save YAML" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry save YAML" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Reload YAML" }));
     await waitFor(() => {
       expect(screen.getByText("Autosaved")).toBeInTheDocument();
@@ -156,9 +159,7 @@ describe("obstacle editor operator flow", () => {
     const { extension, command, dispose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Add obstacle" }),
-      ).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
     });
     act(() => {
       extension.session!.select({ obstacleId: "sphere-1" });
@@ -170,8 +171,7 @@ describe("obstacle editor operator flow", () => {
       expect(screen.getByText("Autosaved")).toBeInTheDocument();
     });
     expect(
-      extension.session!.getSnapshot().envelope!.document.obstacles[0]!
-        .parts[0]!.geometry,
+      extension.session!.getSnapshot().envelope!.document.obstacles[0]!.parts[0]!.geometry,
     ).toEqual({ type: "sphere", radius: 0.8 });
     command.mockResolvedValue({
       success: false,
@@ -180,9 +180,7 @@ describe("obstacle editor operator flow", () => {
     fireEvent.change(radius, { target: { value: "2" } });
     fireEvent.blur(radius);
     await waitFor(() => {
-      expect(
-        screen.getByText("Collision update failed. Check Gazebo."),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Collision update failed. Check Gazebo.")).toBeInTheDocument();
     });
     expect(radius).toHaveValue("0.8");
     expect(screen.getByRole("button", { name: "Add obstacle" })).toBeDisabled();
@@ -192,11 +190,7 @@ describe("obstacle editor operator flow", () => {
   it("retains a live edit after a write failure and allows retry without another mutation", async () => {
     const { extension, command, dispose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Add obstacle" }),
-      ).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled());
     const current = extension.session!.getSnapshot().envelope!;
     const accepted = {
       ...current,
@@ -204,10 +198,7 @@ describe("obstacle editor operator flow", () => {
       dirty: true,
       document: {
         ...current.document,
-        obstacles: [
-          ...current.document.obstacles,
-          createObstacle("Box", "new"),
-        ],
+        obstacles: [...current.document.obstacles, createObstacle("Box", "new")],
       },
     };
     command.mockResolvedValueOnce({
@@ -217,16 +208,10 @@ describe("obstacle editor operator flow", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add obstacle" }));
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Retry save YAML" }),
-      ).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "Retry save YAML" })).toBeEnabled(),
     );
-    expect(
-      extension.session!.getSnapshot().envelope!.document.obstacles,
-    ).toHaveLength(2);
-    expect(
-      screen.getByText("Live changes · YAML not saved"),
-    ).toBeInTheDocument();
+    expect(extension.session!.getSnapshot().envelope!.document.obstacles).toHaveLength(2);
+    expect(screen.getByText("Live changes · YAML not saved")).toBeInTheDocument();
     command.mockResolvedValueOnce({
       ...accepted,
       success: true,
@@ -234,9 +219,7 @@ describe("obstacle editor operator flow", () => {
       savedRevision: 2,
     });
     fireEvent.click(screen.getByRole("button", { name: "Retry save YAML" }));
-    await waitFor(() =>
-      expect(screen.getByText("Autosaved")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("Autosaved")).toBeInTheDocument());
     expect(command).toHaveBeenLastCalledWith(
       "/xgc/scene",
       expect.objectContaining({ operation: "save", expectedRevision: 2 }),
@@ -248,9 +231,7 @@ describe("obstacle editor operator flow", () => {
     const { extension, dispose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Add obstacle" }),
-      ).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
     });
     act(() => {
       extension.session!.accept({
@@ -261,21 +242,16 @@ describe("obstacle editor operator flow", () => {
             consumer: "planner",
             revision: 0,
             success: false,
-            message:
-              "The planner does not support this motion. Select hold or constant twist.",
+            message: "The planner does not support this motion. Select hold or constant twist.",
           },
         ],
       });
     });
     expect(
-      screen.getByText(
-        "The planner does not support this motion. Select hold or constant twist.",
-      ),
+      screen.getByText("The planner does not support this motion. Select hold or constant twist."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Waiting for scene consumers; the update is not yet applied everywhere.",
-      ),
+      screen.getByText("Waiting for scene consumers; the update is not yet applied everywhere."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Retry sync" })).toBeEnabled();

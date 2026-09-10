@@ -21,16 +21,20 @@ type EmbeddedWorkspaceControls = {
   hidePanelControls: () => void;
   panelControlsVisible: boolean;
   threeDToolsVisible: boolean;
+  obstacleSceneVisible: boolean;
   togglePanelControls: () => void;
   toggleThreeDTools: () => void;
+  toggleObstacleScene: () => void;
 };
 
 const defaultValue: EmbeddedWorkspaceControls = {
   hidePanelControls: () => {},
   panelControlsVisible: false,
   threeDToolsVisible: true,
+  obstacleSceneVisible: false,
   togglePanelControls: () => {},
   toggleThreeDTools: () => {},
+  toggleObstacleScene: () => {},
 };
 
 export const EmbeddedWorkspaceControlsContext =
@@ -47,6 +51,10 @@ export function EmbeddedWorkspaceControlsProvider({
 }: PropsWithChildren<{ defaultThreeDToolsVisible?: boolean }>): React.JSX.Element {
   const [panelControlsVisible, setPanelControlsVisible] = useState(false);
   const [threeDToolsVisible, setThreeDToolsVisible] = useState(defaultThreeDToolsVisible);
+  const [obstacleSceneVisible, setObstacleSceneVisible] = useState(false);
+  const toggleObstacleScene = useCallback(() => {
+    setObstacleSceneVisible((visible) => !visible);
+  }, []);
   const hidePanelControls = useCallback(() => {
     setPanelControlsVisible(false);
   }, []);
@@ -91,6 +99,8 @@ export function EmbeddedWorkspaceControlsProvider({
       hidePanelControls,
       panelControlsVisible,
       threeDToolsVisible,
+      obstacleSceneVisible,
+      toggleObstacleScene,
       togglePanelControls,
       toggleThreeDTools,
     }),
@@ -98,6 +108,8 @@ export function EmbeddedWorkspaceControlsProvider({
       hidePanelControls,
       panelControlsVisible,
       threeDToolsVisible,
+      obstacleSceneVisible,
+      toggleObstacleScene,
       togglePanelControls,
       toggleThreeDTools,
     ],
