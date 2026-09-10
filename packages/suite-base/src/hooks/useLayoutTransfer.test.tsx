@@ -48,6 +48,8 @@ describe("useLayoutTransfer", () => {
   const logEventMock = jest.fn();
 
   beforeEach(() => {
+    jest.clearAllMocks();
+
     (useLayoutManager as jest.Mock).mockReturnValue({
       saveNewLayout: saveNewLayoutMock,
     });
@@ -55,6 +57,7 @@ describe("useLayoutTransfer", () => {
     (useCurrentLayoutActions as jest.Mock).mockReturnValue({
       getCurrentLayoutState: getCurrentLayoutStateMock,
     });
+    getCurrentLayoutStateMock.mockReturnValue({ selectedLayout: undefined });
 
     (useLayoutNavigation as jest.Mock).mockReturnValue({
       promptForUnsavedChanges: promptForUnsavedChangesMock,
@@ -64,8 +67,6 @@ describe("useLayoutTransfer", () => {
     (useAnalytics as jest.Mock).mockReturnValue({
       logEvent: logEventMock,
     });
-
-    jest.clearAllMocks();
   });
 
   it("should import a layout and call onSelectLayout", async () => {
@@ -98,5 +99,46 @@ describe("useLayoutTransfer", () => {
     expect(saveNewLayoutMock).toHaveBeenCalled();
     expect(onSelectLayoutMock).toHaveBeenCalled();
     expect(logEventMock).toHaveBeenCalled();
+  });
+
+  it("restores managed followTf from the current layout while keeping imported camera state", async () => {
+    getCurrentLayoutStateMock.mockReturnValue({
+      selectedLayout: {
+        data: {
+          configById: {
+            "3D!xgc2": { followTf: "world", topics: { "/xgc/tf": { visible: true } } },
+          },
+        },
+      },
+    });
+    const content =
+      JSON.stringify({
+        configById: { "3D!imported": { followTf: "map", cameraState: { distance: 3 } } },
+        layout: "3D!imported",
+      }) ?? "";
+    const mockFile = new File([content], "imported.json", { type: "application/json" });
+    mockFile.text = async () => content;
+    (filePicker.default as jest.Mock).mockResolvedValue([{ getFile: async () => mockFile }]);
+    saveNewLayoutMock.mockResolvedValue({ id: "456", name: "imported", data: {} });
+
+    const { result } = renderHook(() => useLayoutTransfer());
+    await act(async () => {
+      await result.current.importLayout();
+    });
+
+    expect(saveNewLayoutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          layout: "3D!imported",
+          configById: {
+            "3D!imported": expect.objectContaining({
+              followTf: "world",
+              cameraState: { distance: 3 },
+              topics: { "/xgc/tf": { visible: true } },
+            }),
+          },
+        }),
+      }),
+    );
   });
 });

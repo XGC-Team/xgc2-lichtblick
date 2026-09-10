@@ -29,6 +29,7 @@ import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
 import { SceneEditorSession } from "./SceneEditorSession";
 import { createObstacle, SCENE_PRESETS, type ScenePreset } from "./geometry";
 import { withObstacleMotion, withObstaclePose } from "./motion";
+import { canRetrySync } from "./sceneSync";
 import {
   geometryValid,
   type SceneGeometry,
@@ -417,8 +418,13 @@ function SceneInspector({
   const writable = session.canEdit();
   const transformable = extension.canTransform();
   const consumers = envelope?.consumers ?? [];
-  const failed = consumers.filter((consumer) => !consumer.success);
-  const awaiting = consumers.some((consumer) => consumer.revision !== envelope?.revision);
+  const failed = consumers.filter((consumer) => !consumer.applied);
+  const capability = consumers.filter((consumer) => consumer.capability === "unsupported");
+  const awaiting = consumers.some(
+    (consumer) =>
+      consumer.revision !== envelope?.revision || consumer.epoch !== envelope?.epoch,
+  );
+  const retrySync = envelope != undefined && canRetrySync(envelope);
   const update = (next: SceneObstacle) => {
     void session.command({ operation: "update", obstacle: next });
   };
@@ -486,18 +492,34 @@ function SceneInspector({
           {envelope?.synchronized === false && (
             <Alert severity="error">
               {zh
-                ? "场景更新尚未在各端同步，请检查错误或重试同步。"
-                : "The scene update is not synchronized everywhere. Check the errors or retry synchronization."}
-              <Button
-                size="small"
-                disabled={!state.live || !state.authorized || state.pending}
-                onClick={() => void session.command({ operation: "resync" })}
-              >
-                {zh ? "重试同步" : "Retry sync"}
-              </Button>
+                ? retrySync
+                  ? "场景更新尚未在各端同步，请检查错误或重试同步。"
+                  : "场景文档已保存，但有使用方无法应用该版本。重试同步不会改变其能力。"
+                : retrySync
+                  ? "The scene update is not synchronized everywhere. Check the errors or retry synchronization."
+                  : "The scene is saved, but a consumer cannot apply this version. Retrying sync will not change that capability."}
+              {retrySync && (
+                <Button
+                  size="small"
+                  disabled={!state.live || !state.authorized || state.pending}
+                  onClick={() => void session.command({ operation: "resync" })}
+                >
+                  {zh ? "重试同步" : "Retry sync"}
+                </Button>
+              )}
             </Alert>
           )}
-          {failed.map((consumer) => (
+          {capability.map((consumer) => (
+            <Alert severity="warning" key={`capability-${consumer.consumer}`}>
+              {consumer.message ||
+                (zh
+                  ? `${consumer.consumer} 不支持该场景能力，Reset 等操作保持受限。`
+                  : `${consumer.consumer} cannot operate on this scene. Reset remains constrained.`)}
+            </Alert>
+          ))}
+          {failed
+            .filter((consumer) => consumer.capability !== "unsupported")
+            .map((consumer) => (
             <Alert severity="error" key={consumer.consumer}>
               {consumer.message ||
                 (zh

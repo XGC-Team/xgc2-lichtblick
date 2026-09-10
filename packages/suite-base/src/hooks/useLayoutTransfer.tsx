@@ -15,6 +15,7 @@ import { useLayoutNavigation } from "@lichtblick/suite-base/hooks/useLayoutNavig
 import { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
 import { Namespace } from "@lichtblick/suite-base/types";
 import { downloadTextFile } from "@lichtblick/suite-base/util/download";
+import { sanitizeImportedLayoutData } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 import showOpenFilePicker from "@lichtblick/suite-base/util/showOpenFilePicker";
 
 import { useAnalytics } from "../context/AnalyticsContext";
@@ -58,7 +59,10 @@ export function useLayoutTransfer(): UseLayoutTransfer {
         return;
       }
 
-      const data = parsedState as LayoutData;
+      const data = sanitizeImportedLayoutData(
+        parsedState,
+        getCurrentLayoutState().selectedLayout?.data,
+      ) as LayoutData;
       const newLayout = await layoutManager.saveNewLayout({
         name: layoutName,
         data,
@@ -69,7 +73,7 @@ export function useLayoutTransfer(): UseLayoutTransfer {
 
       return newLayout;
     },
-    [isMounted, layoutManager, onSelectLayout],
+    [getCurrentLayoutState, isMounted, layoutManager, onSelectLayout],
   );
 
   const importLayout = useCallbackWithToast(async () => {

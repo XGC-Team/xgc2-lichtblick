@@ -56,10 +56,16 @@ export type SceneEnvelope = {
   document: SceneDocument;
   consumers: {
     consumer: string;
+    epoch: string;
     revision: number;
-    success: boolean;
+    applied: boolean;
+    operational: boolean;
+    capability: "" | "ok" | "unsupported";
+    generation?: number;
     message: string;
+    success: boolean;
   }[];
+  syncRetryable?: boolean;
 };
 export type SceneCommand = {
   requestId: string;
@@ -189,6 +195,7 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
       typeof value.synchronized !== "boolean") ||
     typeof value.dirty !== "boolean" ||
     typeof value.playing !== "boolean" ||
+    (value.syncRetryable != undefined && typeof value.syncRetryable !== "boolean") ||
     !Number.isFinite(value.sceneTime) ||
     !isRecord(value.document) ||
     value.document.schema !== "xgc2.scene.v1" ||
@@ -243,8 +250,16 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
     if (
       !isRecord(consumer) ||
       typeof consumer.consumer !== "string" ||
+      typeof consumer.epoch !== "string" ||
       !Number.isSafeInteger(consumer.revision) ||
+      typeof consumer.applied !== "boolean" ||
+      typeof consumer.operational !== "boolean" ||
+      typeof consumer.capability !== "string" ||
+      !["", "ok", "unsupported"].includes(consumer.capability) ||
       typeof consumer.success !== "boolean" ||
+      consumer.success !== consumer.applied ||
+      (consumer.generation != undefined &&
+        (!Number.isSafeInteger(consumer.generation) || (consumer.generation as number) < 0)) ||
       typeof consumer.message !== "string"
     ) {
       throw new Error("Invalid scene synchronization status.");
@@ -261,8 +276,21 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
     ...(envelope.synchronized != undefined
       ? { synchronized: envelope.synchronized }
       : {}),
+    ...(envelope.syncRetryable != undefined
+      ? { syncRetryable: envelope.syncRetryable }
+      : {}),
     document: envelope.document,
-    consumers: envelope.consumers,
+    consumers: envelope.consumers.map((consumer) => ({
+      consumer: consumer.consumer,
+      epoch: consumer.epoch,
+      revision: consumer.revision,
+      applied: consumer.applied,
+      operational: consumer.operational,
+      capability: consumer.capability,
+      message: consumer.message,
+      success: consumer.applied,
+      ...(consumer.generation != undefined ? { generation: consumer.generation } : {}),
+    })),
   };
 }
 

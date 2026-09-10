@@ -33,9 +33,9 @@ import {
   usePanelStateStore,
 } from "@lichtblick/suite-base/context/PanelStateContext";
 import { useAppConfigurationValue } from "@lichtblick/suite-base/hooks";
-import { PanelConfig } from "@lichtblick/suite-base/types/panels";
 import { TAB_PANEL_TYPE } from "@lichtblick/suite-base/util/constants";
 import { getPanelTypeFromId } from "@lichtblick/suite-base/util/layout";
+import { sanitizeImportedPanelConfig } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
 const singlePanelIdSelector = (state: LayoutState) =>
   typeof state.selectedLayout?.data?.layout === "string"
@@ -115,7 +115,15 @@ export default function PanelSettings({
         initialValue={panelConfigById[selectedPanelId] ?? {}}
         onChange={(config) => {
           savePanelConfigs({
-            configs: [{ id: selectedPanelId, config: config as PanelConfig, override: true }],
+            configs: [{
+              id: selectedPanelId,
+              config: sanitizeImportedPanelConfig(
+                config,
+                panelConfigById[selectedPanelId],
+                getPanelTypeFromId(selectedPanelId),
+              ),
+              override: true,
+            }],
           });
           incrementSequenceNumber(selectedPanelId);
         }}

@@ -239,22 +239,70 @@ describe("obstacle editor operator flow", () => {
         synchronized: false,
         consumers: [
           {
-            consumer: "planner",
-            revision: 0,
+            consumer: "gazebo",
+            epoch: "one",
+            revision: 1,
+            applied: false,
+            operational: false,
+            capability: "",
             success: false,
-            message: "The planner does not support this motion. Select hold or constant twist.",
+            message: "Gazebo collision update failed",
           },
         ],
       });
     });
+    expect(screen.getByText("Gazebo collision update failed")).toBeInTheDocument();
     expect(
-      screen.getByText("The planner does not support this motion. Select hold or constant twist."),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Waiting for scene consumers; the update is not yet applied everywhere."),
+      screen.getByText("The scene update is not synchronized everywhere. Check the errors or retry synchronization."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Retry sync" })).toBeEnabled();
+    dispose();
+  });
+
+  it("does not tell the operator to retry a declared Reset capability gap", async () => {
+    const { extension, dispose } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
+    });
+    act(() => {
+      extension.session!.accept({
+        ...extension.session!.getSnapshot().envelope,
+        synchronized: false,
+        syncRetryable: false,
+        consumers: [
+          {
+            consumer: "gazebo",
+            epoch: "one",
+            revision: 1,
+            applied: true,
+            operational: true,
+            capability: "ok",
+            success: true,
+            message: "applied",
+          },
+          {
+            consumer: "ugv-reset",
+            epoch: "one",
+            revision: 1,
+            applied: false,
+            operational: false,
+            capability: "unsupported",
+            success: false,
+            message: "unsupported motion type: spiral",
+          },
+        ],
+      });
+    });
+    expect(screen.getByText("unsupported motion type: spiral")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The scene is saved, but a consumer cannot apply this version. Retrying sync will not change that capability.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry sync" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
     dispose();
   });
 });
