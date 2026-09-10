@@ -20,6 +20,21 @@ jobs:
         with:
           fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
 
+      - name: Validate Sonar endpoint and token
+        env:
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+          value = urlsplit(os.environ['SONAR_HOST_URL'])
+          if value.scheme != 'https' or not value.hostname or value.username or value.password:
+              raise SystemExit('SONAR_HOST_URL must be an absolute HTTPS URL without credentials')
+          if not os.environ.get('SONAR_TOKEN'):
+              raise SystemExit('SONAR_TOKEN is missing; configure the existing Sonar project token')
+          PY
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -38,7 +53,7 @@ jobs:
           restore-keys: v5-${{ runner.os }}-yarn-
 
       - name: Install dependencies
-        run: yarn install
+        run: yarn install --immutable
 
       - name: Generates lint report and file path formatting
         run: |
@@ -54,4 +69,4 @@ jobs:
         uses: sonarsource/sonarqube-scan-action@v8.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
