@@ -24,6 +24,8 @@ export type BaseSettings = {
 };
 
 export type LayerSettingsEntity = BaseSettings & {
+  /** Draw triangle annotations above scene geometry without changing their world pose. */
+  triangleOverlay?: boolean;
   showOutlines: boolean | undefined;
   color: string | undefined;
   selectedIdVariable: string | undefined;
@@ -89,6 +91,9 @@ export function fieldLineWidth(
   };
 }
 
-export function fieldGradient(label: string, value: TwoColors): SettingsTreeField {
+export function fieldGradient(
+  label: string,
+  value: TwoColors,
+): SettingsTreeField {
   return { label, input: "gradient", value };
 }
