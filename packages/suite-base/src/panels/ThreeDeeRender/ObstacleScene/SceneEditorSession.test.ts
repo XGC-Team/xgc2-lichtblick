@@ -35,12 +35,28 @@ async function createSession() {
   const command = jest.spyOn(bridge, "command").mockResolvedValue({ success: true, ...envelope() });
   const session = new SceneEditorSession("/xgc/scene", bridge);
   session.setLive({ live: true });
+  session.accept(envelope());
   await Promise.resolve();
   await Promise.resolve();
   return { session, command };
 }
 
 describe("scene authority and live edits", () => {
+  it("does not launch Scene commands merely because an optional scene is configured", () => {
+    const bridge = new EmbeddedSceneBridge();
+    jest.spyOn(bridge, "getBinding").mockReturnValue({ namespace: "/xgc/scene", editable: true });
+    const command = jest.spyOn(bridge, "command");
+    const session = new SceneEditorSession("/xgc/scene", bridge);
+    session.setLive({ live: true });
+    session.setActive({ active: true });
+    session.resetForSeek();
+    expect(command).not.toHaveBeenCalled();
+    expect(session.canEdit()).toBe(false);
+    session.accept(envelope());
+    expect(session.canEdit()).toBe(true);
+    session.dispose();
+  });
+
   it("keeps bags read only even with a valid host and recorded document", async () => {
     const { session, command } = await createSession();
     session.setLive({ live: false });
@@ -51,13 +67,18 @@ describe("scene authority and live edits", () => {
     session.dispose();
   });
 
-  it("refreshes live authority after an initial renderer seek invalidates an in-flight get", async () => {
+  it("waits for the live document after a renderer seek and ignores an old in-flight get", async () => {
     const { session, command } = await createSession();
     let finishOld!: (value: SceneCommandResult) => void;
-    command.mockReturnValueOnce(new Promise((resolve) => { finishOld = resolve; }));
+    command.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishOld = resolve;
+      }),
+    );
     const oldGet = session.command({ operation: "get" });
-    command.mockResolvedValue({ success: true, ...envelope(3) });
     session.resetForSeek();
+    expect(session.canEdit()).toBe(false);
+    session.accept(envelope(3));
     await Promise.resolve();
     await Promise.resolve();
     expect(session.canEdit()).toBe(true);
@@ -115,13 +136,25 @@ describe("scene authority and live edits", () => {
 
   it("retries synchronization after failure without hiding the outstanding error before acknowledgement", async () => {
     const { session, command } = await createSession();
-    command.mockResolvedValue({ success: false, error: "Gazebo collision update failed", ...envelope(), synchronized: false });
+    command.mockResolvedValue({
+      success: false,
+      error: "Gazebo collision update failed",
+      ...envelope(),
+      synchronized: false,
+    });
     await session.command({ operation: "delete", id: "arch-1" });
     let accept!: (value: SceneCommandResult) => void;
-    command.mockReturnValue(new Promise((resolve) => { accept = resolve; }));
+    command.mockReturnValue(
+      new Promise((resolve) => {
+        accept = resolve;
+      }),
+    );
     const retry = session.command({ operation: "resync" });
     expect(session.getSnapshot().error).toContain("collision update failed");
-    expect(command).toHaveBeenLastCalledWith("/xgc/scene", expect.objectContaining({ operation: "resync", expectedRevision: 1 }));
+    expect(command).toHaveBeenLastCalledWith(
+      "/xgc/scene",
+      expect.objectContaining({ operation: "resync", expectedRevision: 1 }),
+    );
     accept({ success: true, ...envelope(3), dirty: false, synchronized: true });
     expect(await retry).toBe(true);
     expect(session.getSnapshot().error).toBeUndefined();

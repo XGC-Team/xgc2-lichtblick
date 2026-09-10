@@ -113,6 +113,7 @@ function setup() {
       </EmbeddedWorkspaceControlsProvider>
     </RendererContext.Provider>,
   );
+  act(() => extension.session!.accept(envelope));
   return {
     extension,
     command,

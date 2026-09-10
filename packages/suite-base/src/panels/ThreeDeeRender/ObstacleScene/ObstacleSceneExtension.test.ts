@@ -62,6 +62,7 @@ async function setup() {
     .mockResolvedValue({ success: true, ...envelope() });
   const extension = new ObstacleSceneExtension(renderer as unknown as IRenderer);
   extension.session!.setLive({ live: true });
+  extension.session!.accept(envelope());
   await Promise.resolve();
   await Promise.resolve();
   extension.session!.setActive({ active: true });
