@@ -51,6 +51,28 @@ describe("scene authority and live edits", () => {
     session.dispose();
   });
 
+  it("refreshes live authority after an initial renderer seek invalidates an in-flight get", async () => {
+    const { session, command } = await createSession();
+    let finishOld!: (value: SceneCommandResult) => void;
+    command.mockReturnValueOnce(new Promise((resolve) => { finishOld = resolve; }));
+    const oldGet = session.command({ operation: "get" });
+    command.mockResolvedValue({ success: true, ...envelope(3) });
+    session.resetForSeek();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(session.canEdit()).toBe(true);
+    expect(session.getSnapshot().envelope?.revision).toBe(3);
+    finishOld({ success: true, ...envelope(2) });
+    await oldGet;
+    expect(session.getSnapshot().envelope?.revision).toBe(3);
+    session.setLive({ live: false });
+    command.mockClear();
+    session.resetForSeek();
+    expect(command).not.toHaveBeenCalled();
+    expect(session.getSnapshot().envelope).toBeUndefined();
+    session.dispose();
+  });
+
   it("only adopts acknowledged edits and sends expected epoch/revision", async () => {
     const { session, command } = await createSession();
     const next = envelope(2);
@@ -154,10 +176,10 @@ describe("scene authority and live edits", () => {
     };
     session.accept({ ...initial, playing: true, sceneTime: 10 });
     command.mockResolvedValue({ success: true, ...initial });
-    expect(await session.command({ operation: "save", path: "edited.yaml" })).toBe(true);
+    expect(await session.command({ operation: "save" })).toBe(true);
     expect(command).toHaveBeenLastCalledWith(
       "/xgc/scene",
-      expect.objectContaining({ operation: "save", path: "edited.yaml" }),
+      expect.objectContaining({ operation: "save" }),
     );
     expect(command.mock.lastCall?.[1]).not.toHaveProperty("document");
     session.dispose();

@@ -150,6 +150,9 @@ export class SceneEditorSession {
       pending: false,
       needsRefresh: true,
     });
+    if (this.#state.live && this.#state.authorized) {
+      void this.command({ operation: "get" });
+    }
   }
 
   public canEdit(): boolean {
