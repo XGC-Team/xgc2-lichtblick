@@ -76,7 +76,8 @@ export class SceneEditorSession {
 
   #bindingChanged = (): void => {
     const binding = this.bridge.getBinding();
-    const authorized = binding?.namespace === this.namespace && binding.editable;
+    const authorized =
+      binding?.namespace === this.namespace && binding.editable;
     if (authorized !== this.#state.authorized) {
       this.#generation++;
       this.#set({ authorized, pending: false, needsRefresh: true });
@@ -104,14 +105,19 @@ export class SceneEditorSession {
     this.#set({ selection });
   }
   public reportError(error: unknown): void {
-    this.#set({ error: error instanceof Error ? error.message : String(error) });
+    this.#set({
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   public accept(value: unknown): void {
     try {
       const envelope = parseSceneEnvelope(value);
       const current = this.#state.envelope;
-      if (current?.epoch === envelope.epoch && current.revision > envelope.revision) {
+      if (
+        current?.epoch === envelope.epoch &&
+        current.revision > envelope.revision
+      ) {
         return;
       }
       if (current != undefined && current.epoch !== envelope.epoch) {
@@ -119,11 +125,14 @@ export class SceneEditorSession {
         this.#set({ pending: false, selection: undefined });
       }
       const selection = this.#state.selection;
-      const obstacle = envelope.document.obstacles.find((o) => o.id === selection?.obstacleId);
+      const obstacle = envelope.document.obstacles.find(
+        (o) => o.id === selection?.obstacleId,
+      );
       this.#set({
         envelope,
         selection: obstacle
-          ? selection?.partId && !obstacle.parts.some((p) => p.id === selection.partId)
+          ? selection?.partId &&
+            !obstacle.parts.some((p) => p.id === selection.partId)
             ? { obstacleId: obstacle.id }
             : selection
           : undefined,
@@ -135,7 +144,12 @@ export class SceneEditorSession {
 
   public resetForSeek(): void {
     this.#generation++;
-    this.#set({ envelope: undefined, selection: undefined, pending: false, needsRefresh: true });
+    this.#set({
+      envelope: undefined,
+      selection: undefined,
+      pending: false,
+      needsRefresh: true,
+    });
   }
 
   public canEdit(): boolean {
@@ -154,7 +168,10 @@ export class SceneEditorSession {
       !live ||
       !authorized ||
       pending ||
-      (action.operation !== "get" && (!envelope || (action.operation !== "resync" && needsRefresh)))
+      (action.operation !== "get" &&
+        (!envelope ||
+          (!["resync", "reload", "save"].includes(action.operation) &&
+            needsRefresh)))
     ) {
       this.reportError(
         "Scene editing is unavailable. Connect the live scene and refresh its current state.",
@@ -162,12 +179,20 @@ export class SceneEditorSession {
       return false;
     }
     const generation = this.#generation;
-    this.#set({ pending: true, ...(action.operation === "resync" ? {} : { error: undefined }) });
+    this.#set({
+      pending: true,
+      ...(action.operation === "resync" ? {} : { error: undefined }),
+    });
     try {
       const command: SceneCommand = {
         ...action,
         requestId: uuid(),
-        ...(envelope ? { expectedEpoch: envelope.epoch, expectedRevision: envelope.revision } : {}),
+        ...(envelope
+          ? {
+              expectedEpoch: envelope.epoch,
+              expectedRevision: envelope.revision,
+            }
+          : {}),
       };
       const result = await this.bridge.command(this.namespace, command);
       if (generation !== this.#generation) {
@@ -175,19 +200,27 @@ export class SceneEditorSession {
       }
       if (result.document) {
         // A get response may start a new epoch; mutations from an older epoch cannot overwrite it.
-        if (action.operation !== "get" && this.#state.envelope?.epoch !== result.epoch) {
-          throw new Error("The scene was reloaded during this edit. Refresh before editing again.");
+        if (
+          action.operation !== "get" &&
+          this.#state.envelope?.epoch !== result.epoch
+        ) {
+          throw new Error(
+            "The scene was reloaded during this edit. Refresh before editing again.",
+          );
         }
         parseSceneEnvelope(result);
         this.accept(result);
       }
       if (!result.success) {
         throw new Error(
-          result.error ?? "Scene update was rejected. Refresh and check the scene workflow.",
+          result.error ??
+            "Scene update was rejected. Refresh and check the scene workflow.",
         );
       }
       if (!result.document) {
-        throw new Error("Scene update returned no accepted scene. Refresh to check the result.");
+        throw new Error(
+          "Scene update returned no accepted scene. Refresh to check the result.",
+        );
       }
       this.#set({ pending: false, needsRefresh: false, error: undefined });
       return true;

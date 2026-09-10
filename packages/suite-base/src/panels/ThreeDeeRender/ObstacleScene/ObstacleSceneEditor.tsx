@@ -48,7 +48,12 @@ const useStyles = makeStyles()((theme) => ({
     pointerEvents: "auto",
     zIndex: 2,
   },
-  body: { width: 288, maxWidth: "100%", padding: theme.spacing(1), gap: theme.spacing(1) },
+  body: {
+    width: 288,
+    maxWidth: "100%",
+    padding: theme.spacing(1),
+    gap: theme.spacing(1),
+  },
   row: { display: "flex", flexWrap: "wrap", gap: theme.spacing(0.5) },
   vector: {
     display: "grid",
@@ -83,7 +88,9 @@ function NumericField({
       value={draft}
       disabled={disabled}
       error={error}
-      slotProps={{ htmlInput: { inputMode: "decimal", "aria-label": ariaLabel ?? label } }}
+      slotProps={{
+        htmlInput: { inputMode: "decimal", "aria-label": ariaLabel ?? label },
+      }}
       onChange={(event) => {
         setDraft(event.target.value);
         setError(false);
@@ -239,7 +246,11 @@ function MotionFields({
 }): React.JSX.Element {
   const defaults: Record<SceneMotion["type"], SceneMotion> = {
     hold: { type: "hold" },
-    constant_twist: { type: "constant_twist", linear: [0.2, 0, 0], angular: [0, 0, 0] },
+    constant_twist: {
+      type: "constant_twist",
+      linear: [0.2, 0, 0],
+      angular: [0, 0, 0],
+    },
     ping_pong: {
       type: "ping_pong",
       point_a: [...position],
@@ -262,10 +273,14 @@ function MotionFields({
         label={zh ? "运动" : "Motion"}
         value={motion.type}
         disabled={disabled}
-        onChange={(event) => { onCommit(defaults[event.target.value as SceneMotion["type"]]); }}
+        onChange={(event) => {
+          onCommit(defaults[event.target.value as SceneMotion["type"]]);
+        }}
       >
         <MenuItem value="hold">{zh ? "静止" : "Hold"}</MenuItem>
-        <MenuItem value="constant_twist">{zh ? "恒定速度" : "Constant twist"}</MenuItem>
+        <MenuItem value="constant_twist">
+          {zh ? "恒定速度" : "Constant twist"}
+        </MenuItem>
         <MenuItem value="ping_pong">{zh ? "往返" : "Back and forth"}</MenuItem>
         <MenuItem value="circle">{zh ? "圆周" : "Circle"}</MenuItem>
       </TextField>
@@ -275,13 +290,17 @@ function MotionFields({
             label={zh ? "速度（米/秒）" : "Velocity (m/s)"}
             value={motion.linear}
             disabled={disabled}
-            onCommit={(linear) => { onCommit({ ...motion, linear }); }}
+            onCommit={(linear) => {
+              onCommit({ ...motion, linear });
+            }}
           />
           <VectorFields
             label={zh ? "角速度（弧度/秒）" : "Angular velocity (rad/s)"}
             value={motion.angular}
             disabled={disabled}
-            onCommit={(angular) => { onCommit({ ...motion, angular }); }}
+            onCommit={(angular) => {
+              onCommit({ ...motion, angular });
+            }}
           />
         </>
       )}
@@ -291,19 +310,25 @@ function MotionFields({
             label={zh ? "起点（米）" : "Point A (m)"}
             value={motion.point_a}
             disabled={disabled}
-            onCommit={(point_a) => { onCommit({ ...motion, point_a }); }}
+            onCommit={(point_a) => {
+              onCommit({ ...motion, point_a });
+            }}
           />
           <VectorFields
             label={zh ? "终点（米）" : "Point B (m)"}
             value={motion.point_b}
             disabled={disabled}
-            onCommit={(point_b) => { onCommit({ ...motion, point_b }); }}
+            onCommit={(point_b) => {
+              onCommit({ ...motion, point_b });
+            }}
           />
           <NumericField
             label={zh ? "速度（米/秒）" : "Speed (m/s)"}
             value={motion.speed}
             disabled={disabled}
-            onCommit={(speed) => { onCommit({ ...motion, speed }); }}
+            onCommit={(speed) => {
+              onCommit({ ...motion, speed });
+            }}
           />
         </>
       )}
@@ -313,25 +338,33 @@ function MotionFields({
             label={zh ? "圆心（米）" : "Center (m)"}
             value={motion.center}
             disabled={disabled}
-            onCommit={(center) => { onCommit({ ...motion, center }); }}
+            onCommit={(center) => {
+              onCommit({ ...motion, center });
+            }}
           />
           <NumericField
             label={zh ? "轨迹半径（米）" : "Path radius (m)"}
             value={motion.radius}
             disabled={disabled}
-            onCommit={(radius) => { onCommit({ ...motion, radius }); }}
+            onCommit={(radius) => {
+              onCommit({ ...motion, radius });
+            }}
           />
           <NumericField
             label={zh ? "圆周角速度（弧度/秒）" : "Orbit speed (rad/s)"}
             value={motion.angular_speed}
             disabled={disabled}
-            onCommit={(angular_speed) => { onCommit({ ...motion, angular_speed }); }}
+            onCommit={(angular_speed) => {
+              onCommit({ ...motion, angular_speed });
+            }}
           />
           <NumericField
             label={zh ? "初始相位（弧度）" : "Initial phase (rad)"}
             value={motion.phase}
             disabled={disabled}
-            onCommit={(phase) => { onCommit({ ...motion, phase }); }}
+            onCommit={(phase) => {
+              onCommit({ ...motion, phase });
+            }}
           />
         </>
       )}
@@ -367,12 +400,16 @@ function SceneInspector({
   const [preset, setPreset] = useState<ScenePreset>("Box");
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
-  const [savePath, setSavePath] = useState("");
-  const [mode, setMode] = useState<"translate" | "rotate" | "scale">("translate");
+  const [mode, setMode] = useState<"translate" | "rotate" | "scale">(
+    "translate",
+  );
   const [local, setLocal] = useState(false);
-  const obstacle = envelope?.document.obstacles.find((o) => o.id === selection?.obstacleId);
+  const obstacle = envelope?.document.obstacles.find(
+    (o) => o.id === selection?.obstacleId,
+  );
   const part = obstacle?.parts.find((p) => p.id === selection?.partId);
-  const dimensionPart = part ?? (obstacle?.parts.length === 1 ? obstacle.parts[0] : undefined);
+  const dimensionPart =
+    part ?? (obstacle?.parts.length === 1 ? obstacle.parts[0] : undefined);
   const pose = part?.pose ?? obstacle?.pose;
   const rotation = pose
     ? (new THREE.Euler()
@@ -385,7 +422,9 @@ function SceneInspector({
   const transformable = extension.canTransform();
   const consumers = envelope?.consumers ?? [];
   const failed = consumers.filter((consumer) => !consumer.success);
-  const awaiting = consumers.some((consumer) => consumer.revision !== envelope?.revision);
+  const awaiting = consumers.some(
+    (consumer) => consumer.revision !== envelope?.revision,
+  );
   const update = (next: SceneObstacle) => {
     void session.command({ operation: "update", obstacle: next });
   };
@@ -397,12 +436,17 @@ function SceneInspector({
       part
         ? {
             ...obstacle,
-            parts: obstacle.parts.map((p) => (p.id === part.id ? { ...p, pose: next } : p)),
+            parts: obstacle.parts.map((p) =>
+              p.id === part.id ? { ...p, pose: next } : p,
+            ),
           }
         : withObstaclePose(obstacle, next),
     );
   };
-  const create = async (target: "obstacle" | "part", customGeometry?: SceneGeometry) => {
+  const create = async (
+    target: "obstacle" | "part",
+    customGeometry?: SceneGeometry,
+  ) => {
     const next = createObstacle(preset, uuid());
     if (customGeometry) {
       next.name = zh ? "凸多面体" : "Convex polyhedron";
@@ -411,7 +455,10 @@ function SceneInspector({
     if (target === "part" && obstacle) {
       update({
         ...obstacle,
-        parts: [...obstacle.parts, ...next.parts.map((p) => ({ ...p, id: `${next.id}-${p.id}` }))],
+        parts: [
+          ...obstacle.parts,
+          ...next.parts.map((p) => ({ ...p, id: `${next.id}-${p.id}` })),
+        ],
       });
     } else if (await session.command({ operation: "add", obstacle: next })) {
       session.select({ obstacleId: next.id });
@@ -419,7 +466,11 @@ function SceneInspector({
   };
 
   return (
-    <Paper className={classes.root} elevation={4} data-testid="obstacle-scene-editor">
+    <Paper
+      className={classes.root}
+      elevation={4}
+      data-testid="obstacle-scene-editor"
+    >
       <Button
         size="small"
         onClick={() => {
@@ -446,11 +497,11 @@ function SceneInspector({
                     : "Updating scene…"
                   : envelope.dirty
                     ? zh
-                      ? "现场已更新 · 尚未保存"
-                      : "Live changes · Unsaved"
+                      ? "现场已更新 · YAML 保存失败"
+                      : "Live changes · YAML not saved"
                     : zh
-                      ? "已保存"
-                      : "Saved"}
+                      ? "已自动保存"
+                      : "Autosaved"}
           </Typography>
           {state.error && <Alert severity="error">{state.error}</Alert>}
           {envelope?.synchronized === false && (
@@ -510,10 +561,18 @@ function SceneInspector({
               size="small"
               disabled={!writable}
               onClick={() =>
-                void session.command({ operation: envelope?.playing === true ? "pause" : "play" })
+                void session.command({
+                  operation: envelope?.playing === true ? "pause" : "play",
+                })
               }
             >
-              {envelope?.playing === true ? (zh ? "暂停" : "Pause") : zh ? "播放" : "Play"}
+              {envelope?.playing === true
+                ? zh
+                  ? "暂停"
+                  : "Pause"
+                : zh
+                  ? "播放"
+                  : "Play"}
             </Button>
             <Button
               size="small"
@@ -539,10 +598,18 @@ function SceneInspector({
             ))}
           </TextField>
           <div className={classes.row}>
-            <Button size="small" disabled={!writable} onClick={() => void create("obstacle")}>
+            <Button
+              size="small"
+              disabled={!writable}
+              onClick={() => void create("obstacle")}
+            >
               {zh ? "添加障碍" : "Add obstacle"}
             </Button>
-            <Button size="small" disabled={!transformable} onClick={() => void create("part")}>
+            <Button
+              size="small"
+              disabled={!transformable}
+              onClick={() => void create("part")}
+            >
               {zh ? "添加部件" : "Add part"}
             </Button>
             <Button
@@ -572,7 +639,10 @@ function SceneInspector({
                 disabled={!writable}
                 onClick={() => {
                   try {
-                    const geometry: unknown = { ...JSON.parse(importText), type: "convex" };
+                    const geometry: unknown = {
+                      ...JSON.parse(importText),
+                      type: "convex",
+                    };
                     if (!geometryValid(geometry)) {
                       throw new Error(
                         zh
@@ -597,10 +667,16 @@ function SceneInspector({
             slotProps={{ select: { displayEmpty: true } }}
             value={obstacle?.id ?? ""}
             onChange={(event) => {
-              session.select(event.target.value ? { obstacleId: event.target.value } : undefined);
+              session.select(
+                event.target.value
+                  ? { obstacleId: event.target.value }
+                  : undefined,
+              );
             }}
           >
-            <MenuItem value="">{zh ? "选择障碍物" : "Select an obstacle"}</MenuItem>
+            <MenuItem value="">
+              {zh ? "选择障碍物" : "Select an obstacle"}
+            </MenuItem>
             {envelope?.document.obstacles.map((o) => (
               <MenuItem value={o.id} key={o.id}>
                 {o.name || o.id}
@@ -618,11 +694,15 @@ function SceneInspector({
                 onChange={(event) => {
                   session.select({
                     obstacleId: obstacle.id,
-                    ...(event.target.value ? { partId: event.target.value } : {}),
+                    ...(event.target.value
+                      ? { partId: event.target.value }
+                      : {}),
                   });
                 }}
               >
-                <MenuItem value="">{zh ? "整个障碍物" : "Whole obstacle"}</MenuItem>
+                <MenuItem value="">
+                  {zh ? "整个障碍物" : "Whole obstacle"}
+                </MenuItem>
                 {obstacle.parts.map((p) => (
                   <MenuItem value={p.id} key={p.id}>
                     {p.id} · {p.geometry.type}
@@ -658,7 +738,9 @@ function SceneInspector({
                 position={obstacle.pose.position}
                 zh={zh}
                 disabled={!writable || envelope?.playing === true}
-                onCommit={(motion) => { update(withObstacleMotion(obstacle, motion)); }}
+                onCommit={(motion) => {
+                  update(withObstacleMotion(obstacle, motion));
+                }}
               />
               <div className={classes.row}>
                 {(["translate", "rotate", "scale"] as const).map((value) => (
@@ -666,15 +748,22 @@ function SceneInspector({
                     size="small"
                     key={value}
                     variant={mode === value ? "contained" : "outlined"}
-                    disabled={!transformable || (value === "scale" && !extension.canScale())}
+                    disabled={
+                      !transformable ||
+                      (value === "scale" && !extension.canScale())
+                    }
                     onClick={() => {
                       setMode(value);
                       extension.setMode(value);
                     }}
                   >
                     {zh
-                      ? { translate: "移动", rotate: "旋转", scale: "尺寸" }[value]
-                      : { translate: "Move", rotate: "Rotate", scale: "Scale" }[value]}
+                      ? { translate: "移动", rotate: "旋转", scale: "尺寸" }[
+                          value
+                        ]
+                      : { translate: "Move", rotate: "Rotate", scale: "Scale" }[
+                          value
+                        ]}
                   </Button>
                 ))}
               </div>
@@ -763,14 +852,23 @@ function SceneInspector({
                   disabled={!writable}
                   onClick={() => {
                     const duplicate = _.cloneDeep(obstacle);
-                    const copy = withObstaclePose(duplicate, { ...duplicate.pose, position: [duplicate.pose.position[0] + 0.5, duplicate.pose.position[1], duplicate.pose.position[2]] });
+                    const copy = withObstaclePose(duplicate, {
+                      ...duplicate.pose,
+                      position: [
+                        duplicate.pose.position[0] + 0.5,
+                        duplicate.pose.position[1],
+                        duplicate.pose.position[2],
+                      ],
+                    });
                     copy.id = uuid();
                     copy.name += zh ? " 副本" : " copy";
-                    void session.command({ operation: "add", obstacle: copy }).then((success) => {
-                      if (success) {
-                        session.select({ obstacleId: copy.id });
-                      }
-                    });
+                    void session
+                      .command({ operation: "add", obstacle: copy })
+                      .then((success) => {
+                        if (success) {
+                          session.select({ obstacleId: copy.id });
+                        }
+                      });
                   }}
                 >
                   {zh ? "复制障碍" : "Copy obstacle"}
@@ -780,7 +878,8 @@ function SceneInspector({
                   color="error"
                   disabled={
                     !writable ||
-                    (part != undefined && (!transformable || obstacle.parts.length === 1))
+                    (part != undefined &&
+                      (!transformable || obstacle.parts.length === 1))
                   }
                   onClick={() => {
                     if (part) {
@@ -789,49 +888,71 @@ function SceneInspector({
                         parts: obstacle.parts.filter((p) => p.id !== part.id),
                       });
                     } else {
-                      void session.command({ operation: "delete", id: obstacle.id });
+                      void session.command({
+                        operation: "delete",
+                        id: obstacle.id,
+                      });
                     }
                   }}
                 >
-                  {part ? (zh ? "删除部件" : "Delete part") : zh ? "删除障碍" : "Delete obstacle"}
+                  {part
+                    ? zh
+                      ? "删除部件"
+                      : "Delete part"
+                    : zh
+                      ? "删除障碍"
+                      : "Delete obstacle"}
                 </Button>
               </div>
             </>
           )}
-          <TextField
-            size="small"
-            label={zh ? "另存为（可选相对路径）" : "Save as (optional relative path)"}
-            value={savePath}
-            onChange={(event) => {
-              setSavePath(event.target.value);
-            }}
-          />
-          <Button
-            size="small"
-            variant="outlined"
-            disabled={!writable}
-            onClick={() =>
-              void session.command({
-                operation: "save",
-                ...(savePath.trim() ? { path: savePath.trim() } : {}),
-              })
-            }
-          >
-            {zh ? "保存 YAML" : "Save YAML"}
-          </Button>
+          <div className={classes.row}>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={
+                !state.live ||
+                !state.authorized ||
+                state.pending ||
+                envelope?.dirty !== true
+              }
+              onClick={() => void session.command({ operation: "save" })}
+            >
+              {zh ? "重试保存 YAML" : "Retry save YAML"}
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={
+                !state.live || !state.authorized || state.pending || !envelope
+              }
+              onClick={() => void session.command({ operation: "reload" })}
+            >
+              {zh ? "重新加载 YAML" : "Reload YAML"}
+            </Button>
+          </div>
         </Stack>
       )}
     </Paper>
   );
 }
 
-export function ObstacleSceneEditor({ live }: { live: boolean }): React.JSX.Element | undefined {
+export function ObstacleSceneEditor({
+  live,
+}: {
+  live: boolean;
+}): React.JSX.Element | undefined {
   const renderer = useRenderer();
-  const extension = renderer?.sceneExtensions.get(ObstacleSceneExtension.extensionId);
-  const scene = extension instanceof ObstacleSceneExtension ? extension : undefined;
+  const extension = renderer?.sceneExtensions.get(
+    ObstacleSceneExtension.extensionId,
+  );
+  const scene =
+    extension instanceof ObstacleSceneExtension ? extension : undefined;
   useEffect(() => {
     scene?.session?.setLive({ live });
     return () => scene?.session?.setLive({ live: false });
   }, [scene, live]);
-  return scene?.session ? <SceneInspector extension={scene} session={scene.session} /> : undefined;
+  return scene?.session ? (
+    <SceneInspector extension={scene} session={scene.session} />
+  ) : undefined;
 }
