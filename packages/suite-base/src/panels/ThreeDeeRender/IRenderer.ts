@@ -124,6 +124,8 @@ export type RendererConfig = {
   /** Camera follow mode */
   followMode: FollowMode;
   scene: {
+    /** Explicit independent scene binding; it confers no write permission. */
+    obstacleScene?: { namespace?: string };
     /** Show rendering metrics in a DOM overlay */
     enableStats?: boolean;
     /** Background color override for the scene, sent to `glClearColor()` */

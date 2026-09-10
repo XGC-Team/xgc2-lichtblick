@@ -126,6 +126,10 @@ export class Markers extends SceneExtension<TopicMarkers> {
     // Don't use SceneExtension#startFrame() because our renderables represent one topic each with
     // many markers. Instead, call startFrame on each renderable
     for (const renderable of this.renderables.values()) {
+      if (this.#isSceneProjection(renderable.name)) {
+        renderable.visible = false;
+        continue;
+      }
       renderable.startFrame(currentTime, renderFrameId, fixedFrameId);
     }
   }
@@ -206,6 +210,9 @@ export class Markers extends SceneExtension<TopicMarkers> {
   };
 
   #addMarker(topic: string, marker: Marker, receiveTime: bigint): void {
+    if (this.#isSceneProjection(topic)) {
+      return;
+    }
     const topicMarkers = this.#getTopicMarkers(topic, marker, receiveTime);
     const prevNsCount = topicMarkers.namespaces.size;
     topicMarkers.addMarkerMessage(marker, receiveTime);
@@ -217,6 +224,9 @@ export class Markers extends SceneExtension<TopicMarkers> {
   }
 
   public addMarkerArray(topic: string, markerArray: Marker[], receiveTime: bigint): void {
+    if (this.#isSceneProjection(topic)) {
+      return;
+    }
     const firstMarker = markerArray[0];
     if (!firstMarker) {
       return;
@@ -232,6 +242,15 @@ export class Markers extends SceneExtension<TopicMarkers> {
     if (prevNsCount !== topicMarkers.namespaces.size) {
       this.updateSettingsTree();
     }
+  }
+
+  #isSceneProjection(topic: string): boolean {
+    const namespace = this.renderer.config.scene.obstacleScene?.namespace;
+    return (
+      this.renderer.interfaceMode === "3d" &&
+      namespace != undefined &&
+      topic === `${namespace}/markers`
+    );
   }
 
   #getTopicMarkers(topic: string, marker: Marker, receiveTime: bigint): TopicMarkers {

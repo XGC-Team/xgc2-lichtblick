@@ -25,6 +25,7 @@ import { Urdfs } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/
 import { VelodyneScans } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/VelodyneScans";
 
 import { IRenderer } from "./IRenderer";
+import { ObstacleSceneExtension } from "./ObstacleScene/ObstacleSceneExtension";
 import { SceneExtension } from "./SceneExtension";
 import { MeasurementTool } from "./renderables/MeasurementTool";
 import { PublishClickTool } from "./renderables/PublishClickTool";
@@ -61,6 +62,13 @@ export const DEFAULT_SCENE_EXTENSION_CONFIG: SceneExtensionConfig = {
     },
   },
   extensionsById: {
+    [ObstacleSceneExtension.extensionId]: {
+      init: (renderer: IRenderer) =>
+        renderer.config.scene.obstacleScene?.namespace
+          ? new ObstacleSceneExtension(renderer)
+          : new SceneExtension(ObstacleSceneExtension.extensionId, renderer),
+      supportedInterfaceModes: ["3d"],
+    },
     [PublishSettings.extensionId]: {
       init: (renderer: IRenderer) => new PublishSettings(renderer),
       supportedInterfaceModes: ["3d"],

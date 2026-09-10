@@ -15,6 +15,8 @@ export interface ICameraHandler extends SceneExtension {
    * Gets the active camera to use for rendering the scene
    * */
   getActiveCamera(): THREE.PerspectiveCamera | THREE.OrthographicCamera;
+  /** Temporarily suspend camera gestures while an editor owns a pointer. */
+  setInteractionEnabled?(options: { enabled: boolean }): void;
   /**
    * Sets the camera state
    * @param state - The new camera state

@@ -40,6 +40,7 @@ import { customTypography } from "@lichtblick/theme";
 import { InteractionContextMenu, Interactions, SelectionObject, TabType } from "./Interactions";
 import { HoverTooltip } from "./Interactions/HoverTooltip";
 import type { HoverEntityInfo } from "./Interactions/types";
+import { ObstacleSceneEditor } from "./ObstacleScene/ObstacleSceneEditor";
 import type { PickedRenderable } from "./Picker";
 import { Renderable } from "./Renderable";
 import { useRenderer, useRendererEvent } from "./RendererContext";
@@ -562,6 +563,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
           }}
         />
       )}
+      {props.interfaceMode === "3d" && <ObstacleSceneEditor live={props.canPublish} />}
       <HUD renderer={renderer} />
       <HoverTooltip entities={hoveredEntities} position={hoverPosition} canvas={props.canvas} />
       {stats}

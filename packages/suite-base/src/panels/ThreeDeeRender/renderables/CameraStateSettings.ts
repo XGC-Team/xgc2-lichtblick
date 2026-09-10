@@ -117,6 +117,10 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     this.#controls.listenToKeyEvents(canvas);
   }
 
+  public setInteractionEnabled({ enabled }: { enabled: boolean }): void {
+    this.#controls.enabled = enabled;
+  }
+
   public override dispose(): void {
     // for camera settings
     this.renderer.off("cameraMove", this.#handleCameraMove);

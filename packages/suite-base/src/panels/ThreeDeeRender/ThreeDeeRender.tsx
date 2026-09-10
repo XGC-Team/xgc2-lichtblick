@@ -153,6 +153,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     canvas,
     configRef,
     config.scene.transforms?.enablePreloading,
+    config.scene.obstacleScene?.namespace,
     customSceneExtensions,
     customCameraModels,
     interfaceMode,
@@ -513,6 +514,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     config.scene.transforms?.enablePreloading,
+    config.scene.obstacleScene?.namespace,
     config.scene.transforms?.maxPreloadMessages,
     transformTopicsToPreload,
     reloadPreloadTrigger,

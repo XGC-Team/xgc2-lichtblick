@@ -11,8 +11,10 @@ import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/Emb
 import { useWorkspaceStore } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
-export const XGC2_EMBED_CHANNEL = "xgc2.lichtblick.embed";
-export const XGC2_EMBED_VERSION = 2;
+import { embeddedSceneBridge } from "./EmbeddedSceneBridge";
+import { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProtocol";
+
+export { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProtocol";
 export const XGC2_EMBED_SURFACES = [
   "3d-tools",
   "panel-settings",
@@ -86,6 +88,8 @@ export default function EmbeddedWorkspaceBridge(): null {
     useEmbeddedWorkspaceControls();
 
   const sidebars = useWorkspaceStore((store) => store.sidebars);
+
+  useEffect(() => embeddedSceneBridge.connect(window.parent, window.location.origin), []);
 
   useEffect(() => {
     const parentWindow = window.parent;
