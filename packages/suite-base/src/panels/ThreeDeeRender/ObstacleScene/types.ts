@@ -21,6 +21,8 @@ export type ScenePart = {
   geometry: SceneGeometry;
   color: [number, number, number, number];
 };
+/** Product visual: opaque amber. Geometry stays authored; color is not per-scene. */
+export const OBSTACLE_VISUAL_COLOR: [number, number, number, number] = [1, 0.5, 0.1, 1];
 export type SceneMotion =
   | { type: "hold" }
   | { type: "constant_twist"; linear: Vec3; angular: Vec3 }
@@ -243,6 +245,7 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
           `Unsupported or invalid geometry in ${obstacle.name}. Check its shape and dimensions.`,
         );
       }
+      part.color = [...OBSTACLE_VISUAL_COLOR];
       partIds.add(part.id);
     }
   }

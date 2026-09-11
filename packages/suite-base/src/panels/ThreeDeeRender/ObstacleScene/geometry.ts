@@ -9,6 +9,7 @@ import * as THREE from "three";
 
 import {
   initialPose,
+  OBSTACLE_VISUAL_COLOR,
   type SceneGeometry,
   type SceneObstacle,
   type ScenePart,
@@ -52,7 +53,7 @@ export function createGeometry(shape: SceneGeometry): THREE.BufferGeometry {
 }
 
 function part(id: string, geometry: SceneGeometry, position?: Vec3): ScenePart {
-  return { id, geometry, pose: initialPose(position), color: [1, 0.5, 0.1, 1] };
+  return { id, geometry, pose: initialPose(position), color: [...OBSTACLE_VISUAL_COLOR] };
 }
 
 function box(id: string, size: Vec3, position: Vec3): ScenePart {

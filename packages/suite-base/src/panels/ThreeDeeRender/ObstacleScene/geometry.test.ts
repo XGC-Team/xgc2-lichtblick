@@ -8,7 +8,14 @@
 import * as THREE from "three";
 
 import { createGeometry, createObstacle, scaleGeometry, SCENE_PRESETS } from "./geometry";
-import { geometryValid, parseSceneEnvelope, sceneNamespace, type SceneEnvelope, type SceneGeometry } from "./types";
+import {
+  geometryValid,
+  OBSTACLE_VISUAL_COLOR,
+  parseSceneEnvelope,
+  sceneNamespace,
+  type SceneEnvelope,
+  type SceneGeometry,
+} from "./types";
 
 function fixture(): SceneEnvelope {
   return {
@@ -50,6 +57,15 @@ describe("rich scene geometry", () => {
       expect(geometry.boundingBox?.isEmpty()).toBe(false);
       geometry.dispose();
     }
+  });
+
+  it("paints authored gray as the product amber", () => {
+    const envelope = fixture();
+    envelope.document.obstacles[0]!.parts[0]!.color = [0.5, 0.5, 0.5, 1];
+    expect(
+      parseSceneEnvelope(JSON.parse(JSON.stringify(envelope))).document.obstacles[0]!.parts[0]!
+        .color,
+    ).toEqual(OBSTACLE_VISUAL_COLOR);
   });
 
   it("preserves an arch opening as three separate collision parts", () => {
