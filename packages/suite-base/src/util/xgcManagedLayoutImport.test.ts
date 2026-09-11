@@ -126,6 +126,57 @@ describe("xgc managed layout import", () => {
     expect(sanitized.configById["Plot!xgc2-plot"]).toEqual({ paths: [{ value: "/topic.field" }] });
   });
 
+  it("replaces a parked Scout ugv3 URDF layer with the mecanum ugv2 authority layer", () => {
+    const authority = {
+      ...authorityThreeD,
+      layers: {
+        "xgc2-grid": { layerId: "foxglove.Grid", visible: true },
+        "xgc2-urdf-ugv1": {
+          layerId: "foxglove.Urdf",
+          parameter: "/ugv1/visual_robot_description",
+          framePrefix: "xgc/robots/ugv1/",
+        },
+        "xgc2-urdf-ugv2": {
+          layerId: "foxglove.Urdf",
+          parameter: "/ugv2/visual_robot_description",
+          framePrefix: "xgc/robots/ugv2/",
+        },
+      },
+    };
+    const imported = sanitizeImportedPanelConfig(
+      {
+        layers: {
+          "xgc2-grid": { layerId: "foxglove.Grid", color: "#111111" },
+          "xgc2-urdf-ugv2": {
+            layerId: "foxglove.Urdf",
+            parameter: "/ugv2/visual_robot_description",
+            framePrefix: "xgc/robots/ugv3/",
+          },
+          "xgc2-urdf-ugv3": {
+            layerId: "foxglove.Urdf",
+            parameter: "/ugv3/visual_robot_description",
+            framePrefix: "xgc/robots/ugv3/",
+          },
+        },
+      },
+      authority,
+      "3D",
+    );
+    expect(imported.layers).toEqual({
+      "xgc2-grid": { layerId: "foxglove.Grid", color: "#111111" },
+      "xgc2-urdf-ugv1": {
+        layerId: "foxglove.Urdf",
+        parameter: "/ugv1/visual_robot_description",
+        framePrefix: "xgc/robots/ugv1/",
+      },
+      "xgc2-urdf-ugv2": {
+        layerId: "foxglove.Urdf",
+        parameter: "/ugv2/visual_robot_description",
+        framePrefix: "xgc/robots/ugv2/",
+      },
+    });
+  });
+
   it("does not let panel JSON invent a second robot or camera identity", () => {
     const imported = sanitizeImportedPanelConfig(
       {

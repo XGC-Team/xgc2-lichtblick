@@ -59,6 +59,7 @@ import {
 } from "../settings";
 import { Pose, makePose, TransformTree } from "../transforms";
 import { updatePose } from "../updatePose";
+import { customUrdfLayerNeedsReload } from "./customUrdfLayer";
 
 const log = Logger.getLogger(__filename);
 
@@ -126,6 +127,9 @@ const DEFAULT_CUSTOM_SETTINGS: LayerSettingsCustomUrdf = {
   displayMode: "auto",
   fallbackColor: DEFAULT_COLOR_STR,
 };
+
+const MANAGED_URDF_LAYER_PREFIX = "xgc2-urdf-";
+
 const URDF_TOPIC_SCHEMAS = new Set<string>(["std_msgs/String", "std_msgs/msg/String"]);
 
 const tempVec3a = new THREE.Vector3();
@@ -474,6 +478,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     renderFrameId: string,
     fixedFrameId: string,
   ): void {
+    this.#syncManagedUrdfLayers();
     for (const renderable of this.renderables.values()) {
       const path = renderable.userData.settingsPath;
       let hasTfError = false;
@@ -525,35 +530,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     if (action.action === "perform-node-action" && path.length === 2) {
       const instanceId = path[1]!;
       if (action.payload.id === "delete") {
-        // Remove this instance from the config
-        this.renderer.updateConfig((draft) => {
-          delete draft.layers[instanceId];
-        });
-
-        // Remove the renderable
-        const renderable = this.renderables.get(instanceId);
-        if (renderable) {
-          renderable.dispose();
-          this.remove(renderable);
-          this.renderables.delete(instanceId);
-        }
-
-        // Remove transforms from the TF tree
-        const transforms = this.#transformsByInstanceId.get(instanceId);
-        if (transforms) {
-          for (const { parent, child } of transforms) {
-            this.renderer.removeTransform(child, parent, 0n);
-          }
-        }
-        this.#framesByInstanceId.delete(instanceId);
-        this.#transformsByInstanceId.delete(instanceId);
-
-        // Re-add coordinate frames in case the deleted URDF shared frame names with other URDFs
-        this.#refreshTransforms();
-
-        // Update the settings tree
-        this.updateSettingsTree();
-        this.renderer.updateCustomLayersCount();
+        this.#removeCustomUrdf(instanceId, true);
       } else if (action.payload.id === "duplicate") {
         const newInstanceId = uuidv4();
         const config = {
@@ -791,12 +768,98 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     return settings;
   }
 
+  #removeCustomUrdf(instanceId: string, updateConfig: boolean): void {
+    if (updateConfig) {
+      this.renderer.updateConfig((draft) => {
+        delete draft.layers[instanceId];
+      });
+    }
+
+    const renderable = this.renderables.get(instanceId);
+    if (renderable) {
+      renderable.dispose();
+      this.remove(renderable);
+      this.renderables.delete(instanceId);
+    }
+
+    const transforms = this.#transformsByInstanceId.get(instanceId);
+    if (transforms) {
+      for (const { parent, child } of transforms) {
+        this.renderer.removeTransform(child, parent, 0n);
+      }
+    }
+    this.#framesByInstanceId.delete(instanceId);
+    this.#transformsByInstanceId.delete(instanceId);
+    this.#refreshTransforms();
+    this.updateSettingsTree();
+    if (updateConfig) {
+      this.renderer.updateCustomLayersCount();
+    }
+  }
+
+  #syncManagedUrdfLayers(): void {
+    const layers = this.renderer.config.layers;
+    for (const instanceId of [...this.renderables.keys()]) {
+      if (!instanceId.startsWith(MANAGED_URDF_LAYER_PREFIX)) {
+        continue;
+      }
+      const entry = layers[instanceId];
+      if (entry?.layerId !== LAYER_ID) {
+        this.#removeCustomUrdf(instanceId, false);
+        continue;
+      }
+      const renderable = this.renderables.get(instanceId);
+      const settings = this.#getCurrentSettings(instanceId);
+      if (
+        renderable &&
+        customUrdfLayerNeedsReload(
+          {
+            urdf: renderable.userData.urdf,
+            framePrefix: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>)
+              .framePrefix,
+            parameter: renderable.userData.parameter,
+          },
+          {
+            urdf: renderable.userData.urdf,
+            framePrefix: (settings as Partial<LayerSettingsCustomUrdf>).framePrefix,
+            parameter: (settings as Partial<LayerSettingsCustomUrdf>).parameter,
+          },
+        )
+      ) {
+        this.#loadUrdf({ instanceId, urdf: renderable.userData.urdf, forceReload: true });
+      }
+    }
+    for (const [instanceId, entry] of Object.entries(layers)) {
+      if (entry?.layerId === LAYER_ID && !this.renderables.has(instanceId)) {
+        this.#loadUrdf({ instanceId, urdf: undefined });
+      }
+    }
+  }
+
   #loadUrdf(args: { instanceId: string; urdf?: string; forceReload?: boolean }): void {
     const { instanceId, urdf } = args;
     const forceReload = args.forceReload ?? false;
     let renderable = this.renderables.get(instanceId);
     const settings = this.#getCurrentSettings(instanceId);
-    if (renderable && urdf && !forceReload && renderable.userData.urdf === urdf) {
+    const sourceType = (settings as Partial<LayerSettingsCustomUrdf>).sourceType;
+    const url = (settings as Partial<LayerSettingsCustomUrdf>).url;
+    const filePath = (settings as Partial<LayerSettingsCustomUrdf>).filePath;
+    const parameter = (settings as Partial<LayerSettingsCustomUrdf>).parameter;
+    const topic = (settings as Partial<LayerSettingsCustomUrdf>).topic;
+    const framePrefix = (settings as Partial<LayerSettingsCustomUrdf>).framePrefix;
+    if (
+      renderable &&
+      urdf &&
+      !customUrdfLayerNeedsReload(
+        {
+          urdf: renderable.userData.urdf,
+          framePrefix: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).framePrefix,
+          parameter: renderable.userData.parameter,
+        },
+        { urdf, framePrefix, parameter },
+        forceReload,
+      )
+    ) {
       renderable.userData.settings = settings;
       return;
     }
@@ -813,12 +876,6 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const isTopicOrParam = instanceId === TOPIC_NAME || instanceId === PARAM_KEY;
     const frameId = this.renderer.fixedFrameId ?? ""; // Unused
     const settingsPath = isTopicOrParam ? ["topics", instanceId] : ["layers", instanceId];
-    const sourceType = (settings as Partial<LayerSettingsCustomUrdf>).sourceType;
-    const url = (settings as Partial<LayerSettingsCustomUrdf>).url;
-    const filePath = (settings as Partial<LayerSettingsCustomUrdf>).filePath;
-    const parameter = (settings as Partial<LayerSettingsCustomUrdf>).parameter;
-    const topic = (settings as Partial<LayerSettingsCustomUrdf>).topic;
-    const framePrefix = (settings as Partial<LayerSettingsCustomUrdf>).framePrefix;
     const label =
       (settings as Partial<LayerSettingsCustomUrdf>).label ?? DEFAULT_CUSTOM_SETTINGS.label;
 
@@ -881,7 +938,18 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           this.renderer.settings.errors.add(path, VALID_SRC_ERR, errMsg);
         }
       } else if (sourceType === "param") {
-        this.renderer.settings.errors.add(path, VALID_SRC_ERR, `Invalid Parameter: "${parameter}"`);
+        const parameters = this.renderer.parameters;
+        if (parameters == undefined) {
+          return;
+        }
+        const value = parameter != undefined ? parameters.get(parameter) : undefined;
+        if (typeof value !== "string" || value.length === 0) {
+          this.renderer.settings.errors.add(
+            path,
+            VALID_SRC_ERR,
+            `Invalid Parameter: "${parameter}"`,
+          );
+        }
       } else if (sourceType === "topic") {
         this.renderer.settings.errors.add(path, VALID_SRC_ERR, `Invalid Topic: "${topic}"`);
       }
