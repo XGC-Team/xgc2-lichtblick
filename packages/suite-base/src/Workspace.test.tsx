@@ -608,6 +608,7 @@ describe("Workspace - fetchLayoutFromUrl", () => {
       expect(mockParseAndInstallLayout).toHaveBeenCalledWith(
         expect.objectContaining({ name: "my-layout.json" }),
         "local",
+        { managedAuthority: true },
       );
     });
   });

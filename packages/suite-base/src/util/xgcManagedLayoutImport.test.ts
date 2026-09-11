@@ -5,7 +5,11 @@
 
 import { LayoutData } from "@lichtblick/suite-base/context/CurrentLayoutContext";
 
-import { sanitizeImportedLayoutData, sanitizeImportedPanelConfig } from "./xgcManagedLayoutImport";
+import {
+  mergeManagedLayoutFromUrl,
+  sanitizeImportedLayoutData,
+  sanitizeImportedPanelConfig,
+} from "./xgcManagedLayoutImport";
 
 const authorityThreeD = {
   followTf: "world",
@@ -200,5 +204,85 @@ describe("xgc managed layout import", () => {
   it("passes through layouts that are not panel config objects", () => {
     const raw = { data: "not-a-layout" };
     expect(sanitizeImportedLayoutData(raw, authorityLayout)).toEqual(raw);
+  });
+
+  it("installs Core layoutUrl as authority over a parked Scout ugv3 followTf", () => {
+    const managed = {
+      configById: {
+        "3D!xgc2": {
+          followTf: "world",
+          followMode: "follow-none",
+          topics: { "/xgc/tf": { visible: true } },
+          layers: {
+            "xgc2-urdf-ugv1": {
+              layerId: "foxglove.Urdf",
+              parameter: "/ugv1/visual_robot_description",
+              framePrefix: "xgc/robots/ugv1/",
+            },
+            "xgc2-urdf-ugv2": {
+              layerId: "foxglove.Urdf",
+              parameter: "/ugv2/visual_robot_description",
+              framePrefix: "xgc/robots/ugv2/",
+            },
+          },
+          cameraState: { distance: 12 },
+        },
+      },
+      layout: "3D!xgc2",
+    };
+    const parked: LayoutData = {
+      configById: {
+        "3D!xgc2": {
+          followTf: "xgc/robots/ugv1/base_link",
+          followMode: "follow-pose",
+          topics: { "/xgc/tf": { visible: false } },
+          layers: {
+            "xgc2-urdf-ugv2": {
+              layerId: "foxglove.Urdf",
+              parameter: "/ugv2/visual_robot_description",
+              framePrefix: "xgc/robots/ugv3/",
+            },
+          },
+          cameraState: { distance: 5, target: [1, 2, 3] },
+        },
+      },
+      globalVariables: {},
+      userNodes: {},
+      playbackConfig: { speed: 1 },
+    };
+
+    const installed = mergeManagedLayoutFromUrl(managed, parked) as LayoutData;
+    expect(installed.layout).toBe("3D!xgc2");
+    expect(installed.configById["3D!xgc2"]).toMatchObject({
+      followTf: "world",
+      followMode: "follow-none",
+      topics: { "/xgc/tf": { visible: true } },
+      layers: {
+        "xgc2-urdf-ugv1": {
+          layerId: "foxglove.Urdf",
+          parameter: "/ugv1/visual_robot_description",
+          framePrefix: "xgc/robots/ugv1/",
+        },
+        "xgc2-urdf-ugv2": {
+          layerId: "foxglove.Urdf",
+          parameter: "/ugv2/visual_robot_description",
+          framePrefix: "xgc/robots/ugv2/",
+        },
+      },
+      cameraState: { distance: 5, target: [1, 2, 3] },
+    });
+  });
+
+  it("uses Core layoutUrl as-is when the viewer has no parked layout", () => {
+    const managed = {
+      configById: {
+        "3D!xgc2": { followTf: "world", layers: { "xgc2-urdf-ugv2": { framePrefix: "xgc/robots/ugv2/" } } },
+      },
+    };
+    expect(mergeManagedLayoutFromUrl(managed)).toMatchObject({
+      configById: {
+        "3D!xgc2": { followTf: "world", layers: { "xgc2-urdf-ugv2": { framePrefix: "xgc/robots/ugv2/" } } },
+      },
+    });
   });
 });

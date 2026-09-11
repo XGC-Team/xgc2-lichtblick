@@ -599,10 +599,11 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
         const existingLayouts = await layoutManager.getLayouts();
         const matchingLayouts = existingLayouts.filter((layout) => layout.name === layoutName);
 
-        // Delegate JSON parsing, saving, and selection to parseAndInstallLayout
+        // Core layoutUrl is the managed authority. Parked IndexedDB selected
+        // layout may keep cameraState; it must not restore Scout ugv3 URDF or followTf.
         const text = await response.text();
         const file = new File([text], filename, { type: "application/json" });
-        const newLayout = await parseAndInstallLayout(file, "local");
+        const newLayout = await parseAndInstallLayout(file, "local", { managedAuthority: true });
 
         // Only delete old layouts after successful save to avoid data loss
         if (newLayout) {

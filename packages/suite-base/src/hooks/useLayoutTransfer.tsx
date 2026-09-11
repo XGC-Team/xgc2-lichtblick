@@ -15,17 +15,28 @@ import { useLayoutNavigation } from "@lichtblick/suite-base/hooks/useLayoutNavig
 import { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
 import { Namespace } from "@lichtblick/suite-base/types";
 import { downloadTextFile } from "@lichtblick/suite-base/util/download";
-import { sanitizeImportedLayoutData } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
+import {
+  mergeManagedLayoutFromUrl,
+  sanitizeImportedLayoutData,
+} from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 import showOpenFilePicker from "@lichtblick/suite-base/util/showOpenFilePicker";
 
 import { useAnalytics } from "../context/AnalyticsContext";
 import { useLayoutManager } from "../context/LayoutManagerContext";
 import { AppEvent } from "../services/IAnalytics";
 
+export type ParseAndInstallLayoutOptions = {
+  managedAuthority?: boolean;
+};
+
 type UseLayoutTransfer = {
   importLayout: () => Promise<void>;
   exportLayout: () => Promise<void>;
-  parseAndInstallLayout: (file: File, namespace: Namespace) => Promise<Layout | undefined>;
+  parseAndInstallLayout: (
+    file: File,
+    namespace?: Namespace,
+    options?: ParseAndInstallLayoutOptions,
+  ) => Promise<Layout | undefined>;
 };
 
 export function useLayoutTransfer(): UseLayoutTransfer {
@@ -36,7 +47,7 @@ export function useLayoutTransfer(): UseLayoutTransfer {
   const { getCurrentLayoutState } = useCurrentLayoutActions();
 
   const parseAndInstallLayout = useCallback(
-    async (file: File, namespace: Namespace = "local") => {
+    async (file: File, namespace: Namespace = "local", options?: ParseAndInstallLayoutOptions) => {
       const layoutName = path.basename(file.name, path.extname(file.name));
       const content = await file.text();
 
@@ -59,9 +70,11 @@ export function useLayoutTransfer(): UseLayoutTransfer {
         return;
       }
 
-      const data = sanitizeImportedLayoutData(
-        parsedState,
-        getCurrentLayoutState().selectedLayout?.data,
+      const parked = getCurrentLayoutState().selectedLayout?.data;
+      const data = (
+        options?.managedAuthority
+          ? mergeManagedLayoutFromUrl(parsedState, parked)
+          : sanitizeImportedLayoutData(parsedState, parked)
       ) as LayoutData;
       const newLayout = await layoutManager.saveNewLayout({
         name: layoutName,

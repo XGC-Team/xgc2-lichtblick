@@ -164,3 +164,34 @@ export function sanitizeImportedLayoutData(incoming: unknown, authority?: Layout
   }
   return { ...incoming, configById };
 }
+
+function overlayParkedCameraState(managed: Record<string, unknown>, parked?: LayoutData): Record<string, unknown> {
+  const configs = managed.configById;
+  if (!isRecord(configs)) {
+    return managed;
+  }
+  const next: SavedProps = {};
+  for (const [id, config] of Object.entries(configs)) {
+    if (!isRecord(config)) {
+      next[id] = config as PanelConfig;
+      continue;
+    }
+    const parkedConfig =
+      (parked?.configById != undefined && isRecord(parked.configById[id])
+        ? parked.configById[id]
+        : undefined) ?? firstConfigOfType(parked?.configById, getPanelTypeFromId(id));
+    next[id] =
+      isRecord(parkedConfig) && Object.hasOwn(parkedConfig, "cameraState")
+        ? { ...config, cameraState: parkedConfig.cameraState }
+        : { ...config };
+  }
+  return { ...managed, configById: next };
+}
+
+/** Core layoutUrl JSON is the managed authority. Parked IndexedDB layout may keep cameraState. */
+export function mergeManagedLayoutFromUrl(managed: unknown, parked?: LayoutData): unknown {
+  if (!isRecord(managed) || !isRecord(managed.configById)) {
+    return managed;
+  }
+  return sanitizeImportedLayoutData(overlayParkedCameraState(managed, parked), managed as LayoutData);
+}

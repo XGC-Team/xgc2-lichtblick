@@ -141,4 +141,69 @@ describe("useLayoutTransfer", () => {
       }),
     );
   });
+
+  it("installs a Core layoutUrl over parked ugv3 followTf", async () => {
+    getCurrentLayoutStateMock.mockReturnValue({
+      selectedLayout: {
+        data: {
+          configById: {
+            "3D!xgc2": {
+              followTf: "xgc/robots/ugv1/base_link",
+              layers: {
+                "xgc2-urdf-ugv2": { framePrefix: "xgc/robots/ugv3/" },
+              },
+              cameraState: { distance: 5 },
+            },
+          },
+        },
+      },
+    });
+    const content =
+      JSON.stringify({
+        configById: {
+          "3D!xgc2": {
+            followTf: "world",
+            followMode: "follow-none",
+            layers: {
+              "xgc2-urdf-ugv2": {
+                layerId: "foxglove.Urdf",
+                framePrefix: "xgc/robots/ugv2/",
+                parameter: "/ugv2/visual_robot_description",
+              },
+            },
+            cameraState: { distance: 12 },
+          },
+        },
+        layout: "3D!xgc2",
+      }) ?? "";
+    const mockFile = new File([content], "layout.json", { type: "application/json" });
+    mockFile.text = async () => content;
+    saveNewLayoutMock.mockResolvedValue({ id: "core", name: "layout", data: {} });
+
+    const { result } = renderHook(() => useLayoutTransfer());
+    await act(async () => {
+      await result.current.parseAndInstallLayout(mockFile, "local", { managedAuthority: true });
+    });
+
+    expect(saveNewLayoutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          layout: "3D!xgc2",
+          configById: {
+            "3D!xgc2": expect.objectContaining({
+              followTf: "world",
+              followMode: "follow-none",
+              cameraState: { distance: 5 },
+              layers: {
+                "xgc2-urdf-ugv2": expect.objectContaining({
+                  framePrefix: "xgc/robots/ugv2/",
+                  parameter: "/ugv2/visual_robot_description",
+                }),
+              },
+            }),
+          },
+        }),
+      }),
+    );
+  });
 });
