@@ -18,6 +18,11 @@ const HEAD_DIAMETER = 0.05;
 
 export const AXIS_LENGTH = SHAFT_LENGTH + HEAD_LENGTH;
 
+/** Convert a desired axis length in scene meters into the Axis Object3D scale. */
+export function axisObjectScale(lengthMeters: number): number {
+  return lengthMeters / AXIS_LENGTH;
+}
+
 const RED_COLOR = new THREE.Color(0x9c3948);
 const GREEN_COLOR = new THREE.Color(0x88dd04);
 const BLUE_COLOR = new THREE.Color(0x2b90fb);

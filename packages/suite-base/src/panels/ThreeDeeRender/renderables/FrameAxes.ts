@@ -28,7 +28,7 @@ import { SettingsTreeEntry } from "../SettingsManager";
 import { getLuminance, stringToRgb } from "../color";
 import { BaseSettings, fieldSize, PRECISION_DEGREES, PRECISION_DISTANCE } from "../settings";
 import { CoordinateFrame, Duration, makePose, MAX_DURATION, Transform } from "../transforms";
-import { Axis, AXIS_LENGTH } from "./Axis";
+import { Axis, axisObjectScale } from "./Axis";
 import { DEFAULT_LABEL_SCALE_FACTOR } from "./SceneSettings";
 import { makeLinePickingMaterial } from "./markers/materials";
 
@@ -42,6 +42,7 @@ const PI_2 = Math.PI / 2;
 
 const DEFAULT_EDITABLE = false;
 
+/** Default world-axis length in scene meters. Matches XGC2 `axesScale=1`. */
 const DEFAULT_AXIS_SCALE = 1;
 const DEFAULT_LINE_WIDTH_PX = 2;
 const DEFAULT_LINE_COLOR_STR = "#ffff00";
@@ -284,7 +285,7 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
     // Compute the label offset based on the axis length and label size. We want the label
     // to float a little above the up axis arrow, proportional to the height of the label
     const axisScale = this.renderer.config.scene.transforms?.axisScale ?? DEFAULT_AXIS_SCALE;
-    const axisLength = AXIS_LENGTH * axisScale;
+    const axisLength = axisScale;
     const labelSize = this.renderer.config.scene.transforms?.labelSize ?? DEFAULT_TF_LABEL_SIZE;
     const labelScale = this.renderer.config.scene.labelScaleFactor ?? DEFAULT_LABEL_SCALE_FACTOR;
     const labelOffsetZ = axisLength + labelSize * labelScale * 1.5;
@@ -362,9 +363,10 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
     }
   }
 
-  #setAxisScale(scale: number): void {
+  #setAxisScale(lengthMeters: number): void {
+    const objectScale = axisObjectScale(lengthMeters);
     for (const renderable of this.renderables.values()) {
-      renderable.userData.axis.scale.set(scale, scale, scale);
+      renderable.userData.axis.scale.set(objectScale, objectScale, objectScale);
     }
   }
 
@@ -512,10 +514,12 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
     parentLine.receiveShadow = false;
     parentLine.userData.pickingMaterial = this.#linePickingMaterial;
 
-    // Three arrow axis
+    // Three arrow axis. scene.transforms.axisScale is length in scene meters
+    // (same as PoseArrays); the mesh native length is AXIS_LENGTH (0.2 m).
     const axis = new Axis(frameId, this.renderer);
     const axisScale = config.scene.transforms?.axisScale ?? DEFAULT_AXIS_SCALE;
-    axis.scale.set(axisScale, axisScale, axisScale);
+    const objectScale = axisObjectScale(axisScale);
+    axis.scale.set(objectScale, objectScale, objectScale);
 
     // Create a scene graph object to hold the axis, a text label, and a line to
     // the parent frame

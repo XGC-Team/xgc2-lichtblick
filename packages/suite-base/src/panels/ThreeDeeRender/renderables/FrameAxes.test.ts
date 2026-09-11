@@ -18,6 +18,7 @@ import { DEFAULT_CAMERA_STATE } from "@lichtblick/suite-base/panels/ThreeDeeRend
 import { DEFAULT_PUBLISH_SETTINGS } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PublishSettings";
 
 import { RendererConfig } from "../IRenderer";
+import { axisObjectScale } from "./Axis";
 import { FrameAxes } from "./FrameAxes";
 
 jest.mock("three/examples/jsm/libs/draco/draco_decoder.wasm", () => "");
@@ -135,6 +136,24 @@ describe("FrameAxes", () => {
       expect(details?.child_frame_id).toBe("child");
       expect(details?.parent_frame_id).toBe("parent");
       expect(details?.fixed_frame_id).toBe("parent");
+    });
+  });
+
+  describe("axis length", () => {
+    it("draws a 1 m gizmo when axisScale is 1", () => {
+      renderer.updateConfig((draft) => {
+        draft.scene.transforms = { axisScale: 1 };
+      });
+      renderer.transformTree.getOrCreateFrame("world");
+      renderer.emit("transformTreeUpdated", renderer);
+
+      const frameAxes = renderer.sceneExtensions.get("foxglove.FrameAxes") as FrameAxes;
+      const axis = frameAxes.renderables.get("world")?.userData.axis;
+
+      expect(axisObjectScale(1)).toBe(5);
+      expect(axis?.scale.x).toBe(5);
+      expect(axis?.scale.y).toBe(5);
+      expect(axis?.scale.z).toBe(5);
     });
   });
 
@@ -262,7 +281,7 @@ describe("FrameAxes", () => {
       const renderable = frameAxes.renderables.get("test_frame");
 
       // Verify initial scale
-      expect(renderable?.userData.axis.scale.x).toBe(2.5);
+      expect(renderable?.userData.axis.scale.x).toBe(axisObjectScale(2.5));
 
       // When: Sending reorder-node for settings path that would change axisScale
       const reorderAction: SettingsTreeAction = {
@@ -275,7 +294,7 @@ describe("FrameAxes", () => {
       frameAxes.handleSettingsAction(reorderAction);
 
       // Then: Axis scale remains unchanged (early return prevented saveSetting and setAxisScale)
-      expect(renderable?.userData.axis.scale.x).toBe(2.5);
+      expect(renderable?.userData.axis.scale.x).toBe(axisObjectScale(2.5));
       expect(renderer.config.scene.transforms?.axisScale).toBe(2.5);
     });
 
@@ -412,8 +431,12 @@ describe("FrameAxes", () => {
       // When: Changing axis scale
       frameAxes.handleSettingsAction(action);
 
-      // Then: Scale should be set to 2.0 for all axes
-      expect(scaleSpy).toHaveBeenCalledWith(2.0, 2.0, 2.0);
+      // Then: Object scale maps 2 m onto the 0.2 m Axis mesh
+      expect(scaleSpy).toHaveBeenCalledWith(
+        axisObjectScale(2.0),
+        axisObjectScale(2.0),
+        axisObjectScale(2.0),
+      );
     });
 
     it("updates frame visibility when visible setting is changed", () => {
