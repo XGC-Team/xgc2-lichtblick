@@ -294,10 +294,10 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   public canTransform(): boolean {
     const state = this.session?.getSnapshot();
-    if (this.session?.canEdit() !== true) {
+    if (this.session?.canEdit() !== true || state == undefined) {
       return false;
     }
-    if (!state?.selection) {
+    if (!state.selection) {
       return state.placement != undefined;
     }
     const obstacle = state.envelope?.document.obstacles.find(
