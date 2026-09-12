@@ -138,6 +138,20 @@ describe("VideoPlayer", () => {
     });
   });
 
+  it("accepts a 4K H264 frame taking longer than one display interval", async () => {
+    const { player, outputFrames } = setup({ trackDecodes: true });
+    await player.init({ codec: "avc1.640033", codedWidth: 3840, codedHeight: 2160 });
+    const result = player.decodeFrames([
+      { data: new Uint8Array([1]), timestampMicros: 1000, type: "key" },
+    ]);
+    await jest.advanceTimersByTimeAsync(45);
+    const frame = createFrame(1000);
+    outputFrames.get(1000)?.(frame);
+    await expect(result).resolves.toEqual({ type: "target", frame });
+    expect(frame.close).not.toHaveBeenCalled();
+    player.close();
+  });
+
   it("should time out when the target frame does not arrive before the deadline", async () => {
     // Given an H.264-configured player and a slow mock decoder that stores but never delivers
     const outputFrames = new Map<number, (frame: VideoFrame) => void>();
@@ -180,7 +194,7 @@ describe("VideoPlayer", () => {
       { data: new Uint8Array([2]), timestampMicros: 33333, type: "delta" },
     ]);
     await Promise.resolve();
-    await jest.advanceTimersByTimeAsync(10);
+    await jest.advanceTimersByTimeAsync(250);
     // The reference frame arrives after the deadline; it has no waiter and is dropped.
     outputFrames.get(0)?.(createFrame(0));
 

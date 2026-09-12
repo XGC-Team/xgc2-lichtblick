@@ -87,10 +87,12 @@ export const DEFAULT_SCENE_EXTENSION_CONFIG: SceneExtensionConfig = {
     [FrameAxes.extensionId]: {
       init: (renderer: IRenderer) =>
         // Default every TF frame axis off. XGC layouts enable only the scene
-        // origin (`frame:world`) when "Show world axes" is on; operators can
-        // still reveal individual robot frames from the Transforms tree.
-        // (Previously 3D mode defaulted every discovered frame to visible,
-        // which drew XYZ gizmo clutter on every robot link when axisScale > 0.)
+        // origin (`frame:world`) when "Show world axes" is on; the renderer
+        // seeds that frame as a root so the 1 m gizmo appears without plant
+        // /tf. Operators can still reveal individual robot frames from the
+        // Transforms tree. (Previously 3D mode defaulted every discovered
+        // frame to visible, which drew XYZ gizmo clutter on every robot link
+        // when axisScale > 0.)
         new FrameAxes(renderer, { visible: false }),
     },
     [Grids.extensionId]: {

@@ -155,6 +155,36 @@ describe("FrameAxes", () => {
       expect(axis?.scale.y).toBe(5);
       expect(axis?.scale.z).toBe(5);
     });
+
+    it("seeds 1 m world origin axes from layout without waiting for TF", () => {
+      const canvas = document.createElement("canvas");
+      parent.appendChild(canvas);
+      const seeded = new Renderer({
+        ...defaultRendererProps,
+        canvas,
+        config: {
+          ...defaultRendererConfig,
+          followTf: "world",
+          followMode: "follow-none",
+          transforms: { "frame:world": { visible: true } },
+          scene: { transforms: { axisScale: 1 } },
+        },
+      });
+      try {
+        const frameAxes = seeded.sceneExtensions.get("foxglove.FrameAxes") as FrameAxes;
+        const axis = frameAxes.renderables.get("world")?.userData.axis;
+
+        expect(seeded.transformTree.hasFrame("world")).toBe(true);
+        expect(seeded.followFrameId).toBe("world");
+        expect(frameAxes.renderables.get("world")?.userData.settings.visible).toBe(true);
+        expect(axisObjectScale(1)).toBe(5);
+        expect(axis?.scale.x).toBe(5);
+        expect(axis?.scale.y).toBe(5);
+        expect(axis?.scale.z).toBe(5);
+      } finally {
+        seeded.dispose();
+      }
+    });
   });
 
   describe("dispose()", () => {

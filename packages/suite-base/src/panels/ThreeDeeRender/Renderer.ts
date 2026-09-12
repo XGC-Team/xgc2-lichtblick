@@ -1177,6 +1177,27 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
+  // Layout-enabled frame gizmos (XGC: transforms["frame:world"]) are scene
+  // infrastructure, same as the grid. If they only appear after a TF message,
+  // the first frames render in FALLBACK_FRAME_ID — the grid still shows, but
+  // L20 origin axes never do. Scene-class 3D must not subscribe to plant /tf
+  // just to create this root. Do not seed followTf alone: an empty follow
+  // frame would change follow-none camera snapshots before real TFs arrive.
+  #seedConfiguredFrames(): void {
+    for (const key of Object.keys(this.config.transforms)) {
+      if (!key.startsWith("frame:")) {
+        continue;
+      }
+      if (this.config.transforms[key]?.visible !== true) {
+        continue;
+      }
+      const frameId = key.slice("frame:".length);
+      if (frameId.length > 0) {
+        this.addCoordinateFrame(frameId);
+      }
+    }
+  }
+
   #addFrameTransform(transform: FrameTransform): void {
     const parentId = transform.parent_frame_id;
     const childId = transform.child_frame_id;
@@ -1327,6 +1348,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.#rendering = true;
     this.currentTime = currentTime;
     this.#handleSubscriptionQueues();
+    this.#seedConfiguredFrames();
     this.#updateFrameErrors();
     this.#updateFixedFrameId();
     this.#updateResolution();

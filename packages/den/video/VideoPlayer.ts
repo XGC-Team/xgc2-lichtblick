@@ -12,12 +12,10 @@ import { H265_TARGET_FRAME_WAIT_MS } from "./h265/constants";
 
 // foxglove-depcheck-used: @types/dom-webcodecs
 
-// H.264 typically emits a decoded VideoFrame within a couple of milliseconds of submitting an
-// EncodedVideoChunk, so a tight 30 ms ceiling lets us return quickly when decoding is healthy and
-// fail fast when the decoder is stuck. The H.265 budgets live in `./h265/constants.ts` and are
-// much larger because HEVC decoders may need to consume an entire GOP before emitting the target
-// frame.
-const DEFAULT_TARGET_FRAME_WAIT_MS = 10;
+// A watchdog for a stuck decoder, not a frame-rate budget. 4K software decoding and
+// main-thread scheduling can exceed one display interval. Resolve immediately on
+// output; a 10 ms deadline discarded healthy frames before their callback arrived.
+const DEFAULT_TARGET_FRAME_WAIT_MS = 250;
 
 /** A single chunk of encoded video bitstream representing one frame. */
 export type EncodedVideoFrame = {
