@@ -13,8 +13,10 @@ import {
   type SceneGeometry,
   type SceneObstacle,
   type ScenePart,
+  type ScenePose,
   type Vec3,
 } from "./types";
+import { withObstaclePose } from "./motion";
 
 export const SCENE_PRESETS = [
   "Box",
@@ -29,6 +31,11 @@ export const SCENE_PRESETS = [
   "Dumbbell",
 ] as const;
 export type ScenePreset = (typeof SCENE_PRESETS)[number];
+
+/** Local-only authoring ghost. Never send this identity in an add command. */
+export const SCENE_DRAFT_ID = "__xgc_scene_draft__";
+/** Default add XY is outside the 10 m × 10 m origin box used by robot spawn. */
+export const DEFAULT_ADD_POSITION: Vec3 = [12, 12, 0];
 
 export function createGeometry(shape: SceneGeometry): THREE.BufferGeometry {
   switch (shape.type) {
@@ -140,6 +147,55 @@ export function createObstacle(preset: ScenePreset, id: string): SceneObstacle {
     }
   }
   return { id, name: preset, pose: initialPose(), parts, motion: { type: "hold" } };
+}
+
+function applyObjectPose(object: THREE.Object3D, pose: ScenePose): void {
+  object.position.fromArray(pose.position);
+  object.quaternion.fromArray(pose.orientation);
+  object.scale.set(1, 1, 1);
+}
+
+/** Lowest world Z of the compound obstacle, including part poses and extents. */
+export function obstacleLowestWorldZ(obstacle: SceneObstacle): number {
+  const root = new THREE.Group();
+  applyObjectPose(root, obstacle.pose);
+  const geometries: THREE.BufferGeometry[] = [];
+  for (const part of obstacle.parts) {
+    const geometry = createGeometry(part.geometry);
+    geometries.push(geometry);
+    const mesh = new THREE.Mesh(geometry);
+    applyObjectPose(mesh, part.pose);
+    root.add(mesh);
+  }
+  root.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(root);
+  for (const geometry of geometries) {
+    geometry.dispose();
+  }
+  return bounds.min.z;
+}
+
+/** Shift the whole obstacle so its lowest point sits on the world ground plane z=0. */
+export function snapObstacleToGround(obstacle: SceneObstacle): SceneObstacle {
+  const minZ = obstacleLowestWorldZ(obstacle);
+  if (!Number.isFinite(minZ) || Math.abs(minZ) < 1e-9) {
+    return obstacle;
+  }
+  return withObstaclePose(obstacle, {
+    ...obstacle.pose,
+    position: [
+      obstacle.pose.position[0],
+      obstacle.pose.position[1],
+      obstacle.pose.position[2] - minZ,
+    ],
+  });
+}
+
+export function createPlacementObstacle(
+  preset: ScenePreset,
+  pose: ScenePose = initialPose(DEFAULT_ADD_POSITION),
+): SceneObstacle {
+  return withObstaclePose(createObstacle(preset, SCENE_DRAFT_ID), pose);
 }
 
 /** Scaling is baked into author dimensions, and must never turn a sphere into an unnamed ellipsoid. */

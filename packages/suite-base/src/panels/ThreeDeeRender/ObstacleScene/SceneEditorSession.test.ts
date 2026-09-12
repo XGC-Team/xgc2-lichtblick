@@ -8,7 +8,7 @@
 import { EmbeddedSceneBridge } from "@lichtblick/suite-base/components/EmbeddedSceneBridge";
 
 import { SceneEditorSession } from "./SceneEditorSession";
-import { createObstacle } from "./geometry";
+import { createObstacle, createPlacementObstacle, SCENE_DRAFT_ID } from "./geometry";
 import { type SceneEnvelope, type SceneCommandResult } from "./types";
 
 function envelope(revision = 1): SceneEnvelope {
@@ -91,6 +91,27 @@ describe("scene authority and live edits", () => {
     session.resetForSeek();
     expect(command).not.toHaveBeenCalled();
     expect(session.getSnapshot().envelope).toBeUndefined();
+    session.dispose();
+  });
+
+  it("keeps a local placement draft out of the accepted document", async () => {
+    const { session } = await createSession();
+    const draft = createObstacle("Box", "draft-box");
+    session.setPlacement(draft);
+    expect(session.getSnapshot().placement?.name).toBe("Box");
+    expect(session.getSnapshot().envelope?.document.obstacles).toHaveLength(1);
+    session.resetForSeek();
+    expect(session.getSnapshot().placement).toBeUndefined();
+    session.dispose();
+  });
+
+  it("refuses to send the local placement draft as a scene identity", async () => {
+    const { session, command } = await createSession();
+    command.mockClear();
+    const draft = createPlacementObstacle("Box");
+    expect(draft.id).toBe(SCENE_DRAFT_ID);
+    expect(await session.command({ operation: "add", obstacle: draft })).toBe(false);
+    expect(command).not.toHaveBeenCalled();
     session.dispose();
   });
 

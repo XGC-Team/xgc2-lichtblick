@@ -20,7 +20,7 @@ import {
 
 import { ObstacleSceneEditor } from "./ObstacleSceneEditor";
 import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
-import { createObstacle } from "./geometry";
+import { createObstacle, SCENE_DRAFT_ID } from "./geometry";
 import type { SceneEnvelope } from "./types";
 import type { IRenderer } from "../IRenderer";
 import { RendererContext } from "../RendererContext";
@@ -140,8 +140,14 @@ describe("obstacle editor operator flow", () => {
       "/xgc/scene",
       expect.objectContaining({
         operation: "add",
-        obstacle: expect.objectContaining({ name: "Box" }),
+        obstacle: expect.objectContaining({
+          name: "Box",
+          pose: expect.objectContaining({ position: [12, 12, 0] }),
+        }),
       }),
+    );
+    expect((command.mock.lastCall?.[1] as { obstacle: { id: string } }).obstacle.id).not.toBe(
+      SCENE_DRAFT_ID,
     );
     expect(screen.getByRole("button", { name: "Retry save YAML" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Reload YAML" }));
@@ -152,6 +158,71 @@ describe("obstacle editor operator flow", () => {
       "/xgc/scene",
       expect.objectContaining({ operation: "reload" }),
     );
+    dispose();
+  });
+
+  it("commits the edited placement pose instead of adding at the origin", async () => {
+    const { command, dispose } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Placement (m) X" })).toBeEnabled();
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Placement (m) X" }), {
+      target: { value: "15" },
+    });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Placement (m) X" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add obstacle" }));
+    await waitFor(() => {
+      expect(command).toHaveBeenLastCalledWith(
+        "/xgc/scene",
+        expect.objectContaining({
+          operation: "add",
+          obstacle: expect.objectContaining({
+            pose: expect.objectContaining({ position: [15, 12, 0] }),
+          }),
+        }),
+      );
+    });
+    dispose();
+  });
+
+  it("snaps the selected obstacle onto the world ground plane", async () => {
+    const { extension, command, dispose } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
+    });
+    const lifted = {
+      ...extension.session!.getSnapshot().envelope!.document.obstacles[0]!,
+      pose: {
+        ...extension.session!.getSnapshot().envelope!.document.obstacles[0]!.pose,
+        position: [1, 2, 4] as [number, number, number],
+      },
+    };
+    act(() => {
+      const current = extension.session!.getSnapshot().envelope!;
+      extension.session!.accept({
+        ...current,
+        document: { ...current.document, obstacles: [lifted] },
+      });
+      extension.session!.select({ obstacleId: "sphere-1" });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Snap to ground" }));
+    await waitFor(() => {
+      expect(command).toHaveBeenLastCalledWith(
+        "/xgc/scene",
+        expect.objectContaining({
+          operation: "update",
+          obstacle: expect.objectContaining({
+            id: "sphere-1",
+          }),
+        }),
+      );
+    });
+    const updated = command.mock.lastCall?.[1] as { obstacle: { pose: { position: number[] } } };
+    expect(updated.obstacle.pose.position[0]).toBe(1);
+    expect(updated.obstacle.pose.position[1]).toBe(2);
+    expect(updated.obstacle.pose.position[2]).toBeCloseTo(0, 5);
     dispose();
   });
 

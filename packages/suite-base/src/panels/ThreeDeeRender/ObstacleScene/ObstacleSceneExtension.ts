@@ -15,7 +15,7 @@ import {
 import type { MessageEvent } from "@lichtblick/suite";
 
 import { SceneEditorSession } from "./SceneEditorSession";
-import { createGeometry, scaleGeometry } from "./geometry";
+import { createGeometry, scaleGeometry, SCENE_DRAFT_ID } from "./geometry";
 import { withObstaclePose } from "./motion";
 import {
   isRecord,
@@ -62,6 +62,7 @@ export class ObstacleSceneExtension extends SceneExtension {
   #suppressClick = false;
   #lastState: { epoch: string; revision: number; poses: Map<string, ScenePose> } | undefined;
   #mode: "translate" | "rotate" | "scale" = "translate";
+  #draftGroup: THREE.Group | undefined;
 
   public constructor(renderer: IRenderer) {
     super(ObstacleSceneExtension.extensionId, renderer);
@@ -200,6 +201,9 @@ export class ObstacleSceneExtension extends SceneExtension {
       this.cancelPreview();
     }
     this.#applyRuntimePoses();
+    if (!this.#isDraftDrag()) {
+      this.#syncPlacement();
+    }
     this.#attach();
     this.renderer.queueAnimationFrame();
   };
@@ -228,17 +232,82 @@ export class ObstacleSceneExtension extends SceneExtension {
     }
   }
 
+  #isDraftDrag(): boolean {
+    return this.#drag?.selection.obstacleId === SCENE_DRAFT_ID;
+  }
+
+  #clearDraft(): void {
+    if (!this.#draftGroup) {
+      return;
+    }
+    if (this.#controls.object === this.#draftGroup) {
+      this.#controls.detach();
+    }
+    this.#meshes = this.#meshes.filter((mesh) => mesh.userData.draft !== true);
+    this.#frame.remove(this.#draftGroup);
+    this.#draftGroup.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        object.geometry.dispose();
+        object.material.dispose();
+      }
+    });
+    this.#draftGroup = undefined;
+  }
+
+  #syncPlacement(): void {
+    this.#clearDraft();
+    const state = this.session?.getSnapshot();
+    const placement = state?.placement;
+    if (
+      !placement ||
+      state?.active !== true ||
+      state.live !== true ||
+      state.authorized !== true ||
+      state.envelope == undefined
+    ) {
+      return;
+    }
+    const group = new THREE.Group();
+    group.name = SCENE_DRAFT_ID;
+    applyPose(group, placement.pose);
+    for (const part of placement.parts) {
+      const [r, g, b] = part.color;
+      const material = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(r, g, b),
+        opacity: 0.45,
+        transparent: true,
+        roughness: 0.8,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(createGeometry(part.geometry), material);
+      mesh.name = part.id;
+      mesh.userData.obstacleId = SCENE_DRAFT_ID;
+      mesh.userData.partId = part.id;
+      mesh.userData.draft = true;
+      applyPose(mesh, part.pose);
+      group.add(mesh);
+      this.#meshes.push(mesh);
+    }
+    this.#draftGroup = group;
+    this.#frame.add(group);
+  }
+
   public canTransform(): boolean {
     const state = this.session?.getSnapshot();
-    const obstacle = state?.envelope?.document.obstacles.find(
+    if (this.session?.canEdit() !== true) {
+      return false;
+    }
+    if (!state?.selection) {
+      return state.placement != undefined;
+    }
+    const obstacle = state.envelope?.document.obstacles.find(
       (o) => o.id === state.selection?.obstacleId,
     );
     // Motion definitions are edited at their initial placement, never at an arbitrary moving frame.
     return (
-      this.session?.canEdit() === true &&
       obstacle != undefined &&
       (obstacle.motion.type === "hold" ||
-        (state?.envelope?.playing === false && state.envelope.sceneTime === 0))
+        (state.envelope?.playing === false && state.envelope.sceneTime === 0))
     );
   }
 
@@ -265,7 +334,10 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   #target(selection: SceneSelection | undefined): THREE.Object3D | undefined {
     if (!selection) {
-      return undefined;
+      return this.#draftGroup;
+    }
+    if (selection.obstacleId === SCENE_DRAFT_ID) {
+      return this.#draftGroup;
     }
     const group = this.#groups.get(selection.obstacleId);
     return selection.partId
@@ -291,8 +363,10 @@ export class ObstacleSceneExtension extends SceneExtension {
     for (const mesh of this.#meshes) {
       const selected =
         state?.active === true &&
-        mesh.userData.obstacleId === selection?.obstacleId &&
-        (!selection?.partId || mesh.userData.partId === selection.partId);
+        (mesh.userData.draft === true
+          ? !selection
+          : mesh.userData.obstacleId === selection?.obstacleId &&
+            (!selection?.partId || mesh.userData.partId === selection.partId));
       mesh.material.emissive.setHex(selected ? 0x57431c : 0x000000);
     }
   }
@@ -330,19 +404,35 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   #beginDrag = (): void => {
     const state = this.session?.getSnapshot();
-    const selection = state?.selection;
     const envelope = state?.envelope;
-    const obstacle = envelope?.document.obstacles.find((o) => o.id === selection?.obstacleId);
-    if (!selection || !obstacle || !envelope || !this.canTransform()) {
+    if (!envelope || !this.canTransform()) {
       return;
     }
-    this.#drag = {
-      selection,
-      obstacle: _.cloneDeep(obstacle),
-      epoch: envelope.epoch,
-      revision: envelope.revision,
-      changed: false,
-    };
+    if (!state.selection) {
+      const placement = state.placement;
+      if (!placement) {
+        return;
+      }
+      this.#drag = {
+        selection: { obstacleId: SCENE_DRAFT_ID },
+        obstacle: _.cloneDeep(placement),
+        epoch: envelope.epoch,
+        revision: envelope.revision,
+        changed: false,
+      };
+    } else {
+      const obstacle = envelope.document.obstacles.find((o) => o.id === state.selection?.obstacleId);
+      if (!obstacle) {
+        return;
+      }
+      this.#drag = {
+        selection: state.selection,
+        obstacle: _.cloneDeep(obstacle),
+        epoch: envelope.epoch,
+        revision: envelope.revision,
+        changed: false,
+      };
+    }
     this.#suppressClick = true;
     this.renderer.cameraHandler.setInteractionEnabled?.({ enabled: false });
   };
@@ -381,6 +471,10 @@ export class ObstacleSceneExtension extends SceneExtension {
         position: target.position.toArray(),
         orientation: target.quaternion.clone().normalize().toArray() as ScenePose["orientation"],
       };
+      if (drag.selection.obstacleId === SCENE_DRAFT_ID) {
+        this.session?.setPlacement(withObstaclePose(obstacle, pose));
+        return;
+      }
       if (part) {
         part.pose = pose;
         part.geometry = scaleGeometry(part.geometry, target.scale.toArray());
@@ -415,6 +509,10 @@ export class ObstacleSceneExtension extends SceneExtension {
           applyPose(child, part.pose);
         }
       }
+    }
+    const placement = this.session?.getSnapshot().placement;
+    if (this.#draftGroup && placement) {
+      applyPose(this.#draftGroup, placement.pose);
     }
     this.#applyRuntimePoses();
     this.renderer.queueAnimationFrame();
@@ -467,6 +565,11 @@ export class ObstacleSceneExtension extends SceneExtension {
       this.renderer.cameraHandler.getActiveCamera(),
     );
     const mesh = raycaster.intersectObjects(this.#meshes, false)[0]?.object;
+    if (mesh?.userData.draft === true) {
+      this.session.select(undefined);
+      event.stopImmediatePropagation();
+      return;
+    }
     if (mesh) {
       this.session.select({
         obstacleId: mesh.userData.obstacleId as string,
@@ -503,6 +606,7 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   #clearGeometry(): void {
     this.#controls.detach();
+    this.#clearDraft();
     for (const mesh of this.#meshes) {
       mesh.geometry.dispose();
       mesh.material.dispose();

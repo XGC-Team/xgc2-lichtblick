@@ -12,10 +12,12 @@ import {
   embeddedSceneBridge,
 } from "@lichtblick/suite-base/components/EmbeddedSceneBridge";
 
+import { SCENE_DRAFT_ID } from "./geometry";
 import {
   parseSceneEnvelope,
   type SceneCommand,
   type SceneEnvelope,
+  type SceneObstacle,
   type SceneSelection,
 } from "./types";
 
@@ -27,6 +29,7 @@ export type SceneAction = SceneCommand extends infer T
 export type SceneEditorState = {
   envelope?: SceneEnvelope;
   selection?: SceneSelection;
+  placement?: SceneObstacle;
   active: boolean;
   live: boolean;
   authorized: boolean;
@@ -97,6 +100,9 @@ export class SceneEditorSession {
   public select(selection: SceneSelection | undefined): void {
     this.#set({ selection });
   }
+  public setPlacement(placement: SceneObstacle | undefined): void {
+    this.#set({ placement });
+  }
   public reportError(error: unknown): void {
     this.#set({
       error: error instanceof Error ? error.message : String(error),
@@ -135,6 +141,7 @@ export class SceneEditorSession {
     this.#set({
       envelope: undefined,
       selection: undefined,
+      placement: undefined,
       pending: false,
       needsRefresh: true,
     });
@@ -162,6 +169,13 @@ export class SceneEditorSession {
       this.reportError(
         "Scene editing is unavailable. Connect the live scene and refresh its current state.",
       );
+      return false;
+    }
+    if (
+      (action.operation === "add" || action.operation === "update") &&
+      action.obstacle.id === SCENE_DRAFT_ID
+    ) {
+      this.reportError("Placement draft is local-only. Confirm Add obstacle to put it in the scene.");
       return false;
     }
     const generation = this.#generation;

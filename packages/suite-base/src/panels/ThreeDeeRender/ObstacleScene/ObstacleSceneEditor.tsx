@@ -27,11 +27,19 @@ import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/Emb
 
 import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
 import { SceneEditorSession } from "./SceneEditorSession";
-import { createObstacle, SCENE_PRESETS, type ScenePreset } from "./geometry";
+import {
+  createObstacle,
+  createPlacementObstacle,
+  DEFAULT_ADD_POSITION,
+  SCENE_PRESETS,
+  snapObstacleToGround,
+  type ScenePreset,
+} from "./geometry";
 import { withObstacleMotion, withObstaclePose } from "./motion";
 import { canRetrySync } from "./sceneSync";
 import {
   geometryValid,
+  initialPose,
   type SceneGeometry,
   type SceneObstacle,
   type SceneMotion,
@@ -404,7 +412,14 @@ function SceneInspector({
   const [showImport, setShowImport] = useState(false);
   const [mode, setMode] = useState<"translate" | "rotate" | "scale">("translate");
   const [local, setLocal] = useState(false);
+  useEffect(() => {
+    if (state.placement) {
+      return;
+    }
+    session.setPlacement(createPlacementObstacle(preset));
+  }, [session, state.placement, preset]);
   const obstacle = envelope?.document.obstacles.find((o) => o.id === selection?.obstacleId);
+  const placement = state.placement;
   const part = obstacle?.parts.find((p) => p.id === selection?.partId);
   const dimensionPart = part ?? (obstacle?.parts.length === 1 ? obstacle.parts[0] : undefined);
   const pose = part?.pose ?? obstacle?.pose;
@@ -452,8 +467,22 @@ function SceneInspector({
         ...obstacle,
         parts: [...obstacle.parts, ...next.parts.map((p) => ({ ...p, id: `${next.id}-${p.id}` }))],
       });
-    } else if (await session.command({ operation: "add", obstacle: next })) {
-      session.select({ obstacleId: next.id });
+    } else {
+      const pose = placement?.pose ?? initialPose(DEFAULT_ADD_POSITION);
+      const body = { ...withObstaclePose(next, pose), id: uuid() };
+      if (customGeometry) {
+        body.name = next.name;
+        body.parts = next.parts;
+      }
+      if (await session.command({ operation: "add", obstacle: body })) {
+        session.setPlacement(
+          createPlacementObstacle(preset, {
+            ...body.pose,
+            position: [body.pose.position[0] + 1.5, body.pose.position[1], body.pose.position[2]],
+          }),
+        );
+        session.select({ obstacleId: body.id });
+      }
     }
   };
 
@@ -583,7 +612,11 @@ function SceneInspector({
             label={zh ? "创建形状" : "Create shape"}
             value={preset}
             onChange={(event) => {
-              setPreset(event.target.value as ScenePreset);
+              const next = event.target.value as ScenePreset;
+              setPreset(next);
+              session.setPlacement(
+                createPlacementObstacle(next, placement?.pose ?? initialPose(DEFAULT_ADD_POSITION)),
+              );
             }}
           >
             {SCENE_PRESETS.map((name) => (
@@ -592,8 +625,23 @@ function SceneInspector({
               </MenuItem>
             ))}
           </TextField>
+          {placement && (
+            <VectorFields
+              label={zh ? "添加位置（米）" : "Placement (m)"}
+              value={placement.pose.position}
+              disabled={!writable}
+              onCommit={(position) => {
+                session.setPlacement(withObstaclePose(placement, { ...placement.pose, position }));
+              }}
+            />
+          )}
           <div className={classes.row}>
-            <Button size="small" disabled={!writable} onClick={() => void create("obstacle")}>
+            <Button
+              size="small"
+              disabled={!writable}
+              data-xgc-role="obstacle-scene-add"
+              onClick={() => void create("obstacle")}
+            >
               {zh ? "添加障碍" : "Add obstacle"}
             </Button>
             <Button size="small" disabled={!transformable} onClick={() => void create("part")}>
@@ -840,6 +888,16 @@ function SceneInspector({
                   }}
                 >
                   {zh ? "复制障碍" : "Copy obstacle"}
+                </Button>
+                <Button
+                  size="small"
+                  disabled={!transformable}
+                  data-xgc-role="obstacle-scene-snap-ground"
+                  onClick={() => {
+                    update(snapObstacleToGround(obstacle));
+                  }}
+                >
+                  {zh ? "贴地" : "Snap to ground"}
                 </Button>
                 <Button
                   size="small"

@@ -7,9 +7,21 @@
 
 import * as THREE from "three";
 
-import { createGeometry, createObstacle, scaleGeometry, SCENE_PRESETS } from "./geometry";
+import {
+  createGeometry,
+  createObstacle,
+  createPlacementObstacle,
+  DEFAULT_ADD_POSITION,
+  obstacleLowestWorldZ,
+  scaleGeometry,
+  SCENE_DRAFT_ID,
+  SCENE_PRESETS,
+  snapObstacleToGround,
+} from "./geometry";
+import { withObstaclePose } from "./motion";
 import {
   geometryValid,
+  initialPose,
   OBSTACLE_VISUAL_COLOR,
   parseSceneEnvelope,
   sceneNamespace,
@@ -123,5 +135,23 @@ describe("rich scene geometry", () => {
     const envelope = fixture();
     envelope.document.obstacles.push(envelope.document.obstacles[0]!);
     expect(() => parseSceneEnvelope(envelope)).toThrow("identity");
+  });
+
+  it("places new authoring drafts outside the 10 m origin box", () => {
+    const placement = createPlacementObstacle("Box");
+    expect(placement.id).toBe(SCENE_DRAFT_ID);
+    expect(placement.pose.position).toEqual(DEFAULT_ADD_POSITION);
+    expect(DEFAULT_ADD_POSITION[0]).toBeGreaterThanOrEqual(10);
+    expect(DEFAULT_ADD_POSITION[1]).toBeGreaterThanOrEqual(10);
+  });
+
+  it("snaps a lifted compound onto the world ground without changing part offsets", () => {
+    const original = withObstaclePose(createObstacle("Arch", "door"), initialPose([4, -3, 2]));
+    const snapped = snapObstacleToGround(original);
+    expect(obstacleLowestWorldZ(snapped)).toBeCloseTo(0, 6);
+    expect(snapped.pose.position[0]).toBe(4);
+    expect(snapped.pose.position[1]).toBe(-3);
+    expect(snapped.parts).toEqual(original.parts);
+    expect(snapObstacleToGround(snapped).pose.position[2]).toBeCloseTo(snapped.pose.position[2], 6);
   });
 });
