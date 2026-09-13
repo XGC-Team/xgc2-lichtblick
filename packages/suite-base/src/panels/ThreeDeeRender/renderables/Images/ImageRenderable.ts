@@ -267,10 +267,10 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#pendingImageDecode = undefined;
     const textureImage = this.userData.texture?.image;
     if (textureImage instanceof ImageBitmap) {
-      closeGraphicResource(textureImage);
+      this.#releaseBitmap(textureImage);
     }
     if (this.#decodedImage instanceof ImageBitmap && this.#decodedImage !== textureImage) {
-      closeGraphicResource(this.#decodedImage);
+      this.#releaseBitmap(this.#decodedImage);
     }
     this.userData.texture?.dispose();
     this.userData.material?.dispose();
@@ -368,7 +368,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     }
     this.userData.image = image;
 
-    const seq = ++this.#receivedImageSequenceNumber;
+    // Only accepted work may advance the presentation watermark. A duplicate
+    // video message must not make the actual queued tail look obsolete.
+    const seq = this.#receivedImageSequenceNumber + 1;
     const incomingFormat = "format" in image ? image.format : undefined;
     const incomingCodec =
       incomingFormat == undefined ? undefined : this.#cachedCanonicalCodec(incomingFormat);
@@ -421,6 +423,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         sizeInBytes: videoImage.data.byteLength,
         isRecoveryPoint: isCompleteVideoRecoveryPoint(videoImage, codec),
       });
+      if (enqueueResult.accepted) {
+        this.#receivedImageSequenceNumber = seq;
+      }
       if (enqueueResult.resetRequired) {
         this.#pendingVideoResetRequired = true;
         this.#videoDecodeEpoch++;
@@ -429,6 +434,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       return;
     }
 
+    this.#receivedImageSequenceNumber = seq;
     this.#pendingImageDecode = { image, seq, resizeWidth, onDecoded };
     if (this.#activeImageDecodes < MAX_CONCURRENT_IMAGE_DECODES) {
       this.#activeImageDecodes++;
@@ -577,7 +583,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       const result = await this.decodeImage(image, resizeWidth);
       if (this.isDisposed()) {
         if (result instanceof ImageBitmap) {
-          closeGraphicResource(result);
+          this.#releaseBitmap(result);
         }
         return;
       }
@@ -586,18 +592,18 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         options.videoDecodeEpoch !== this.#videoDecodeEpoch
       ) {
         if (result instanceof ImageBitmap) {
-          closeGraphicResource(result);
+          this.#releaseBitmap(result);
         }
         return;
       }
       if (this.#displayedImageSequenceNumber > seq) {
         if (result instanceof ImageBitmap) {
-          closeGraphicResource(result);
+          this.#releaseBitmap(result);
         }
         return;
       }
       this.#displayedImageSequenceNumber = seq;
-      this.#decodedImage = result;
+      this.#replaceDecodedImage(result);
       this.#textureNeedsUpdate = true;
       if (!skipRender) {
         this.update();
@@ -645,14 +651,14 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       this.isDisposed() ||
       (videoDecodeEpoch != undefined && videoDecodeEpoch !== this.#videoDecodeEpoch)
     ) {
-      closeGraphicResource(errorBitmap);
+      this.#releaseBitmap(errorBitmap);
       return;
     }
     if (this.#displayedImageSequenceNumber > seq) {
-      closeGraphicResource(errorBitmap);
+      this.#releaseBitmap(errorBitmap);
       return;
     }
-    this.#decodedImage = errorBitmap;
+    this.#replaceDecodedImage(errorBitmap);
     this.#textureNeedsUpdate = true;
     this.update();
     this.#showingErrorImage = true;
@@ -862,7 +868,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
     try {
       const imageBitmap = await globalThis.createImageBitmap(result.frame, { resizeWidth });
-      closeGraphicResource(this.videoPlayer.lastImageBitmap);
+      // The renderable releases the old bitmap after rebinding its texture.
       this.videoPlayer.lastImageBitmap = imageBitmap;
       this.#waitingForVideoKeyframe = false;
       this.#canReplayVideoGop = false;
@@ -946,6 +952,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
           videoPlayer,
           this.#videoFirstMessageTime,
           resizeWidth,
+          { retainPreviousBitmap: true },
         );
       }
     }
@@ -958,35 +965,40 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     }
     this.#isUpdating = true;
 
-    if (this.#textureNeedsUpdate && this.#decodedImage) {
-      this.#updateTexture();
-      this.#textureNeedsUpdate = false;
-    }
+    try {
+      if (this.#textureNeedsUpdate && this.#decodedImage) {
+        this.#updateTexture();
+        this.#textureNeedsUpdate = false;
+      }
 
-    if (this.userData.image) {
-      this.updateHeaderInfo();
-    }
+      if (this.userData.image) {
+        this.updateHeaderInfo();
+      }
 
-    if (this.#geometryNeedsUpdate && this.userData.cameraModel) {
-      this.#rebuildGeometry();
-      this.#geometryNeedsUpdate = false;
-    }
+      if (this.#geometryNeedsUpdate && this.userData.cameraModel) {
+        this.#rebuildGeometry();
+        this.#geometryNeedsUpdate = false;
+      }
 
-    if (this.#materialNeedsUpdate) {
-      this.#updateMaterial();
-      this.#materialNeedsUpdate = false;
-    }
+      if (this.#materialNeedsUpdate) {
+        this.#updateMaterial();
+        this.#materialNeedsUpdate = false;
+      }
 
-    if (
-      this.#meshNeedsUpdate &&
-      this.userData.texture &&
-      this.userData.geometry &&
-      this.userData.material
-    ) {
-      this.#updateMesh();
-      this.#meshNeedsUpdate = false;
+      if (
+        this.#meshNeedsUpdate &&
+        this.userData.texture &&
+        this.userData.geometry &&
+        this.userData.material
+      ) {
+        this.#updateMesh();
+        this.#meshNeedsUpdate = false;
+      }
+    } finally {
+      // A transient upload/model/header failure must not permanently latch the
+      // reentrancy guard and leave every later frame frozen.
+      this.#isUpdating = false;
     }
-    this.#isUpdating = false;
   }
 
   #rebuildGeometry() {
@@ -999,12 +1011,34 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#meshNeedsUpdate = true;
   }
 
+  #releaseBitmap(bitmap: ImageBitmap): void {
+    if (this.videoPlayer?.lastImageBitmap === bitmap) {
+      this.videoPlayer.lastImageBitmap = undefined;
+    }
+    closeGraphicResource(bitmap);
+  }
+
+  #replaceDecodedImage(image: ImageBitmap | ImageData): void {
+    const previous = this.#decodedImage;
+    this.#decodedImage = image;
+    // Intermediate catch-up frames may never have been attached to a texture.
+    // Release them here, but keep the presented bitmap alive until texture swap.
+    if (
+      previous instanceof ImageBitmap &&
+      previous !== image &&
+      previous !== this.userData.texture?.image
+    ) {
+      this.#releaseBitmap(previous);
+    }
+  }
+
   #updateTexture(): void {
     assert(
       this.#decodedImage,
       "Decoded image must be set before texture can be updated or created",
     );
     const decodedImage = this.#decodedImage;
+    const previousTexture = this.userData.texture;
     // Create or update the bitmap texture
     if (decodedImage instanceof ImageBitmap) {
       const canvasTexture = this.userData.texture;
@@ -1015,7 +1049,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         !bitmapDimensionsEqual(decodedImage, canvasTexture.image as ImageBitmap | undefined)
       ) {
         if (canvasTexture?.image instanceof ImageBitmap) {
-          closeGraphicResource(canvasTexture.image);
+          this.#releaseBitmap(canvasTexture.image);
         }
         canvasTexture?.dispose();
         this.userData.texture = createCanvasTexture(decodedImage);
@@ -1024,7 +1058,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         canvasTexture.image = decodedImage;
         canvasTexture.needsUpdate = true;
         if (previousImage != undefined && previousImage !== decodedImage) {
-          closeGraphicResource(previousImage);
+          this.#releaseBitmap(previousImage);
         }
       }
     } else {
@@ -1037,7 +1071,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         dataTexture.image.height !== decodedImage.height
       ) {
         if (dataTexture?.image instanceof ImageBitmap) {
-          closeGraphicResource(dataTexture.image);
+          this.#releaseBitmap(dataTexture.image);
         }
         dataTexture?.dispose();
         dataTexture = createDataTexture(decodedImage);
@@ -1047,7 +1081,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         dataTexture.needsUpdate = true;
       }
     }
-    this.#materialNeedsUpdate = true;
+    // Uploading pixels to the same texture does not change the material. Only
+    // a new texture reference (format/dimensions) needs its sampler rebound.
+    this.#materialNeedsUpdate ||= this.userData.texture !== previousTexture;
   }
 
   #updateMaterial(): void {
@@ -1059,19 +1095,22 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
     const texture = this.userData.texture;
     if (texture) {
-      material.uniforms.map = { value: texture };
+      material.uniforms.map!.value = texture;
     }
 
     tempColor = stringToRgba(tempColor, this.userData.settings.color);
     const transparent = tempColor.a < 1;
-    const color = new THREE.Color(tempColor.r, tempColor.g, tempColor.b);
+    const color = material.uniforms.color!.value as THREE.Color;
+    color.setRGB(tempColor.r, tempColor.g, tempColor.b);
     const { brightness, contrast } = this.userData.settings;
-    material.uniforms.color = { value: color };
-    material.uniforms.brightness = { value: clampBrightness(brightness) };
-    material.uniforms.contrast = { value: clampContrast(contrast) };
-    material.uniforms.opacity = { value: tempColor.a };
+    material.uniforms.brightness!.value = clampBrightness(brightness);
+    material.uniforms.contrast!.value = clampContrast(contrast);
+    material.uniforms.opacity!.value = tempColor.a;
     material.opacity = tempColor.a;
-    material.transparent = transparent;
+    if (material.transparent !== transparent) {
+      material.transparent = transparent;
+      material.needsUpdate = true;
+    }
     material.depthWrite = !transparent;
 
     if (this.#renderBehindScene) {
@@ -1081,7 +1120,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       material.depthTest = true;
     }
 
-    material.needsUpdate = true;
+    // ShaderMaterial uniforms update at render time; pixel/brightness changes
+    // do not require shader program revalidation or new uniform objects.
   }
 
   #initMaterial(): void {
