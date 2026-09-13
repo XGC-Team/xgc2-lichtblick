@@ -26,6 +26,8 @@ const PRIMITIVE_DEFAULT_SETTINGS: LayerSettingsEntity = {
   showOutlines: true,
   visible: false,
   color: undefined,
+  backgroundColor: undefined,
+  showBackground: undefined,
   selectedIdVariable: undefined,
 };
 export class RenderablePrimitive extends Renderable<EntityRenderableUserData> {

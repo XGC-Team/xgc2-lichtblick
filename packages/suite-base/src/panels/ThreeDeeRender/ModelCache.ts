@@ -236,7 +236,8 @@ export class ModelCache {
     // Preload textures. We do this here since we can't pass in an async function in LoadingManager.setURLModifier
     // which is supposed to be used for overriding loading behavior. See also
     // https://threejs.org/docs/index.html#api/en/loaders/managers/LoadingManager.setURLModifier
-    for (const node of xml.querySelectorAll("init_from")) {
+    // Surface init_from values name image IDs, not external resources.
+    for (const node of xml.querySelectorAll("library_images image > init_from")) {
       if (!node.textContent) {
         continue;
       }

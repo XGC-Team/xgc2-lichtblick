@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { ICameraModel } from "@lichtblick/suite";
 
 const DEFAULT_CAMERA_STATE = {
-  near: 0.001,
+  near: 0.1,
   far: 1000,
 };
 
@@ -32,6 +32,10 @@ export class ImageModeCamera extends THREE.PerspectiveCamera {
   readonly #panOffset = new THREE.Vector2(0, 0);
   /** Amount the user has zoomed with the scroll wheel */
   #userZoom = 1;
+
+  public constructor() {
+    super(50, 1, DEFAULT_CAMERA_STATE.near, DEFAULT_CAMERA_STATE.far);
+  }
 
   public updateCamera(cameraModel: ICameraModel | undefined): void {
     this.#model = cameraModel;

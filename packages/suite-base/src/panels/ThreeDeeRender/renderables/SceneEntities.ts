@@ -47,6 +47,8 @@ const SCENE_ENTITIES_DEFAULT_SETTINGS: LayerSettingsEntity = {
   showOutlines: true,
   visible: false,
   color: undefined,
+  backgroundColor: undefined,
+  showBackground: undefined,
   selectedIdVariable: undefined,
 };
 
@@ -82,6 +84,18 @@ export class FoxgloveSceneEntities extends SceneExtension<TopicEntities> {
         order: topic.name.toLocaleLowerCase(),
         fields: {
           color: { label: "Color", input: "rgba", value: config.color },
+          showBackground: {
+            label: "Show background",
+            input: "boolean",
+            value: config.showBackground ?? true,
+            help: "Off draws only the text. On uses Background color, or the automatic contrast plate when that color is empty.",
+          },
+          backgroundColor: {
+            label: "Background color",
+            input: "rgb",
+            value: config.backgroundColor,
+            help: "Color of SceneEntity text plates when Show background is on.",
+          },
           showOutlines: {
             label: "Show outlines",
             input: "boolean",

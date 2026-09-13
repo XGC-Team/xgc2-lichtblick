@@ -7,6 +7,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { setupJestCanvasMock } from "jest-canvas-mock";
+import * as THREE from "three";
 
 import { CameraModelsMap } from "@lichtblick/den/image/types";
 import { fromNanoSec, toNanoSec } from "@lichtblick/rostime";
@@ -48,9 +49,9 @@ jest.mock("three/examples/jsm/libs/draco/draco_decoder.wasm", () => "");
 // We need to mock the WebGLRenderer because it's not available in jsdom
 // only mocking what we currently use
 jest.mock("three", () => {
-  const THREE = jest.requireActual("three");
+  const actualThree = jest.requireActual("three");
   return {
-    ...THREE,
+    ...actualThree,
     WebGLRenderer: function WebGLRenderer() {
       return {
         capabilities: {
@@ -165,6 +166,23 @@ describe("3D Renderer", () => {
   });
   afterEach(() => {
     (console.warn as jest.Mock).mockClear();
+  });
+
+  it.each(["3d", "image"] as const)("preserves world lighting in a rotated %s frame", (interfaceMode) => {
+    const renderer = new Renderer({ ...defaultRendererProps, canvas, interfaceMode });
+    // A rotated optical frame and a distant origin must preserve the surface/light angle.
+    const rotation = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0), Math.PI / 2,
+    );
+    renderer.addTransform("world", "optical", 0n, { x: 8, y: -3, z: 2 }, rotation);
+    renderer.setFollowFrameId("optical");
+    renderer.animationFrame();
+    const scene = jest.spyOn(renderer.gl, "render").mock.calls[0]![0];
+    const light = scene.children.find((item) => item instanceof THREE.DirectionalLight)!;
+    const worldNormal = new THREE.Vector3(0, 0, 1);
+    const opticalNormal = worldNormal.clone().applyQuaternion(rotation.clone().invert());
+    expect(opticalNormal.dot(light.position.clone().normalize())).toBeCloseTo(1 / Math.sqrt(3));
+    renderer.dispose();
   });
 
   it("constructs a renderer without error", () => {

@@ -18,6 +18,8 @@ const settings: LayerSettingsEntity = {
   visible: true,
   showOutlines: false,
   color: undefined,
+  backgroundColor: undefined,
+  showBackground: undefined,
   selectedIdVariable: undefined,
 };
 const pose = {

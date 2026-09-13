@@ -94,6 +94,7 @@ import { SelectEntry } from "./settings";
 import {
   AddTransformResult,
   CoordinateFrame,
+  makePose,
   DEFAULT_MAX_CAPACITY_PER_FRAME,
   TransformTree,
   Transform,
@@ -198,6 +199,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #scene: THREE.Scene;
   #dirLight: THREE.DirectionalLight;
   #hemiLight: THREE.HemisphereLight;
+  readonly #lightOrigin = makePose();
+  readonly #lightPose = makePose();
+  readonly #lightRotation = new THREE.Quaternion();
   public input: Input;
   public readonly outlineMaterial = new THREE.LineBasicMaterial({ dithering: true });
   public readonly instancedOutlineMaterial = new InstancedLineMaterial({ dithering: true });
@@ -328,7 +332,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
     this.#scene = new THREE.Scene();
 
-    this.#dirLight = new THREE.DirectionalLight(0xffffff, Math.PI);
+    // Neutral illumination preserves pale CAD materials without clipping their detail.
+    this.#dirLight = new THREE.DirectionalLight(0xffffff, 0.65 * Math.PI);
     this.#dirLight.position.set(1, 1, 1);
     this.#dirLight.castShadow = true;
     this.#dirLight.layers.enableAll();
@@ -339,7 +344,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.#dirLight.shadow.camera.far = 500;
     this.#dirLight.shadow.bias = -0.00001;
 
-    this.#hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.5 * Math.PI);
+    this.#hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.25 * Math.PI);
     this.#hemiLight.layers.enableAll();
 
     this.#scene.add(this.#dirLight);
@@ -1396,6 +1401,21 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
     for (const sceneExtension of this.sceneExtensions.values()) {
       sceneExtension.startFrame(currentTime, renderFrameId, fixedFrameId);
+    }
+
+    // Models are expressed in the render frame (the optical frame in image mode).
+    // Rotate the fixed-frame light with them so changing views preserves shading.
+    this.#dirLight.position.set(1, 1, 1);
+    const renderFrame = this.transformTree.frame(renderFrameId);
+    const fixedFrame = this.transformTree.frame(fixedFrameId);
+    if (renderFrame && fixedFrame) {
+      const pose = renderFrame.applyLocal(
+        this.#lightPose, this.#lightOrigin, fixedFrame, currentTime,
+      );
+      if (pose) {
+        const { x, y, z, w } = pose.orientation;
+        this.#dirLight.position.applyQuaternion(this.#lightRotation.set(x, y, z, w));
+      }
     }
 
     this.gl.render(this.#scene, camera);

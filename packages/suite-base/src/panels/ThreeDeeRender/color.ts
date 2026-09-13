@@ -101,6 +101,30 @@ export function getLuminance(r: number, g: number, b: number): number {
 }
 
 /**
+ * SceneEntity / Marker text plates.
+ * `showBackground: false` draws only the glyph. An explicit `backgroundColor`
+ * supplies RGB; otherwise Foxglove #6886 picks white or black from luminance.
+ * When a plate is shown, its alpha follows the foreground so one opacity
+ * control covers glyph and plate.
+ */
+export function textLabelBackground(
+  foreground: ColorRGBA,
+  options: { backgroundColor?: string; showBackground?: boolean } = {},
+): ColorRGBA {
+  if (options.showBackground === false) {
+    return { r: 0, g: 0, b: 0, a: 0 };
+  }
+  if (options.backgroundColor) {
+    const background = stringToRgba(makeRgba(), options.backgroundColor);
+    return { r: background.r, g: background.g, b: background.b, a: foreground.a };
+  }
+  const foregroundIsDark = getLuminance(foreground.r, foreground.g, foreground.b) < 0.5;
+  return foregroundIsDark
+    ? { r: 1, g: 1, b: 1, a: foreground.a }
+    : { r: 0, g: 0, b: 0, a: foreground.a };
+}
+
+/**
  * Computes a gradient step from colors `a` to `b` using pre-multiplied alpha to
  * match CSS linear gradients. The inputs are assumed to not have pre-multiplied
  * alpha, and the output will have pre-multiplied alpha.

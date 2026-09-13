@@ -26,6 +26,10 @@ export type BaseSettings = {
 export type LayerSettingsEntity = BaseSettings & {
   showOutlines: boolean | undefined;
   color: string | undefined;
+  /** SceneEntity text plate. When unset, Foxglove picks black or white from text luminance. */
+  backgroundColor?: string;
+  /** When false, the text plate is fully transparent. Unset keeps the automatic or explicit plate. */
+  showBackground?: boolean;
   selectedIdVariable: string | undefined;
 };
 

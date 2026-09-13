@@ -12,7 +12,7 @@ import { Label, LabelPool } from "@lichtblick/three-text";
 
 import { RenderablePrimitive } from "./RenderablePrimitive";
 import type { IRenderer } from "../../IRenderer";
-import { getLuminance, makeRgba, SRGBToLinear, stringToRgba } from "../../color";
+import { makeRgba, SRGBToLinear, stringToRgba, textLabelBackground } from "../../color";
 import { LayerSettingsEntity } from "../../settings";
 
 const tempRgba = makeRgba();
@@ -55,12 +55,16 @@ export class RenderableTexts extends RenderablePrimitive {
       label.setText(text.text);
       label.setColor(SRGBToLinear(color.r), SRGBToLinear(color.g), SRGBToLinear(color.b), color.a);
 
-      const foregroundIsDark = getLuminance(color.r, color.g, color.b) < 0.5;
-      if (foregroundIsDark) {
-        label.setBackgroundColor(1, 1, 1, color.a);
-      } else {
-        label.setBackgroundColor(0, 0, 0, color.a);
-      }
+      const background = textLabelBackground(color, {
+        backgroundColor: this.userData.settings.backgroundColor,
+        showBackground: this.userData.settings.showBackground,
+      });
+      label.setBackgroundColor(
+        SRGBToLinear(background.r),
+        SRGBToLinear(background.g),
+        SRGBToLinear(background.b),
+        background.a,
+      );
       label.setLineHeight(text.font_size);
       // note that billboard needs to be true for scale_invariant to work
       label.setBillboard(text.billboard);
