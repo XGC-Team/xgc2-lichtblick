@@ -83,7 +83,8 @@ describe("3D input scheduling and teardown", () => {
   it("replaces a prior drag and removes window listeners on blur/disposal", () => {
     const old = jest.fn();
     const current = jest.fn();
-    const move = () => window.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10 }));
+    const move = () =>
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10 }));
     input.trackDrag(old);
     input.trackDrag(current);
     move();
