@@ -247,6 +247,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #animationFrame?: number;
   #disposed = false;
   #appliedCanvasSize = new THREE.Vector2();
+  #drawingBufferSize = new THREE.Vector2();
+  #canvasResizeTimer: number | undefined;
   #cameraSyncError: undefined | string;
   #devicePixelRatioMediaQuery?: MediaQueryList;
   #fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];
@@ -310,9 +312,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     if (canvas.parentElement) {
       width = canvas.parentElement.clientWidth;
       height = canvas.parentElement.clientHeight;
-      this.gl.setSize(width, height);
+      this.gl.setSize(width, height, false);
     }
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
     this.#appliedCanvasSize.set(width, height);
+    this.#drawingBufferSize.set(width, height);
 
     this.modelCache = new ModelCache({
       ignoreColladaUpAxis: config.scene.ignoreColladaUpAxis ?? false,
@@ -462,6 +467,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       return;
     }
     this.#disposed = true;
+    window.clearTimeout(this.#canvasResizeTimer);
+    this.#canvasResizeTimer = undefined;
     if (this.#animationFrame != undefined) {
       cancelAnimationFrame(this.#animationFrame);
       this.#animationFrame = undefined;
@@ -1466,8 +1473,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     ) {
       return;
     }
-    // Input retains the latest size. Share one paint with image/data notifications,
-    // and do not clear the drawing buffer before that paint actually begins.
+    // Follow the viewport with the camera immediately, but reuse the drawing
+    // buffer during layout motion. Reallocating it every frame stalls WebGL.
+    window.clearTimeout(this.#canvasResizeTimer);
+    this.#canvasResizeTimer = window.setTimeout(() => {
+      this.#canvasResizeTimer = undefined;
+      this.queueAnimationFrame();
+    }, 80);
     this.queueAnimationFrame();
   };
 
@@ -1483,20 +1495,24 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
     const pixelRatio = window.devicePixelRatio;
     const pixelRatioChanged = this.gl.getPixelRatio() !== pixelRatio;
-    const sizeChanged = !this.#appliedCanvasSize.equals(size);
-    if (!pixelRatioChanged && !sizeChanged) {
-      return;
+    // CSS fills the current viewport. Settling changes resolution only, with
+    // no late camera/layout jump unless the display pixel ratio itself changed.
+    if (this.#canvasResizeTimer == undefined) {
+      if (pixelRatioChanged) {
+        this.gl.setPixelRatio(pixelRatio);
+      }
+      if (!this.#drawingBufferSize.equals(size)) {
+        this.gl.setSize(size.width, size.height, false);
+        this.#drawingBufferSize.copy(size);
+      }
     }
-    // setPixelRatio() already resizes the drawing buffer. A layout animation must
-    // not reset it twice on every step when the device pixel ratio is unchanged.
-    if (pixelRatioChanged) {
-      this.gl.setPixelRatio(pixelRatio);
+    if (
+      !this.#appliedCanvasSize.equals(size) ||
+      (pixelRatioChanged && this.#canvasResizeTimer == undefined)
+    ) {
+      this.cameraHandler.handleResize(size.width, size.height, pixelRatio);
+      this.#appliedCanvasSize.copy(size);
     }
-    if (sizeChanged) {
-      this.gl.setSize(size.width, size.height);
-    }
-    this.cameraHandler.handleResize(size.width, size.height, pixelRatio);
-    this.#appliedCanvasSize.copy(size);
   }
 
   #clickHandler = (cursorCoords: THREE.Vector2): void => {
@@ -1657,6 +1673,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   };
 
   #pickSingleObject(cursorCoords: THREE.Vector2): PickedRenderable | undefined {
+    // Picking needs a full-resolution viewport for its camera view offset.
+    // An interaction may arrive before the layout has finished settling.
+    window.clearTimeout(this.#canvasResizeTimer);
+    this.#canvasResizeTimer = undefined;
+    this.#applyCanvasSize();
     // Render a single pixel using a fragment shader that writes object IDs as
     // colors, then read the value of that single pixel back
     const objectId = this.#picker.pick(

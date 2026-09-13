@@ -15,7 +15,7 @@ import { DEFAULT_PUBLISH_SETTINGS } from "./renderables/PublishSettings";
 
 jest.mock("three/examples/jsm/libs/draco/draco_decoder.wasm", () => "");
 jest.mock("./Picker", () => ({
-  Picker: jest.fn().mockImplementation(() => ({ dispose: jest.fn() })),
+  Picker: jest.fn().mockImplementation(() => ({ dispose: jest.fn(), pick: jest.fn(() => -1) })),
 }));
 jest.mock("three", () => ({
   ...jest.requireActual("three"),
@@ -51,6 +51,7 @@ describe("renderer resize scheduling and recovery", () => {
   const originalObserver = globalThis.ResizeObserver;
 
   beforeEach(() => {
+    jest.useFakeTimers();
     setupJestCanvasMock();
     // This suite emits resize events explicitly; Input lifecycle tests cover
     // observer delivery. Avoid the global mock's eager initialization callback.
@@ -114,6 +115,7 @@ describe("renderer resize scheduling and recovery", () => {
 
   afterEach(() => {
     renderer.dispose();
+    jest.useRealTimers();
     globalThis.ResizeObserver = originalObserver;
     jest.restoreAllMocks();
     if (originalMatchMedia) {
@@ -142,18 +144,30 @@ describe("renderer resize scheduling and recovery", () => {
     const callback = [...frames.values()][0]!;
     callback(0);
     expect(render).toHaveBeenCalledTimes(1);
+    expect(setSize).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(80);
+    [...frames.values()][0]!(80);
     expect(setSize).toHaveBeenCalledTimes(1);
-    expect(setSize).toHaveBeenCalledWith(210, 160);
+    expect(setSize).toHaveBeenCalledWith(210, 160, false);
     expect(frames.size).toBe(0);
   });
 
-  it("does not reset the pixel ratio on every animated size change", () => {
+  it("follows camera aspect during motion and changes only resolution after settling", () => {
+    const cameraResize = jest.spyOn(renderer.cameraHandler, "handleResize");
     for (let width = 101; width <= 160; width++) {
       resize(width, 100);
+      jest.advanceTimersByTime(16);
       [...frames.values()][0]!(width);
+      expect(cameraResize).toHaveBeenLastCalledWith(width, 100, 1);
     }
     expect(setPixelRatio).not.toHaveBeenCalled();
-    expect(setSize).toHaveBeenCalledTimes(60);
+    expect(setSize).not.toHaveBeenCalled();
+    cameraResize.mockClear();
+    jest.advanceTimersByTime(80);
+    [...frames.values()][0]!(1000);
+    expect(setSize).toHaveBeenCalledTimes(1);
+    expect(setSize).toHaveBeenCalledWith(160, 100, false);
+    expect(cameraResize).not.toHaveBeenCalled();
   });
 
   it("ignores duplicate and non-renderable sizes", () => {
@@ -167,12 +181,33 @@ describe("renderer resize scheduling and recovery", () => {
     expect(frames.size).toBe(0);
   });
 
+  it("restores buffer resolution before picking during a resize", () => {
+    renderer.setPickingEnabled(true);
+    resize(200, 150);
+    [...frames.values()][0]!(0);
+    expect(setSize).not.toHaveBeenCalled();
+    renderer.input.emit(
+      "click",
+      renderer.input.canvasSize.clone().set(20, 30),
+      undefined,
+      new MouseEvent("click"),
+    );
+    expect(setSize).toHaveBeenCalledTimes(1);
+    expect(setSize).toHaveBeenCalledWith(200, 150, false);
+    jest.advanceTimersByTime(80);
+    expect(frames.size).toBe(0);
+  });
+
   it("updates a changed device pixel ratio without a second same-size reset", () => {
+    const cameraResize = jest.spyOn(renderer.cameraHandler, "handleResize");
     Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
     resize(100, 100);
     expect(frames.size).toBe(1);
     [...frames.values()][0]!(0);
+    jest.advanceTimersByTime(80);
+    [...frames.values()][0]!(80);
     expect(setPixelRatio).toHaveBeenCalledWith(2);
+    expect(cameraResize).toHaveBeenCalledWith(100, 100, 2);
     expect(setSize).not.toHaveBeenCalled();
     expect(frames.size).toBe(0);
   });
@@ -194,6 +229,7 @@ describe("renderer resize scheduling and recovery", () => {
     resize(200, 150);
     const [id, callback] = [...frames.entries()][0]!;
     renderer.dispose();
+    jest.advanceTimersByTime(80);
     expect(window.cancelAnimationFrame).toHaveBeenCalledWith(id);
     callback(0);
     renderer.queueAnimationFrame();
