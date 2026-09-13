@@ -111,6 +111,9 @@ const MAX_PENDING_VIDEO_DECODE_FRAMES = 2000;
 const MAX_PENDING_VIDEO_DECODE_BYTES = 64 * 1024 * 1024;
 // Keep limited parallelism for independent bitmap decoders without building an unbounded backlog.
 const MAX_CONCURRENT_IMAGE_DECODES = 2;
+// A busy live decoder must still publish progress. This is not a playback FPS cap:
+// when caught up, every decoded frame is presented without waiting for this interval.
+const MAX_VIDEO_PRESENTATION_GAP_MS = 100;
 
 type PendingVideoDecode = {
   image: AnyImage;
@@ -214,6 +217,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   // Used to gate the panel's frame barrier on a seek so the cursor parks until the seek frame
   // is actually decoded and painted, instead of resuming play before the image is ready.
   #activeVideoDecode: Promise<void> | undefined;
+  #lastVideoPresentationTime = performance.now();
+  #videoSeekInProgress = false;
   // Queue compaction invalidates the decoder's dependency state, but resetting WebCodecs while the
   // current frame is still awaiting output can abort that promise. Defer the reset to the next
   // drain boundary, after the active frame settles and before the retained recovery suffix starts.
@@ -408,14 +413,16 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
       if (backwardSeekDetected) {
         this.#pendingVideoDecodeQueue.clear();
+        this.#videoDecodeEpoch++;
+        this.#videoSeekInProgress = true;
       }
       this.#lastQueuedVideoMessageTime = messageTime;
 
       // All video codecs go through the single drain pipeline. The drain decodes serially (which
       // every codec needs after a seek so the keyframe clears `#waitingForVideoKeyframe` before
-      // its P-frames evaluate that gate) and collapses a burst to a single GPU upload via
-      // `skipRender`, so a high-speed catch-up paints only the latest frame instead of one bitmap
-      // per frame. It also makes the in-flight work awaitable through `#activeVideoDecode`, so a
+      // its P-frames evaluate that gate). Short bursts and seek backfill publish their final frame;
+      // live overload also publishes periodic progress rather than waiting forever to catch up.
+      // It also makes the in-flight work awaitable through `#activeVideoDecode`, so a
       // pause stops painting at the current frame instead of letting orphaned parallel decodes
       // keep drawing for a second after stop.
       const enqueueResult = this.#pendingVideoDecodeQueue.enqueue({
@@ -486,6 +493,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#pendingImageDecode = undefined;
     this.#codec = nextCodec;
     this.#videoFormat = nextVideoFormat;
+    this.#videoSeekInProgress = false;
+    this.#lastVideoPresentationTime = performance.now();
     this.#cachedVideoDecoderConfig = undefined;
     this.#videoFirstMessageTime = undefined;
     this.#lastVideoMessageTime = undefined;
@@ -504,8 +513,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    *
    * Call this after all `setImage` calls for the current render frame have been made (i.e. from
    * the scene extension's `startFrame()` hook). At that point the queue contains the full batch of
-   * frames for this frame, so `skipRender` correctly identifies every frame except the last one as
-   * an intermediate that does not need a GPU upload.
+   * frames for this frame, allowing short bursts to collapse to a final presentation. Sustained
+   * live overload may publish intermediate progress; seek backfill still waits for its target.
    */
   public flushPendingDecodes(): void {
     if (this.#pendingVideoDecodeQueue.getLength() > 0 && this.#activeVideoDecode == undefined) {
@@ -529,6 +538,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    */
   public resetVideoForSeek(): void {
     this.#videoDecodeEpoch++;
+    this.#videoSeekInProgress = true;
     this.#pendingImageDecode = undefined;
     this.videoPlayer?.resetForSeek();
     this.#waitingForVideoKeyframe = true;
@@ -551,14 +561,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       if (pendingDecode == undefined) {
         break;
       }
-      // Decode every frame so the P-frame reference chain stays intact, but only paint a frame
-      // when no newer frame has been received. During a seek-while-playing catch-up the decoder
-      // works off a backlog (the replayed GOP plus frames that arrived while decoding) faster
-      // than realtime; painting each one would fast-forward the video. Skipping all but the
-      // latest-received frame collapses the burst into a single jump to the current frame.
-      // Using the received sequence number (not the momentary queue length) is robust to frames
-      // being fed incrementally across multiple drain passes during playback.
-      const skipRender = pendingDecode.seq < this.#receivedImageSequenceNumber;
+      // Preserve every reference frame. Decide whether to publish AFTER decoding,
+      // using actual queued work rather than the received counter (which may include
+      // duplicates). Live overload must not starve presentation indefinitely.
       const videoDecodeEpoch = this.#videoDecodeEpoch;
 
       await this.#startDecode(
@@ -566,9 +571,26 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         pendingDecode.seq,
         pendingDecode.resizeWidth,
         pendingDecode.onDecoded,
-        { skipRender, videoDecodeEpoch },
+        { videoFrame: true, videoDecodeEpoch },
       );
     }
+  }
+
+  #shouldPresentVideoFrame(): boolean {
+    const now = performance.now();
+    const hasPendingFrames = this.#pendingVideoDecodeQueue.getLength() > 0;
+    if (
+      hasPendingFrames &&
+      (this.#videoSeekInProgress ||
+        now - this.#lastVideoPresentationTime < MAX_VIDEO_PRESENTATION_GAP_MS)
+    ) {
+      return false;
+    }
+    // Seek backfill remains atomic: only publish when the target has drained.
+    // Outside a seek, allow periodic progress even if live input keeps arriving.
+    this.#videoSeekInProgress = false;
+    this.#lastVideoPresentationTime = now;
+    return true;
   }
 
   async #startDecode(
@@ -576,10 +598,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     seq: number,
     resizeWidth?: number,
     onDecoded?: () => void,
-    options?: { skipRender?: boolean; videoDecodeEpoch?: number },
+    options?: { videoFrame?: boolean; videoDecodeEpoch?: number },
   ): Promise<void> {
     try {
-      const skipRender = options?.skipRender ?? false;
       const result = await this.decodeImage(image, resizeWidth);
       if (this.isDisposed()) {
         if (result instanceof ImageBitmap) {
@@ -602,6 +623,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         }
         return;
       }
+      const skipRender = options?.videoFrame === true && !this.#shouldPresentVideoFrame();
       this.#displayedImageSequenceNumber = seq;
       this.#replaceDecodedImage(result);
       this.#textureNeedsUpdate = true;
@@ -960,7 +982,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   }
 
   public update(): void {
-    if (this.#isUpdating) {
+    if (this.isDisposed() || this.#isUpdating) {
       return;
     }
     this.#isUpdating = true;
