@@ -75,7 +75,7 @@ describe("rich scene geometry", () => {
     const envelope = fixture();
     envelope.document.obstacles[0]!.parts[0]!.color = [0.5, 0.5, 0.5, 1];
     expect(
-      parseSceneEnvelope(JSON.parse(JSON.stringify(envelope))).document.obstacles[0]!.parts[0]!
+      parseSceneEnvelope(JSON.parse(JSON.stringify(envelope)!)).document.obstacles[0]!.parts[0]!
         .color,
     ).toEqual(OBSTACLE_VISUAL_COLOR);
   });

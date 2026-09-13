@@ -62,8 +62,10 @@ function renderToolbar(
           hidePanelControls: jest.fn(),
           panelControlsVisible,
           threeDToolsVisible: true,
+          obstacleSceneVisible: false,
           togglePanelControls: jest.fn(),
           toggleThreeDTools: jest.fn(),
+          toggleObstacleScene: jest.fn(),
         }}
       >
         <ThemeProvider isDark={false}>{toolbar}</ThemeProvider>

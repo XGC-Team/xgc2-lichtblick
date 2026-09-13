@@ -625,6 +625,7 @@ describe("ImageRenderable error handling", () => {
   });
 
   it("should reset between an active decode and the retained recovery chain on overflow", async () => {
+    jest.spyOn(performance, "now").mockReturnValue(0);
     const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
     const update = jest.spyOn(renderable, "update").mockImplementation(() => undefined);
     const resetForSeek = jest.fn();

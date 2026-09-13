@@ -125,6 +125,7 @@ export async function decodeCompressedVideoToBitmap(
   videoPlayer: VideoPlayer,
   firstMessageTime: bigint,
   resizeWidth?: number,
+  options?: { retainPreviousBitmap?: boolean },
 ): Promise<ImageBitmap> {
   if (!videoPlayer.isInitialized()) {
     return await emptyVideoFrame(videoPlayer, resizeWidth);
@@ -148,7 +149,12 @@ export async function decodeCompressedVideoToBitmap(
       return videoPlayer.lastImageBitmap;
     }
     const imageBitmap = await globalThis.createImageBitmap(frameToRender, { resizeWidth });
-    videoPlayer.lastImageBitmap?.close();
+    // A renderable may still own the previous bitmap as its current texture.
+    // Closing it here detaches its dimensions and can force texture reallocation
+    // or invalidate an upload before the replacement is ready to be presented.
+    if (options?.retainPreviousBitmap !== true) {
+      videoPlayer.lastImageBitmap?.close();
+    }
     videoPlayer.lastImageBitmap = imageBitmap;
     return imageBitmap;
   } finally {

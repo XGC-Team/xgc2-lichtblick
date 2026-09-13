@@ -109,6 +109,11 @@ const MAX_VIDEO_FRAME_HISTORY_BYTES = 64 * 1024 * 1024;
  */
 const MAX_PENDING_VIDEO_DECODE_FRAMES = 2000;
 const MAX_PENDING_VIDEO_DECODE_BYTES = 64 * 1024 * 1024;
+// Keep limited parallelism for independent bitmap decoders without building an unbounded backlog.
+const MAX_CONCURRENT_IMAGE_DECODES = 2;
+// A busy live decoder must still publish progress. This is not a playback FPS cap:
+// when caught up, every decoded frame is presented without waiting for this interval.
+const MAX_VIDEO_PRESENTATION_GAP_MS = 100;
 
 type PendingVideoDecode = {
   image: AnyImage;
@@ -196,6 +201,10 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   #receivedImageSequenceNumber = 0;
   #displayedImageSequenceNumber = 0;
   #showingErrorImage = false;
+  // Independent images need no GOP: keep only the newest waiting frame and two active decodes.
+  // Coalesce before worker postMessage/createImageBitmap, not after the expensive work.
+  #pendingImageDecode: PendingVideoDecode | undefined;
+  #activeImageDecodes = 0;
   // Decoder config parsed from the most recent keyframe. Delta frames carry no parameter sets, so
   // they reuse this instead of reparsing the SPS.
   #cachedVideoDecoderConfig?: VideoDecoderConfig;
@@ -208,6 +217,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   // Used to gate the panel's frame barrier on a seek so the cursor parks until the seek frame
   // is actually decoded and painted, instead of resuming play before the image is ready.
   #activeVideoDecode: Promise<void> | undefined;
+  #lastVideoPresentationTime = performance.now();
+  #videoSeekInProgress = false;
   // Queue compaction invalidates the decoder's dependency state, but resetting WebCodecs while the
   // current frame is still awaiting output can abort that promise. Defer the reset to the next
   // drain boundary, after the active frame settles and before the retained recovery suffix starts.
@@ -258,12 +269,13 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
   public override dispose(): void {
     this.#disposed = true;
+    this.#pendingImageDecode = undefined;
     const textureImage = this.userData.texture?.image;
     if (textureImage instanceof ImageBitmap) {
-      closeGraphicResource(textureImage);
+      this.#releaseBitmap(textureImage);
     }
     if (this.#decodedImage instanceof ImageBitmap && this.#decodedImage !== textureImage) {
-      closeGraphicResource(this.#decodedImage);
+      this.#releaseBitmap(this.#decodedImage);
     }
     this.userData.texture?.dispose();
     this.userData.material?.dispose();
@@ -356,9 +368,14 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   }
 
   public setImage(image: AnyImage, resizeWidth?: number, onDecoded?: () => void): void {
+    if (this.isDisposed()) {
+      return;
+    }
     this.userData.image = image;
 
-    const seq = ++this.#receivedImageSequenceNumber;
+    // Only accepted work may advance the presentation watermark. A duplicate
+    // video message must not make the actual queued tail look obsolete.
+    const seq = this.#receivedImageSequenceNumber + 1;
     const incomingFormat = "format" in image ? image.format : undefined;
     const incomingCodec =
       incomingFormat == undefined ? undefined : this.#cachedCanonicalCodec(incomingFormat);
@@ -396,14 +413,16 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
       if (backwardSeekDetected) {
         this.#pendingVideoDecodeQueue.clear();
+        this.#videoDecodeEpoch++;
+        this.#videoSeekInProgress = true;
       }
       this.#lastQueuedVideoMessageTime = messageTime;
 
       // All video codecs go through the single drain pipeline. The drain decodes serially (which
       // every codec needs after a seek so the keyframe clears `#waitingForVideoKeyframe` before
-      // its P-frames evaluate that gate) and collapses a burst to a single GPU upload via
-      // `skipRender`, so a high-speed catch-up paints only the latest frame instead of one bitmap
-      // per frame. It also makes the in-flight work awaitable through `#activeVideoDecode`, so a
+      // its P-frames evaluate that gate). Short bursts and seek backfill publish their final frame;
+      // live overload also publishes periodic progress rather than waiting forever to catch up.
+      // It also makes the in-flight work awaitable through `#activeVideoDecode`, so a
       // pause stops painting at the current frame instead of letting orphaned parallel decodes
       // keep drawing for a second after stop.
       const enqueueResult = this.#pendingVideoDecodeQueue.enqueue({
@@ -411,6 +430,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         sizeInBytes: videoImage.data.byteLength,
         isRecoveryPoint: isCompleteVideoRecoveryPoint(videoImage, codec),
       });
+      if (enqueueResult.accepted) {
+        this.#receivedImageSequenceNumber = seq;
+      }
       if (enqueueResult.resetRequired) {
         this.#pendingVideoResetRequired = true;
         this.#videoDecodeEpoch++;
@@ -419,9 +441,38 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       return;
     }
 
-    // Raw (non-video) images decode in parallel; the `#displayedImageSequenceNumber > seq` guard
-    // inside `#startDecode` drops late results.
-    void this.#startDecode(image, seq, resizeWidth, onDecoded);
+    this.#receivedImageSequenceNumber = seq;
+    this.#pendingImageDecode = { image, seq, resizeWidth, onDecoded };
+    if (this.#activeImageDecodes < MAX_CONCURRENT_IMAGE_DECODES) {
+      this.#activeImageDecodes++;
+      void this.#drainPendingImageDecodes();
+    }
+  }
+
+  async #drainPendingImageDecodes(): Promise<void> {
+    try {
+      while (!this.isDisposed() && this.#pendingImageDecode != undefined) {
+        const pending = this.#pendingImageDecode;
+        this.#pendingImageDecode = undefined;
+        const videoDecodeEpoch = this.#videoDecodeEpoch;
+        try {
+          // Paint the active result even when another image is waiting. Dropping every active
+          // result under sustained load would starve the display. Only waiting images coalesce.
+          await this.#startDecode(
+            pending.image,
+            pending.seq,
+            pending.resizeWidth,
+            pending.onDecoded,
+            { videoDecodeEpoch },
+          );
+        } catch (err) {
+          // Even failure to create the error bitmap must not wedge the queue or reject unhandled.
+          log.error(err);
+        }
+      }
+    } finally {
+      this.#activeImageDecodes--;
+    }
   }
 
   #cachedCanonicalCodec(format: string): VideoCodec | undefined {
@@ -439,8 +490,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     nextVideoFormat: string | undefined,
   ): void {
     this.#videoDecodeEpoch++;
+    this.#pendingImageDecode = undefined;
     this.#codec = nextCodec;
     this.#videoFormat = nextVideoFormat;
+    this.#videoSeekInProgress = false;
+    this.#lastVideoPresentationTime = performance.now();
     this.#cachedVideoDecoderConfig = undefined;
     this.#videoFirstMessageTime = undefined;
     this.#lastVideoMessageTime = undefined;
@@ -459,8 +513,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    *
    * Call this after all `setImage` calls for the current render frame have been made (i.e. from
    * the scene extension's `startFrame()` hook). At that point the queue contains the full batch of
-   * frames for this frame, so `skipRender` correctly identifies every frame except the last one as
-   * an intermediate that does not need a GPU upload.
+   * frames for this frame, allowing short bursts to collapse to a final presentation. Sustained
+   * live overload may publish intermediate progress; seek backfill still waits for its target.
    */
   public flushPendingDecodes(): void {
     if (this.#pendingVideoDecodeQueue.getLength() > 0 && this.#activeVideoDecode == undefined) {
@@ -484,6 +538,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    */
   public resetVideoForSeek(): void {
     this.#videoDecodeEpoch++;
+    this.#videoSeekInProgress = true;
+    this.#pendingImageDecode = undefined;
     this.videoPlayer?.resetForSeek();
     this.#waitingForVideoKeyframe = true;
     this.#canReplayVideoGop = true;
@@ -505,14 +561,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       if (pendingDecode == undefined) {
         break;
       }
-      // Decode every frame so the P-frame reference chain stays intact, but only paint a frame
-      // when no newer frame has been received. During a seek-while-playing catch-up the decoder
-      // works off a backlog (the replayed GOP plus frames that arrived while decoding) faster
-      // than realtime; painting each one would fast-forward the video. Skipping all but the
-      // latest-received frame collapses the burst into a single jump to the current frame.
-      // Using the received sequence number (not the momentary queue length) is robust to frames
-      // being fed incrementally across multiple drain passes during playback.
-      const skipRender = pendingDecode.seq < this.#receivedImageSequenceNumber;
+      // Preserve every reference frame. Decide whether to publish AFTER decoding,
+      // using actual queued work rather than the received counter (which may include
+      // duplicates). Live overload must not starve presentation indefinitely.
       const videoDecodeEpoch = this.#videoDecodeEpoch;
 
       await this.#startDecode(
@@ -520,9 +571,26 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         pendingDecode.seq,
         pendingDecode.resizeWidth,
         pendingDecode.onDecoded,
-        { skipRender, videoDecodeEpoch },
+        { videoFrame: true, videoDecodeEpoch },
       );
     }
+  }
+
+  #shouldPresentVideoFrame(): boolean {
+    const now = performance.now();
+    const hasPendingFrames = this.#pendingVideoDecodeQueue.getLength() > 0;
+    if (
+      hasPendingFrames &&
+      (this.#videoSeekInProgress ||
+        now - this.#lastVideoPresentationTime < MAX_VIDEO_PRESENTATION_GAP_MS)
+    ) {
+      return false;
+    }
+    // Seek backfill remains atomic: only publish when the target has drained.
+    // Outside a seek, allow periodic progress even if live input keeps arriving.
+    this.#videoSeekInProgress = false;
+    this.#lastVideoPresentationTime = now;
+    return true;
   }
 
   async #startDecode(
@@ -530,14 +598,13 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     seq: number,
     resizeWidth?: number,
     onDecoded?: () => void,
-    options?: { skipRender?: boolean; videoDecodeEpoch?: number },
+    options?: { videoFrame?: boolean; videoDecodeEpoch?: number },
   ): Promise<void> {
     try {
-      const skipRender = options?.skipRender ?? false;
       const result = await this.decodeImage(image, resizeWidth);
       if (this.isDisposed()) {
         if (result instanceof ImageBitmap) {
-          closeGraphicResource(result);
+          this.#releaseBitmap(result);
         }
         return;
       }
@@ -546,18 +613,19 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         options.videoDecodeEpoch !== this.#videoDecodeEpoch
       ) {
         if (result instanceof ImageBitmap) {
-          closeGraphicResource(result);
+          this.#releaseBitmap(result);
         }
         return;
       }
       if (this.#displayedImageSequenceNumber > seq) {
         if (result instanceof ImageBitmap) {
-          closeGraphicResource(result);
+          this.#releaseBitmap(result);
         }
         return;
       }
+      const skipRender = options?.videoFrame === true && !this.#shouldPresentVideoFrame();
       this.#displayedImageSequenceNumber = seq;
-      this.#decodedImage = result;
+      this.#replaceDecodedImage(result);
       this.#textureNeedsUpdate = true;
       if (!skipRender) {
         this.update();
@@ -570,7 +638,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         this.renderer.queueAnimationFrame();
       }
     } catch (err) {
-      if (this.isDisposed()) {
+      if (this.isDisposed() || this.#displayedImageSequenceNumber > seq) {
         return;
       }
       if (
@@ -581,23 +649,38 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       }
       log.error(err);
       if (!this.#showingErrorImage) {
-        await this.#setErrorImage(seq, onDecoded);
+        await this.#setErrorImage(seq, onDecoded, options?.videoDecodeEpoch);
+      }
+      if (
+        this.isDisposed() ||
+        this.#displayedImageSequenceNumber > seq ||
+        (options?.videoDecodeEpoch != undefined &&
+          options.videoDecodeEpoch !== this.#videoDecodeEpoch)
+      ) {
+        return;
       }
       this.addError(DECODE_IMAGE_ERR_KEY, `Error decoding image: ${(err as Error).message}`);
     }
   }
 
-  async #setErrorImage(seq: number, onDecoded?: () => void): Promise<void> {
+  async #setErrorImage(
+    seq: number,
+    onDecoded?: () => void,
+    videoDecodeEpoch?: number,
+  ): Promise<void> {
     const errorBitmap = await getErrorImage(64, 64);
-    if (this.isDisposed()) {
-      closeGraphicResource(errorBitmap);
+    if (
+      this.isDisposed() ||
+      (videoDecodeEpoch != undefined && videoDecodeEpoch !== this.#videoDecodeEpoch)
+    ) {
+      this.#releaseBitmap(errorBitmap);
       return;
     }
     if (this.#displayedImageSequenceNumber > seq) {
-      closeGraphicResource(errorBitmap);
+      this.#releaseBitmap(errorBitmap);
       return;
     }
-    this.#decodedImage = errorBitmap;
+    this.#replaceDecodedImage(errorBitmap);
     this.#textureNeedsUpdate = true;
     this.update();
     this.#showingErrorImage = true;
@@ -807,7 +890,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
     try {
       const imageBitmap = await globalThis.createImageBitmap(result.frame, { resizeWidth });
-      closeGraphicResource(this.videoPlayer.lastImageBitmap);
+      // The renderable releases the old bitmap after rebinding its texture.
       this.videoPlayer.lastImageBitmap = imageBitmap;
       this.#waitingForVideoKeyframe = false;
       this.#canReplayVideoGop = false;
@@ -891,6 +974,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
           videoPlayer,
           this.#videoFirstMessageTime,
           resizeWidth,
+          { retainPreviousBitmap: true },
         );
       }
     }
@@ -898,40 +982,45 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   }
 
   public update(): void {
-    if (this.#isUpdating) {
+    if (this.isDisposed() || this.#isUpdating) {
       return;
     }
     this.#isUpdating = true;
 
-    if (this.#textureNeedsUpdate && this.#decodedImage) {
-      this.#updateTexture();
-      this.#textureNeedsUpdate = false;
-    }
+    try {
+      if (this.#textureNeedsUpdate && this.#decodedImage) {
+        this.#updateTexture();
+        this.#textureNeedsUpdate = false;
+      }
 
-    if (this.userData.image) {
-      this.updateHeaderInfo();
-    }
+      if (this.userData.image) {
+        this.updateHeaderInfo();
+      }
 
-    if (this.#geometryNeedsUpdate && this.userData.cameraModel) {
-      this.#rebuildGeometry();
-      this.#geometryNeedsUpdate = false;
-    }
+      if (this.#geometryNeedsUpdate && this.userData.cameraModel) {
+        this.#rebuildGeometry();
+        this.#geometryNeedsUpdate = false;
+      }
 
-    if (this.#materialNeedsUpdate) {
-      this.#updateMaterial();
-      this.#materialNeedsUpdate = false;
-    }
+      if (this.#materialNeedsUpdate) {
+        this.#updateMaterial();
+        this.#materialNeedsUpdate = false;
+      }
 
-    if (
-      this.#meshNeedsUpdate &&
-      this.userData.texture &&
-      this.userData.geometry &&
-      this.userData.material
-    ) {
-      this.#updateMesh();
-      this.#meshNeedsUpdate = false;
+      if (
+        this.#meshNeedsUpdate &&
+        this.userData.texture &&
+        this.userData.geometry &&
+        this.userData.material
+      ) {
+        this.#updateMesh();
+        this.#meshNeedsUpdate = false;
+      }
+    } finally {
+      // A transient upload/model/header failure must not permanently latch the
+      // reentrancy guard and leave every later frame frozen.
+      this.#isUpdating = false;
     }
-    this.#isUpdating = false;
   }
 
   #rebuildGeometry() {
@@ -944,12 +1033,34 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#meshNeedsUpdate = true;
   }
 
+  #releaseBitmap(bitmap: ImageBitmap): void {
+    if (this.videoPlayer?.lastImageBitmap === bitmap) {
+      this.videoPlayer.lastImageBitmap = undefined;
+    }
+    closeGraphicResource(bitmap);
+  }
+
+  #replaceDecodedImage(image: ImageBitmap | ImageData): void {
+    const previous = this.#decodedImage;
+    this.#decodedImage = image;
+    // Intermediate catch-up frames may never have been attached to a texture.
+    // Release them here, but keep the presented bitmap alive until texture swap.
+    if (
+      previous instanceof ImageBitmap &&
+      previous !== image &&
+      previous !== this.userData.texture?.image
+    ) {
+      this.#releaseBitmap(previous);
+    }
+  }
+
   #updateTexture(): void {
     assert(
       this.#decodedImage,
       "Decoded image must be set before texture can be updated or created",
     );
     const decodedImage = this.#decodedImage;
+    const previousTexture = this.userData.texture;
     // Create or update the bitmap texture
     if (decodedImage instanceof ImageBitmap) {
       const canvasTexture = this.userData.texture;
@@ -960,7 +1071,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         !bitmapDimensionsEqual(decodedImage, canvasTexture.image as ImageBitmap | undefined)
       ) {
         if (canvasTexture?.image instanceof ImageBitmap) {
-          closeGraphicResource(canvasTexture.image);
+          this.#releaseBitmap(canvasTexture.image);
         }
         canvasTexture?.dispose();
         this.userData.texture = createCanvasTexture(decodedImage);
@@ -969,7 +1080,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         canvasTexture.image = decodedImage;
         canvasTexture.needsUpdate = true;
         if (previousImage != undefined && previousImage !== decodedImage) {
-          closeGraphicResource(previousImage);
+          this.#releaseBitmap(previousImage);
         }
       }
     } else {
@@ -982,7 +1093,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         dataTexture.image.height !== decodedImage.height
       ) {
         if (dataTexture?.image instanceof ImageBitmap) {
-          closeGraphicResource(dataTexture.image);
+          this.#releaseBitmap(dataTexture.image);
         }
         dataTexture?.dispose();
         dataTexture = createDataTexture(decodedImage);
@@ -992,7 +1103,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         dataTexture.needsUpdate = true;
       }
     }
-    this.#materialNeedsUpdate = true;
+    // Uploading pixels to the same texture does not change the material. Only
+    // a new texture reference (format/dimensions) needs its sampler rebound.
+    this.#materialNeedsUpdate ||= this.userData.texture !== previousTexture;
   }
 
   #updateMaterial(): void {
@@ -1004,19 +1117,22 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
     const texture = this.userData.texture;
     if (texture) {
-      material.uniforms.map = { value: texture };
+      material.uniforms.map!.value = texture;
     }
 
     tempColor = stringToRgba(tempColor, this.userData.settings.color);
     const transparent = tempColor.a < 1;
-    const color = new THREE.Color(tempColor.r, tempColor.g, tempColor.b);
+    const color = material.uniforms.color!.value as THREE.Color;
+    color.setRGB(tempColor.r, tempColor.g, tempColor.b);
     const { brightness, contrast } = this.userData.settings;
-    material.uniforms.color = { value: color };
-    material.uniforms.brightness = { value: clampBrightness(brightness) };
-    material.uniforms.contrast = { value: clampContrast(contrast) };
-    material.uniforms.opacity = { value: tempColor.a };
+    material.uniforms.brightness!.value = clampBrightness(brightness);
+    material.uniforms.contrast!.value = clampContrast(contrast);
+    material.uniforms.opacity!.value = tempColor.a;
     material.opacity = tempColor.a;
-    material.transparent = transparent;
+    if (material.transparent !== transparent) {
+      material.transparent = transparent;
+      material.needsUpdate = true;
+    }
     material.depthWrite = !transparent;
 
     if (this.#renderBehindScene) {
@@ -1026,7 +1142,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       material.depthTest = true;
     }
 
-    material.needsUpdate = true;
+    // ShaderMaterial uniforms update at render time; pixel/brightness changes
+    // do not require shader program revalidation or new uniform objects.
   }
 
   #initMaterial(): void {

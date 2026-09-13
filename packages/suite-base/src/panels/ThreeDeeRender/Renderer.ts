@@ -245,6 +245,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #pickingEnabled = false;
   #rendering = false;
   #animationFrame?: number;
+  #disposed = false;
+  #appliedCanvasSize = new THREE.Vector2();
   #cameraSyncError: undefined | string;
   #devicePixelRatioMediaQuery?: MediaQueryList;
   #fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];
@@ -310,6 +312,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       height = canvas.parentElement.clientHeight;
       this.gl.setSize(width, height);
     }
+    this.#appliedCanvasSize.set(width, height);
 
     this.modelCache = new ModelCache({
       ignoreColladaUpAxis: config.scene.ignoreColladaUpAxis ?? false,
@@ -455,7 +458,15 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   }
 
   public dispose(): void {
-    log.warn(`Disposing renderer`);
+    if (this.#disposed) {
+      return;
+    }
+    this.#disposed = true;
+    if (this.#animationFrame != undefined) {
+      cancelAnimationFrame(this.#animationFrame);
+      this.#animationFrame = undefined;
+    }
+    log.debug(`Disposing renderer`);
     this.#devicePixelRatioMediaQuery?.removeEventListener("change", this.#onDevicePixelRatioChange);
     this.removeAllListeners();
 
@@ -1302,6 +1313,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   // Callback handlers
 
   public animationFrame = (): void => {
+    if (this.#disposed) {
+      return;
+    }
     // Cancel any requestAnimationFrame (rAF) that `queueAnimationFrame()` scheduled. When this runs synchronously (e.g. a
     // seek's `handleSeek`/`clear` queued a frame and the render-if-requested effect then calls us
     // directly in the same tick) the queued rAF would otherwise fire on the next tick and paint a
@@ -1311,13 +1325,17 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       this.#animationFrame = undefined;
     }
     if (!this.#rendering) {
-      this.#frameHandler(this.currentTime);
-      this.#rendering = false;
+      try {
+        this.#frameHandler(this.currentTime);
+      } finally {
+        // An extension/upload error must not permanently block all subsequent frames.
+        this.#rendering = false;
+      }
     }
   };
 
   public queueAnimationFrame(): void {
-    if (this.#animationFrame == undefined) {
+    if (!this.#disposed && this.#animationFrame == undefined) {
       this.#animationFrame = requestAnimationFrame(this.animationFrame);
     }
   }
@@ -1347,6 +1365,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #frameHandler = (currentTime: bigint): void => {
     this.#rendering = true;
     this.currentTime = currentTime;
+    // Resize immediately before painting, never in a separate observer/rAF turn:
+    // changing canvas dimensions clears its drawing buffer.
+    this.#applyCanvasSize();
     this.#handleSubscriptionQueues();
     this.#seedConfiguredFrames();
     this.#updateFrameErrors();
@@ -1435,14 +1456,48 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   }
 
   #resizeHandler = (size: THREE.Vector2): void => {
-    this.gl.setPixelRatio(window.devicePixelRatio);
-    this.gl.setSize(size.width, size.height);
-    this.cameraHandler.handleResize(size.width, size.height, window.devicePixelRatio);
-
-    const renderSize = this.gl.getDrawingBufferSize(tempVec2);
-    log.debug(`Resized renderer to ${renderSize.width}x${renderSize.height}`);
-    this.animationFrame();
+    if (
+      this.#disposed ||
+      !Number.isFinite(size.width) ||
+      !Number.isFinite(size.height) ||
+      size.width <= 0 ||
+      size.height <= 0 ||
+      (this.#appliedCanvasSize.equals(size) && this.gl.getPixelRatio() === window.devicePixelRatio)
+    ) {
+      return;
+    }
+    // Input retains the latest size. Share one paint with image/data notifications,
+    // and do not clear the drawing buffer before that paint actually begins.
+    this.queueAnimationFrame();
   };
+
+  #applyCanvasSize(): void {
+    const size = this.input.canvasSize;
+    if (
+      !Number.isFinite(size.width) ||
+      !Number.isFinite(size.height) ||
+      size.width <= 0 ||
+      size.height <= 0
+    ) {
+      return;
+    }
+    const pixelRatio = window.devicePixelRatio;
+    const pixelRatioChanged = this.gl.getPixelRatio() !== pixelRatio;
+    const sizeChanged = !this.#appliedCanvasSize.equals(size);
+    if (!pixelRatioChanged && !sizeChanged) {
+      return;
+    }
+    // setPixelRatio() already resizes the drawing buffer. A layout animation must
+    // not reset it twice on every step when the device pixel ratio is unchanged.
+    if (pixelRatioChanged) {
+      this.gl.setPixelRatio(pixelRatio);
+    }
+    if (sizeChanged) {
+      this.gl.setSize(size.width, size.height);
+    }
+    this.cameraHandler.handleResize(size.width, size.height, pixelRatio);
+    this.#appliedCanvasSize.copy(size);
+  }
 
   #clickHandler = (cursorCoords: THREE.Vector2): void => {
     if (!this.#pickingEnabled) {
@@ -1691,7 +1746,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   };
 
   #updateResolution(): void {
-    const resolution = this.input.canvasSize;
+    const resolution = this.#appliedCanvasSize;
     if (this.#prevResolution.equals(resolution)) {
       return;
     }

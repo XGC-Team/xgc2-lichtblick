@@ -25,7 +25,8 @@ export type VideoFrameQueueEnqueueResult = {
  * rejected until a fitting recovery point arrives. It never returns a suffix beginning mid-GOP.
  */
 export class BoundedVideoFrameQueue<T> {
-  readonly #entries: VideoFrameQueueEntry<T>[] = [];
+  readonly #entries: (VideoFrameQueueEntry<T> | undefined)[] = [];
+  #head = 0;
   #awaitingRecovery = false;
   readonly #maximumBytes: number;
   readonly #maximumFrames: number;
@@ -45,72 +46,90 @@ export class BoundedVideoFrameQueue<T> {
       return { accepted: false, droppedEntries: 1, resetRequired: false };
     }
 
+    const length = this.getLength();
     if (this.#maximumFrames === 0 || entry.sizeInBytes > this.#maximumBytes) {
-      const droppedEntries = this.#entries.length + 1;
+      const droppedEntries = length + 1;
       this.#clearEntries();
       this.#awaitingRecovery = true;
       return { accepted: false, droppedEntries, resetRequired: true };
     }
 
     const queuedEntry = { ...entry };
-    const candidates = [...this.#entries, queuedEntry];
-    const candidateBytes = BigInt(this.#sizeInBytes) + BigInt(entry.sizeInBytes);
-    if (candidates.length <= this.#maximumFrames && candidateBytes <= BigInt(this.#maximumBytes)) {
-      this.#commit(candidates, candidateBytes);
+    // Common path: append once, not copy and rebuild the entire backlog on
+    // every incoming frame. Subtract first to avoid unsafe-integer addition.
+    if (
+      length < this.#maximumFrames &&
+      entry.sizeInBytes <= this.#maximumBytes - this.#sizeInBytes
+    ) {
+      this.#entries.push(queuedEntry);
+      this.#sizeInBytes += entry.sizeInBytes;
       if (entry.isRecoveryPoint) {
         this.#awaitingRecovery = false;
       }
       return { accepted: true, droppedEntries: 0, resetRequired: false };
     }
 
-    let latestRecoveryIndex = -1;
-    for (let index = candidates.length - 1; index >= 0; index--) {
-      if (candidates[index]?.isRecoveryPoint === true) {
-        latestRecoveryIndex = index;
-        break;
+    // Only pressure recovery scans a GOP. Search the incoming frame first;
+    // consumed entries before #head must never be considered recovery anchors.
+    let recoveryIndex = entry.isRecoveryPoint ? this.#entries.length : -1;
+    if (recoveryIndex < 0) {
+      for (let index = this.#entries.length - 1; index >= this.#head; index--) {
+        if (this.#entries[index]?.isRecoveryPoint === true) {
+          recoveryIndex = index;
+          break;
+        }
       }
     }
-    if (latestRecoveryIndex >= 0) {
-      const suffix = candidates.slice(latestRecoveryIndex);
-      const suffixBytes = suffix.reduce(
-        (total, candidate) => total + BigInt(candidate.sizeInBytes),
-        0n,
-      );
-      if (suffix.length <= this.#maximumFrames && suffixBytes <= BigInt(this.#maximumBytes)) {
-        this.#commit(suffix, suffixBytes);
+    if (recoveryIndex >= 0) {
+      let suffixBytes = BigInt(entry.sizeInBytes);
+      for (let index = recoveryIndex; index < this.#entries.length; index++) {
+        suffixBytes += BigInt(this.#entries[index]!.sizeInBytes);
+      }
+      const suffixLength = this.#entries.length - recoveryIndex + 1;
+      if (suffixLength <= this.#maximumFrames && suffixBytes <= BigInt(this.#maximumBytes)) {
+        const droppedEntries = recoveryIndex - this.#head;
+        this.#entries.splice(0, recoveryIndex);
+        this.#head = 0;
+        this.#entries.push(queuedEntry);
+        this.#sizeInBytes = Number(suffixBytes);
         this.#awaitingRecovery = false;
-        return {
-          accepted: suffix.includes(queuedEntry),
-          droppedEntries: latestRecoveryIndex,
-          resetRequired: latestRecoveryIndex > 0,
-        };
+        return { accepted: true, droppedEntries, resetRequired: droppedEntries > 0 };
       }
     }
 
-    const droppedEntries = candidates.length;
+    const droppedEntries = length + 1;
     this.#clearEntries();
     this.#awaitingRecovery = true;
     return { accepted: false, droppedEntries, resetRequired: true };
   }
 
   public shift(): T | undefined {
-    const entry = this.#entries.shift();
+    const entry = this.#entries[this.#head];
     if (entry == undefined) {
       return undefined;
     }
+    // Drop the payload reference immediately. Advancing a head index avoids
+    // moving all remaining entries for every decoded frame.
+    this.#entries[this.#head++] = undefined;
     this.#sizeInBytes -= entry.sizeInBytes;
+    if (this.#head === this.#entries.length) {
+      this.#clearEntries();
+    } else if (this.#head >= 1024 && this.#head * 2 >= this.#entries.length) {
+      this.#entries.splice(0, this.#head);
+      this.#head = 0;
+    }
     return entry.value;
   }
 
   public clear(options: { awaitRecovery?: boolean } = {}): number {
-    const droppedEntries = this.#entries.length;
+    const droppedEntries = this.getLength();
     this.#clearEntries();
     this.#awaitingRecovery = options.awaitRecovery === true;
     return droppedEntries;
   }
 
   public getLength(): number {
-    return this.#entries.length;
+    return this.#entries.length - this.#head;
   }
 
   public getSizeInBytes(): number {
@@ -123,15 +142,8 @@ export class BoundedVideoFrameQueue<T> {
 
   #clearEntries(): void {
     this.#entries.length = 0;
+    this.#head = 0;
     this.#sizeInBytes = 0;
-  }
-
-  #commit(entries: VideoFrameQueueEntry<T>[], sizeInBytes: bigint): void {
-    this.#entries.length = 0;
-    for (const entry of entries) {
-      this.#entries.push(entry);
-    }
-    this.#sizeInBytes = Number(sizeInBytes);
   }
 
   static #validateLimit(value: number, name: string): void {
