@@ -455,8 +455,16 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     }
   };
 
-  #handleErrorChange = (): void => {
-    this.updateSettingsTree();
+  #handleErrorChange = (path: readonly string[]): void => {
+    // Only the display-frame field consumes LayerErrors here. A model or topic
+    // warning must not rebuild all camera controls and translations each frame.
+    // Prefixes include clearing the entire error tree or the general subtree.
+    if (
+      path.length <= FOLLOW_TF_PATH.length &&
+      path.every((part, index) => part === FOLLOW_TF_PATH[index])
+    ) {
+      this.updateSettingsTree();
+    }
   };
 
   // Redefine follow pose snapshot whenever renderFrame or fixedFrame changes

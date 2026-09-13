@@ -176,6 +176,27 @@ describe("CameraStateSettings", () => {
     });
   });
 
+  it("refreshes camera fields only for display-frame errors and their clears", () => {
+    const settings = renderer.cameraHandler;
+    const update = jest.spyOn(settings, "updateSettingsTree");
+    const errors = renderer.settings.errors;
+    errors.add(["layers", "robot"], "MISSING_TRANSFORM", "Missing model link");
+    errors.remove(["layers", "robot"], "MISSING_TRANSFORM");
+    errors.clearPath(["layers"]);
+    expect(update).not.toHaveBeenCalled();
+
+    errors.add(["general", "followTf"], "test-frame", "Missing display frame");
+    expect(update).toHaveBeenCalledTimes(1);
+    errors.remove(["general", "followTf"], "test-frame");
+    expect(update).toHaveBeenCalledTimes(2);
+    errors.add(["general", "followTf"], "test-frame", "Missing display frame");
+    errors.clearPath(["general"]);
+    expect(update).toHaveBeenCalledTimes(4);
+    errors.add(["general", "followTf"], "test-frame", "Missing display frame");
+    errors.clear();
+    expect(update).toHaveBeenCalledTimes(6);
+  });
+
   describe("screen space panning", () => {
     const aspect = 16 / 9;
 

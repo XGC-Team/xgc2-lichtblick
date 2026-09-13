@@ -481,7 +481,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     this.#syncManagedUrdfLayers();
     for (const renderable of this.renderables.values()) {
       const path = renderable.userData.settingsPath;
-      let hasTfError = false;
+      let missingFrameId: string | undefined;
 
       renderable.visible = renderable.userData.settings.visible;
       if (!renderable.visible) {
@@ -504,13 +504,19 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           srcTime,
         );
         if (!updated) {
-          const message = missingTransformMessage(renderFrameId, fixedFrameId, frameId);
-          this.renderer.settings.errors.add(path, MISSING_TRANSFORM, message);
-          hasTfError = true;
+          missingFrameId = frameId;
         }
       }
 
-      if (!hasTfError) {
+      // The layer has one transform error slot. Publish its final value once,
+      // instead of replacing it for every missing link in the same frame.
+      if (missingFrameId != undefined) {
+        this.renderer.settings.errors.add(
+          path,
+          MISSING_TRANSFORM,
+          missingTransformMessage(renderFrameId, fixedFrameId, missingFrameId),
+        );
+      } else {
         this.renderer.settings.errors.remove(path, MISSING_TRANSFORM);
       }
     }
