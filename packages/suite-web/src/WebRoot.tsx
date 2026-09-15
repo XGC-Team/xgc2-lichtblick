@@ -48,16 +48,19 @@ export function WebRoot(props: {
     [],
   );
 
-  const defaultExtensionLoaders: IExtensionLoader[] = [
-    new IdbExtensionLoader("org"),
-    new IdbExtensionLoader("local"),
-  ];
   const url = new URL(globalThis.location.href);
   const workspace = url.searchParams.get("workspace");
   const workspaceAppearance: WorkspaceAppearance =
     url.searchParams.get("xgc2Embed") === "1" ? "embedded" : "standard";
+  // XGC2 embeds only the panels compiled into this bundle. Opening the two
+  // browser extension databases adds no capability there and can leave the
+  // canvas waiting indefinitely when IndexedDB is blocked inside an iframe.
+  const defaultExtensionLoaders: IExtensionLoader[] =
+    workspaceAppearance === "embedded"
+      ? []
+      : [new IdbExtensionLoader("org"), new IdbExtensionLoader("local")];
 
-  if (workspace && APP_CONFIG.apiUrl) {
+  if (workspaceAppearance === "standard" && workspace && APP_CONFIG.apiUrl) {
     defaultExtensionLoaders.push(new RemoteExtensionLoader("org", workspace));
   }
   const [extensionLoaders] = useState(() => defaultExtensionLoaders);

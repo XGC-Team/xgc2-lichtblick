@@ -64,7 +64,9 @@ describe("WebRoot", () => {
     globalThis.history.replaceState({}, "", `/?layout=${layout}`);
     renderWebRoot();
     expect(mockSharedRootProps).toHaveLength(1);
-    expect(mockSharedRootProps[0]!.appParameters).toEqual({ defaultLayout: layout });
+    expect(mockSharedRootProps[0]!.appParameters).toEqual({
+      defaultLayout: layout,
+    });
   });
 
   it("provides empty appParameters when no layout query parameter is present", () => {
@@ -92,6 +94,7 @@ describe("WebRoot", () => {
       enableLaunchPreferenceScreen: true,
       workspaceAppearance: "standard",
     });
+    expect(mockSharedRootProps[0]!.extensionLoaders).toHaveLength(2);
   });
 
   it("maps the legacy ?xgc2Embed=1 parameter to the embedded workspace appearance", () => {
@@ -100,6 +103,7 @@ describe("WebRoot", () => {
 
     expect(mockSharedRootProps[0]).toMatchObject({
       enableLaunchPreferenceScreen: false,
+      extensionLoaders: [],
       workspaceAppearance: "embedded",
     });
   });
