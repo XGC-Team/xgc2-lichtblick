@@ -87,7 +87,10 @@ describe.each(["strip", "list"] as const)("DynamicLineGeometry %s", (topology) =
   it("uploads and bounds only active segments after shrinking", () => {
     const geometry = new DynamicLineGeometry();
     geometry.setPoints(points, topology);
-    const shorter = [{ x: 100, y: 101, z: 102 }, { x: 103, y: 105, z: 102 }];
+    const shorter = [
+      { x: 100, y: 101, z: 102 },
+      { x: 103, y: 105, z: 102 },
+    ];
     geometry.setPoints(shorter, topology);
     geometry.updateColors();
     expect(geometry.instanceCount).toBe(1);
