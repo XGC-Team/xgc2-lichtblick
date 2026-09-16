@@ -55,6 +55,10 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
 
   #controls: OrbitControls;
   #isUpdatingCameraState = false;
+  // True between OrbitControls `start` and `end` events (pointer drags, wheel zooms). While
+  // interacting, the controls emit one `change` per frame, so the settings tree must not be
+  // rebuilt for each of them; it is refreshed once when the interaction ends.
+  #isInteractingWithControls = false;
   #canvas: HTMLCanvasElement;
 
   // This group is used to transform the cameras based on the Frame follow mode
@@ -92,23 +96,13 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     this.#controls.mouseButtons.RIGHT = DEFAULT_ORBIT_CONTROLS_CONFIG.mouseButtons.RIGHT;
     this.#controls.touches.ONE = DEFAULT_ORBIT_CONTROLS_CONFIG.touches.ONE;
     this.#controls.touches.TWO = DEFAULT_ORBIT_CONTROLS_CONFIG.touches.TWO;
-    this.#controls.addEventListener("change", () => {
-      if (!this.#isUpdatingCameraState) {
-        renderer.emit("cameraMove", renderer);
-      }
-    });
+    this.#controls.addEventListener("change", this.#onControlsChange);
+    this.#controls.addEventListener("start", this.#onControlsStart);
+    this.#controls.addEventListener("end", this.#onControlsEnd);
 
     // Screen space panning when holding Alt key
-    canvas.addEventListener("keydown", (event) => {
-      if (event.altKey) {
-        this.#controls.screenSpacePanning = true;
-      }
-    });
-    canvas.addEventListener("keyup", (event) => {
-      if (!event.altKey) {
-        this.#controls.screenSpacePanning = false;
-      }
-    });
+    canvas.addEventListener("keydown", this.#onCanvasKeyDown);
+    canvas.addEventListener("keyup", this.#onCanvasKeyUp);
 
     // Make the canvas able to receive keyboard events and setup WASD controls
     canvas.tabIndex = 1000;
@@ -131,6 +125,17 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     this.renderer.settings.errors.off("update", this.#handleErrorChange);
     this.renderer.settings.errors.off("clear", this.#handleErrorChange);
     this.renderer.settings.errors.off("remove", this.#handleErrorChange);
+
+    // OrbitControls.dispose() only detaches its own DOM listeners; listeners we registered on
+    // the controls object and on the canvas must be removed explicitly, otherwise each Renderer
+    // rebuild on the same canvas leaves a live set of handlers behind.
+    this.#controls.removeEventListener("change", this.#onControlsChange);
+    this.#controls.removeEventListener("start", this.#onControlsStart);
+    this.#controls.removeEventListener("end", this.#onControlsEnd);
+    this.#controls.dispose();
+
+    this.#canvas.removeEventListener("keydown", this.#onCanvasKeyDown);
+    this.#canvas.removeEventListener("keyup", this.#onCanvasKeyUp);
 
     super.dispose();
   }
@@ -409,7 +414,43 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     }
   }
 
+  #onControlsChange = (): void => {
+    if (!this.#isUpdatingCameraState) {
+      this.renderer.emit("cameraMove", this.renderer);
+    }
+  };
+
+  #onControlsStart = (): void => {
+    this.#isInteractingWithControls = true;
+  };
+
+  #onControlsEnd = (): void => {
+    this.#isInteractingWithControls = false;
+    // Rebuild the settings tree once at the end of a drag/zoom interaction with the final
+    // camera values, instead of on every `change` event during the interaction.
+    this.updateSettingsTree();
+  };
+
+  // Screen space panning when holding Alt key
+  #onCanvasKeyDown = (event: KeyboardEvent): void => {
+    if (event.altKey) {
+      this.#controls.screenSpacePanning = true;
+    }
+  };
+
+  #onCanvasKeyUp = (event: KeyboardEvent): void => {
+    if (!event.altKey) {
+      this.#controls.screenSpacePanning = false;
+    }
+  };
+
   #handleCameraMove = (): void => {
+    // Pointer drags and wheel zooms emit `cameraMove` every frame; skip the settings tree
+    // rebuild while the interaction is in progress (it runs once on `end`). Keyboard pans are
+    // not wrapped in start/end events by OrbitControls, so they still refresh immediately.
+    if (this.#isInteractingWithControls) {
+      return;
+    }
     this.updateSettingsTree();
   };
 

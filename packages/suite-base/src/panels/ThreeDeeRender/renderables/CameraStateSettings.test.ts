@@ -28,7 +28,9 @@ let mockOrbitControls!: {
   touches: { ONE: number; TWO: number };
   keys: { LEFT: string; RIGHT: string; UP: string; BOTTOM: string };
   addEventListener: jest.Mock;
+  removeEventListener: jest.Mock;
   listenToKeyEvents: jest.Mock;
+  dispose: jest.Mock;
   getDistance: jest.Mock;
   getPolarAngle: jest.Mock;
   getAzimuthalAngle: jest.Mock;
@@ -91,7 +93,9 @@ function setupOrbitControlsMock() {
   mockOrbitControls = {
     ...DEFAULT_ORBIT_CONTROLS_CONFIG,
     addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
     listenToKeyEvents: jest.fn(),
+    dispose: jest.fn(),
     getDistance: jest.fn().mockReturnValue(DEFAULT_CAMERA_STATE.distance),
     getPolarAngle: jest.fn().mockReturnValue(THREE.MathUtils.degToRad(DEFAULT_CAMERA_STATE.phi)),
     getAzimuthalAngle: jest
@@ -102,6 +106,15 @@ function setupOrbitControlsMock() {
     minPolarAngle: 0,
     maxPolarAngle: Math.PI,
   };
+}
+
+function getControlsHandler(event: string): () => void {
+  const calls = mockOrbitControls.addEventListener.mock.calls as [string, unknown][];
+  const handler = calls.find(([type]) => type === event)?.[1];
+  if (typeof handler !== "function") {
+    throw new Error(`OrbitControls handler for "${event}" was not registered`);
+  }
+  return handler as () => void;
 }
 
 const defaultRendererConfig: RendererConfig = {
@@ -195,6 +208,77 @@ describe("CameraStateSettings", () => {
     errors.add(["general", "followTf"], "test-frame", "Missing display frame");
     errors.clear();
     expect(update).toHaveBeenCalledTimes(6);
+  });
+
+  describe("cameraMove settings updates", () => {
+    it("rebuilds the settings tree on cameraMove when not interacting with the controls", () => {
+      // Given
+      const settings = renderer.cameraHandler;
+      const update = jest.spyOn(settings, "updateSettingsTree");
+
+      // When
+      renderer.emit("cameraMove", renderer);
+
+      // Then
+      expect(update).toHaveBeenCalledTimes(1);
+    });
+
+    it("defers the settings tree rebuild during a drag until the controls interaction ends", () => {
+      // Given
+      const settings = renderer.cameraHandler;
+      const update = jest.spyOn(settings, "updateSettingsTree");
+
+      // When: an interaction starts and the camera moves every frame
+      getControlsHandler("start")();
+      renderer.emit("cameraMove", renderer);
+      renderer.emit("cameraMove", renderer);
+
+      // Then: no rebuild happens mid-interaction
+      expect(update).not.toHaveBeenCalled();
+
+      // When: the interaction ends
+      getControlsHandler("end")();
+
+      // Then: the tree is rebuilt once with the final camera values
+      expect(update).toHaveBeenCalledTimes(1);
+
+      // And: after the interaction, cameraMove refreshes immediately again
+      renderer.emit("cameraMove", renderer);
+      expect(update).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("dispose", () => {
+    it("disposes OrbitControls and removes its canvas keyboard listeners", () => {
+      // Given
+      const addSpy = jest.spyOn(canvas, "addEventListener");
+      const removeSpy = jest.spyOn(canvas, "removeEventListener");
+      const settings = new CameraStateSettings(renderer, canvas, 16 / 9);
+      const keydownHandler = addSpy.mock.calls.find(([type]) => type === "keydown")?.[1];
+      const keyupHandler = addSpy.mock.calls.find(([type]) => type === "keyup")?.[1];
+      expect(keydownHandler).toBeDefined();
+      expect(keyupHandler).toBeDefined();
+
+      // When
+      settings.dispose();
+
+      // Then
+      expect(mockOrbitControls.dispose).toHaveBeenCalledTimes(1);
+      expect(mockOrbitControls.removeEventListener).toHaveBeenCalledWith(
+        "change",
+        expect.any(Function),
+      );
+      expect(mockOrbitControls.removeEventListener).toHaveBeenCalledWith(
+        "start",
+        expect.any(Function),
+      );
+      expect(mockOrbitControls.removeEventListener).toHaveBeenCalledWith(
+        "end",
+        expect.any(Function),
+      );
+      expect(removeSpy).toHaveBeenCalledWith("keydown", keydownHandler);
+      expect(removeSpy).toHaveBeenCalledWith("keyup", keyupHandler);
+    });
   });
 
   describe("screen space panning", () => {

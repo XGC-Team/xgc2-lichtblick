@@ -6,7 +6,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import assert from "assert";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAsync } from "react-use";
 import { useDebounce } from "use-debounce";
 
@@ -48,15 +48,57 @@ export function CurrentLayoutLocalStorageSyncAdapter(): React.JSX.Element {
     isInitialLayoutLoad.current = true;
   }, [currentLayoutId]);
 
+  // Serializing the whole layout is expensive and previously ran synchronously in this effect,
+  // blocking the main thread on every layout change (e.g. each cameraMove config update during
+  // a 3D camera drag). The write is deferred to an idle callback (with a timeout bound), and
+  // pending data is flushed synchronously on beforeunload/unmount so a pending layout is never
+  // lost when the page closes.
+  const pendingLayoutDataRef = useRef<LayoutData | undefined>(undefined);
+
+  const flushPendingLayoutToLocalStorage = useCallback(() => {
+    const layoutData = pendingLayoutDataRef.current;
+    if (layoutData == undefined) {
+      return;
+    }
+    pendingLayoutDataRef.current = undefined;
+
+    const serializedLayoutData = JSON.stringify(layoutData);
+    assert(serializedLayoutData);
+    localStorage.setItem(LOCAL_STORAGE_STUDIO_LAYOUT_KEY, serializedLayoutData);
+  }, []);
+
   useEffect(() => {
     if (!debouncedLayoutData) {
       return;
     }
 
-    const serializedLayoutData = JSON.stringify(debouncedLayoutData);
-    assert(serializedLayoutData);
-    localStorage.setItem(LOCAL_STORAGE_STUDIO_LAYOUT_KEY, serializedLayoutData);
-  }, [debouncedLayoutData]);
+    pendingLayoutDataRef.current = debouncedLayoutData;
+
+    if (typeof window.requestIdleCallback === "function") {
+      const idleHandle = window.requestIdleCallback(flushPendingLayoutToLocalStorage, {
+        timeout: 1000,
+      });
+      return () => {
+        if (typeof window.cancelIdleCallback === "function") {
+          window.cancelIdleCallback(idleHandle);
+        }
+      };
+    }
+
+    const timeoutHandle = setTimeout(flushPendingLayoutToLocalStorage, 0);
+    return () => {
+      clearTimeout(timeoutHandle);
+    };
+  }, [debouncedLayoutData, flushPendingLayoutToLocalStorage]);
+
+  useEffect(() => {
+    window.addEventListener("beforeunload", flushPendingLayoutToLocalStorage);
+    return () => {
+      window.removeEventListener("beforeunload", flushPendingLayoutToLocalStorage);
+      // Flush any write that was cancelled by the teardown of the scheduling effect above.
+      flushPendingLayoutToLocalStorage();
+    };
+  }, [flushPendingLayoutToLocalStorage]);
 
   // Send new layoutData to layoutManager to be saved
   useAsync(async () => {
