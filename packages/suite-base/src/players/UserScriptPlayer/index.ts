@@ -61,6 +61,7 @@ import Rpc from "@lichtblick/suite-base/util/Rpc";
 import { basicDatatypes } from "@lichtblick/suite-base/util/basicDatatypes";
 
 import { DIAGNOSTIC_SEVERITY, ERROR_CODES, MAX_GLOBAL_BUFFER_SIZE, SOURCES } from "./constants";
+import { mergeScriptMessages } from "./mergeScriptMessages";
 import { getPreloadTypes, remapVirtualSubscriptions } from "./subscriptions";
 
 const log = Log.getLogger(__filename);
@@ -256,8 +257,9 @@ export default class UserScriptPlayer implements Player {
     globalVariables: GlobalVariables,
     scriptRegistrations: readonly ScriptRegistration[],
   ): Promise<readonly MessageEvent[]> {
-    // fast-track if there's no input and return empty output
-    if (inputMessages.length === 0) {
+    // No scripts means no per-message promises, temporary arrays or microtask yields.
+    // Keep the wrapper alive so scripts can still be added to the current layout.
+    if (inputMessages.length === 0 || scriptRegistrations.length === 0) {
       return [];
     }
 
@@ -274,6 +276,10 @@ export default class UserScriptPlayer implements Player {
           const messagePromise = scriptRegistration.processMessage(message, globalVariables);
           messagePromises.push(messagePromise);
         }
+      }
+      // A registered script may have no subscriber or may not consume this topic.
+      if (messagePromises.length === 0) {
+        continue;
       }
       const output = await Promise.all(messagePromises);
       outputMessages.push(...filterMap(output, identity));
@@ -868,8 +874,10 @@ export default class UserScriptPlayer implements Player {
 
         // remove topics that already have messages in state, because we won't need to take their last message to process
         // this also removes possible duplicate messages to be parsed
-        for (const message of messages) {
-          inputTopicsForRecompute.delete(message.topic);
+        if (inputTopicsForRecompute.size > 0) {
+          for (const message of messages) {
+            inputTopicsForRecompute.delete(message.topic);
+          }
         }
 
         const messagesForRecompute: MessageEvent[] = [];
@@ -902,10 +910,7 @@ export default class UserScriptPlayer implements Player {
 
         // The current frame messages are the input messages + recomputed + computed sorted by
         // receive time
-        const currentFrameMessages = messages
-          .concat(recomputed)
-          .concat(computed)
-          .sort((a, b) => compare(a.receiveTime, b.receiveTime));
+        const currentFrameMessages = mergeScriptMessages(messages, recomputed, computed);
 
         const playerProgress = {
           ...playerState.progress,

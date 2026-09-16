@@ -46,6 +46,8 @@ export default class MockUserScriptPlayerWorker {
       // no-op
     };
     const receiver = new Rpc(remote);
+    // No real worker exists here, but player teardown still expects an acknowledgement.
+    receiver.receive("close", () => undefined);
     const receiveAndLog = <Args extends unknown[]>(
       action: string,
       impl: (..._: Args) => unknown,
