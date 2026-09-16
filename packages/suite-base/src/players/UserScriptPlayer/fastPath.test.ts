@@ -77,12 +77,12 @@ function setup() {
 
 describe("UserScriptPlayer optional-work fast path", () => {
   beforeEach(() => {
-    jest.spyOn(UserScriptPlayer, "CreateRuntimeWorker").mockImplementation(
-      () => new MockUserScriptPlayerWorker() as unknown as SharedWorker,
-    );
-    jest.spyOn(UserScriptPlayer, "CreateTransformWorker").mockImplementation(
-      () => new MockUserScriptPlayerWorker() as unknown as SharedWorker,
-    );
+    jest
+      .spyOn(UserScriptPlayer, "CreateRuntimeWorker")
+      .mockImplementation(() => new MockUserScriptPlayerWorker() as unknown as SharedWorker);
+    jest
+      .spyOn(UserScriptPlayer, "CreateTransformWorker")
+      .mockImplementation(() => new MockUserScriptPlayerWorker() as unknown as SharedWorker);
   });
 
   afterEach(() => {

@@ -65,10 +65,37 @@ error propagation. A 10,000-message no-script probe counts 10,000 empty
 Promise.all calls before and zero after. The merge checks preserve every
 object identity in a 200,000-message frame.
 
-These are isolated correctness and operation counts, not the complete
-workspace Jest environment, a full typecheck, ROS latency or a measured FPS
-improvement. The local container cannot resolve GitHub/install the workspace.
-Repository CI must be read independently for the actual candidate commit.
+These are isolated correctness and operation counts, not the complete local
+workspace environment or browser/GPU/ROS timing. The container cannot resolve
+GitHub/install the workspace. Remote repository results below supersede the
+submission-time pending CI state; no local full-workspace result is claimed.
+
+## Verified repository CI for implementation commit d6208d29
+
+Implementation: `d6208d29ac72146a8c63148338a79aca77a3b5c6`.
+GitHub Actions run `35121462462`, synthetic PR merge-test checkout
+`eb72d1cd175b818e1550fac9905e5fd502784e58` (not a product merge).
+
+- Full Jest job `104880019573`: success. 552/552 suites, 9,231 tests passed,
+  7 skipped, 89/89 snapshots passed. Both new files and the existing player
+  suite passed, including all 14 new cases. A worker force-exit warning remains
+  in the full log; this does not prove the whole application leak-free.
+- Web production build job `104880019348`: success (`yarn web:build:prod`).
+- Lint job `104880019371`: license, dedupe and full `tsc --noEmit` passed.
+  Formatting then failed on fastPath.test.ts and 21 unmodified baseline files.
+  This follow-up applies the requested two formatting changes to our test only.
+  Later lint/unused-export/dependency-lint stages were not reached. The overall
+  lint job is not green, and unrelated baseline files are not reformatted here.
+- Dependency audit job `104880019126`: failed. No manifest or lockfile changes
+  are included in this PR; the failure must not be bypassed or marked passed.
+- Separate SonarCloud run `35121462389`, job `104880017713`: failed before
+  scanning because SONAR_TOKEN is missing. The log explicitly requests the
+  existing project token. No source-scan result was produced.
+
+This follow-up changes test formatting and this evidence document only.
+Production behavior and test assertions are unchanged, but the new head
+requires the normal CI rerun. Previous-head results are not relabeled as
+new-head results. No all-checks-green or end-to-end runtime claim is made.
 
 ## Required repository and deployment validation
 
