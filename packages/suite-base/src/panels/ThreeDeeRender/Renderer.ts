@@ -1348,7 +1348,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     const fixedFrame = this.transformTree.frame(fixedFrameId);
     if (renderFrame && fixedFrame) {
       const pose = renderFrame.applyLocal(
-        this.#lightPose, this.#lightOrigin, fixedFrame, currentTime,
+        this.#lightPose,
+        this.#lightOrigin,
+        fixedFrame,
+        currentTime,
       );
       if (pose) {
         const { x, y, z, w } = pose.orientation;

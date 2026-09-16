@@ -109,7 +109,10 @@ describe("Renderer batch ingestion", () => {
     const single = queueOnlyRenderer();
     const batchSub = subscription();
     const singleSub = subscription();
-    for (const [renderer, sub] of [[batch, batchSub], [single, singleSub]] as const) {
+    for (const [renderer, sub] of [
+      [batch, batchSub],
+      [single, singleSub],
+    ] as const) {
       renderer.topicSubscriptions.set("/pose", [sub]);
       renderer.topicSubscriptions.set("/other", [sub]);
       renderer.schemaSubscriptions.set("pose", [sub]);

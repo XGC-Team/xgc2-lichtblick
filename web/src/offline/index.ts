@@ -4,7 +4,15 @@
 import i18next from "i18next";
 
 import { OfflineRenderer } from "./renderer";
-import { assetPath, parseEvents, parseSnapshot, record, requireValue, verifiedFetch, type FramePlan } from "./state";
+import {
+  assetPath,
+  parseEvents,
+  parseSnapshot,
+  record,
+  requireValue,
+  verifiedFetch,
+  type FramePlan,
+} from "./state";
 
 const channel = "xgc2.offline-video";
 let renderer: OfflineRenderer | undefined;
@@ -21,7 +29,11 @@ const initialization = (async () => {
   const bytes = await verifiedFetch(url, expectedHash, 32 * 1024 * 1024);
   const snapshot = parseSnapshot(JSON.parse(new TextDecoder().decode(bytes)));
   const base = new URL(".", url);
-  const historyBytes = await verifiedFetch(new URL(assetPath(snapshot.events), base), snapshot.events.sha256, snapshot.events.size);
+  const historyBytes = await verifiedFetch(
+    new URL(assetPath(snapshot.events), base),
+    snapshot.events.sha256,
+    snapshot.events.size,
+  );
   requireValue(historyBytes.byteLength === snapshot.events.size, "Event history size mismatch");
   const history = parseEvents(JSON.parse(new TextDecoder().decode(historyBytes)), snapshot.topics);
   document.body.style.margin = "0";
@@ -34,18 +46,36 @@ const initialization = (async () => {
 })();
 // Keep rejection observed even when no host request arrives. It is reported to
 // the first valid request rather than turning a blank canvas into a successful frame.
-void initialization.catch(() => { failed = true; });
+void initialization.catch(() => {
+  failed = true;
+});
 
 // Installed synchronously, before snapshot/assets finish fetching or iframe load.
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   const value = event.data;
-  if (event.source !== parent || event.origin !== location.origin || !record(value) ||
-      value.channel !== channel || value.version !== 1 || value.type !== "render-frame" ||
-      typeof value.requestId !== "string" || value.requestId.length === 0 || value.requestId.length > 256) { return; }
+  if (
+    event.source !== parent ||
+    event.origin !== location.origin ||
+    !record(value) ||
+    value.channel !== channel ||
+    value.version !== 1 ||
+    value.type !== "render-frame" ||
+    typeof value.requestId !== "string" ||
+    value.requestId.length === 0 ||
+    value.requestId.length > 256
+  ) {
+    return;
+  }
   const reply = (type: string, fields: Record<string, unknown>) => {
-    parent.postMessage({ channel, version: 1, type, requestId: value.requestId, ...fields }, event.origin);
+    parent.postMessage(
+      { channel, version: 1, type, requestId: value.requestId, ...fields },
+      event.origin,
+    );
   };
-  if (busy) { reply("frame-error", { error: "A frame is already rendering" }); return; }
+  if (busy) {
+    reply("frame-error", { error: "A frame is already rendering" });
+    return;
+  }
   busy = true;
   void (async () => {
     try {
@@ -55,8 +85,12 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
       reply("frame-ready", { plan: actual });
     } catch (error) {
       failed = true;
-      reply("frame-error", { error: (error instanceof Error ? error.message : String(error)).slice(0, 4096) });
-    } finally { busy = false; }
+      reply("frame-error", {
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 4096),
+      });
+    } finally {
+      busy = false;
+    }
   })();
 });
 window.addEventListener("pagehide", () => renderer?.dispose(), { once: true });

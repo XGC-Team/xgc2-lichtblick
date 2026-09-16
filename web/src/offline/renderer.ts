@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import type { MessageEvent } from "@lichtblick/suite";
-import type { IRenderer, RendererConfig } from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
+import type {
+  IRenderer,
+  RendererConfig,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
 import type { NodeError } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
 import { Renderer } from "@lichtblick/suite-base/panels/ThreeDeeRender/Renderer";
 import { ImageMode } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/ImageMode";
@@ -16,8 +19,17 @@ import { resolveLiveTfHistory } from "@lichtblick/suite-base/panels/ThreeDeeRend
 import { OFFLINE_TF_HISTORY_SECONDS, validateTransformHistory } from "./history";
 import { readFramePixels } from "./capture";
 import {
-  assetPath, nanos, record, requireValue, rosNanos, selectFrame, verifiedFetch,
-  type CameraFrame, type FramePlan, type Snapshot, type SnapshotEvent,
+  assetPath,
+  nanos,
+  record,
+  requireValue,
+  rosNanos,
+  selectFrame,
+  verifiedFetch,
+  type CameraFrame,
+  type FramePlan,
+  type Snapshot,
+  type SnapshotEvent,
 } from "./state";
 
 /** Only used by the separate offline entry. The live ImageMode remains unchanged. */
@@ -25,11 +37,17 @@ class OfflineImageMode extends ImageMode {
   public async decodeOriginal(frame: CameraFrame): Promise<void> {
     const renderable = this.imageRenderable;
     const image = renderable?.userData.image;
-    requireValue(renderable != undefined && image != undefined, "Image message did not create a renderable");
+    requireValue(
+      renderable != undefined && image != undefined,
+      "Image message did not create a renderable",
+    );
     const stamp = "header" in image ? image.header.stamp : image.timestamp;
     requireValue(rosNanos(stamp) === nanos(frame.cameraTimeNs), "Native image timestamp mismatch");
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Original image decoding timed out")), 30000);
+      const timeout = setTimeout(
+        () => reject(new Error("Original image decoding timed out")),
+        30000,
+      );
       // The native handler may have started a 1920px preview decode. A second,
       // newer submission uses original width; its callback gates this frame.
       renderable.setImage(image, frame.width, () => {
@@ -46,7 +64,10 @@ class OfflineImageMode extends ImageMode {
 }
 
 function errors(node: NodeError): string[] {
-  return [...(node.errorsById?.values() ?? []), ...Array.from(node.children?.values() ?? []).flatMap(errors)];
+  return [
+    ...(node.errorsById?.values() ?? []),
+    ...Array.from(node.children?.values() ?? []).flatMap(errors),
+  ];
 }
 
 /** Native ROS scene semantics, with a persistent read-back surface for capture. */
@@ -69,30 +90,53 @@ export class OfflineRenderer {
   #tainted = false;
 
   public constructor(snapshot: Snapshot, history: SnapshotEvent[], sha256: string, base: URL) {
-    requireValue(new URLSearchParams(location.search).get("xgcTfHistorySeconds") === String(OFFLINE_TF_HISTORY_SECONDS),
-      "Offline TF history query is missing; do not use the two-second live defaults");
+    requireValue(
+      new URLSearchParams(location.search).get("xgcTfHistorySeconds") ===
+        String(OFFLINE_TF_HISTORY_SECONDS),
+      "Offline TF history query is missing; do not use the two-second live defaults",
+    );
     validateTransformHistory(history, resolveLiveTfHistory(location.search));
     requireValue(window.devicePixelRatio === 1, "Offline capture requires devicePixelRatio=1");
     requireValue(record(snapshot.rendererConfig), "Missing renderer config");
     const config = snapshot.rendererConfig as unknown as RendererConfig;
-    requireValue(config.imageMode.imageTopic === snapshot.recipe.source.cameraTopic &&
-      typeof config.imageMode.calibrationTopic === "string" && config.imageMode.synchronize === false,
-    "Invalid offline camera config");
-    requireValue(Object.keys(config.layers).length === 0 && config.imageMode.rotation === 0 &&
-      !config.imageMode.flipHorizontal && !config.imageMode.flipVertical, "Unsupported layout transformation");
-    this.#snapshot = snapshot; this.#sha256 = sha256; this.#base = base;
+    requireValue(
+      config.imageMode.imageTopic === snapshot.recipe.source.cameraTopic &&
+        typeof config.imageMode.calibrationTopic === "string" &&
+        config.imageMode.synchronize === false,
+      "Invalid offline camera config",
+    );
+    requireValue(
+      Object.keys(config.layers).length === 0 &&
+        config.imageMode.rotation === 0 &&
+        !config.imageMode.flipHorizontal &&
+        !config.imageMode.flipVertical,
+      "Unsupported layout transformation",
+    );
+    this.#snapshot = snapshot;
+    this.#sha256 = sha256;
+    this.#base = base;
     this.#data = history.filter((r) => r.role === "data");
     this.#tf = history.filter((r) => r.role === "tf");
     this.#static = history.filter((r) => r.role === "tf-static");
 
     // Keep the native canvas sized/layout-active, but never expose incomplete draws.
     this.#scratch = document.createElement("div");
-    Object.assign(this.#scratch.style, { position: "absolute", left: "-10000px", top: "0", width: "3840px", height: "2160px" });
+    Object.assign(this.#scratch.style, {
+      position: "absolute",
+      left: "-10000px",
+      top: "0",
+      width: "3840px",
+      height: "2160px",
+    });
     const canvas = document.createElement("canvas");
-    canvas.width = 3840; canvas.height = 2160;
-    this.#scratch.append(canvas); document.body.append(this.#scratch);
+    canvas.width = 3840;
+    canvas.height = 2160;
+    this.#scratch.append(canvas);
+    document.body.append(this.#scratch);
     const display = document.createElement("canvas");
-    display.id = "offline-output"; display.width = 3840; display.height = 2160;
+    display.id = "offline-output";
+    display.width = 3840;
+    display.height = 2160;
     Object.assign(display.style, { display: "block", width: "3840px", height: "2160px" });
     document.body.append(display);
     const output = display.getContext("2d");
@@ -100,15 +144,24 @@ export class OfflineRenderer {
     this.#output = output;
     let imageMode: OfflineImageMode | undefined;
     this.#renderer = new Renderer({
-      canvas, config, interfaceMode: "image", customCameraModels: new Map(), testOptions: {},
-      fetchAsset: async () => { throw new Error("External/URDF/mesh assets are forbidden by offline V1"); },
+      canvas,
+      config,
+      interfaceMode: "image",
+      customCameraModels: new Map(),
+      testOptions: {},
+      fetchAsset: async () => {
+        throw new Error("External/URDF/mesh assets are forbidden by offline V1");
+      },
       sceneExtensionConfig: {
         reserved: {
           measurementTool: { init: (renderer: IRenderer) => new MeasurementTool(renderer) },
           publishClickTool: { init: (renderer: IRenderer) => new PublishClickTool(renderer) },
-          imageMode: { init: (renderer: IRenderer) => {
-            imageMode = new OfflineImageMode(renderer); return imageMode;
-          } },
+          imageMode: {
+            init: (renderer: IRenderer) => {
+              imageMode = new OfflineImageMode(renderer);
+              return imageMode;
+            },
+          },
         },
         extensionsById: {
           [Markers.extensionId]: { init: (renderer: IRenderer) => new Markers(renderer) },
@@ -151,35 +204,57 @@ export class OfflineRenderer {
       const time = nanos(image.cameraTimeNs);
       if (time < this.#previousTime) {
         this.#renderer.clear({ clearTransforms: true, resetAllFramesCursor: true });
-        this.#dataCursor = 0; this.#tfCursor = 0; this.#staticCursor = 0; this.#lastImageId = undefined;
+        this.#dataCursor = 0;
+        this.#tfCursor = 0;
+        this.#staticCursor = 0;
+        this.#lastImageId = undefined;
       }
       // Static messages are indexed by their availability; dynamic TF permits an
       // explicit bounded lookahead for interpolation, never for algorithm data.
       while (this.#staticCursor < this.#static.length) {
         const row = this.#static[this.#staticCursor]!;
-        if (nanos(row.timeNs) > nanos(image.logTimeNs)) { break; }
-        this.#dispatch(row); this.#staticCursor++;
+        if (nanos(row.timeNs) > nanos(image.logTimeNs)) {
+          break;
+        }
+        this.#dispatch(row);
+        this.#staticCursor++;
       }
       const tfEnd = time + nanos(this.#snapshot.policy.tfLookaheadNs);
       while (this.#tfCursor < this.#tf.length) {
         const row = this.#tf[this.#tfCursor]!;
-        if (nanos(row.timeNs) > tfEnd) { break; }
-        this.#dispatch(row); this.#tfCursor++;
+        if (nanos(row.timeNs) > tfEnd) {
+          break;
+        }
+        this.#dispatch(row);
+        this.#tfCursor++;
       }
       while (this.#dataCursor < this.#data.length) {
         const row = this.#data[this.#dataCursor]!;
-        if (nanos(row.timeNs) > time) { break; }
-        this.#dispatch(row); this.#dataCursor++;
+        if (nanos(row.timeNs) > time) {
+          break;
+        }
+        this.#dispatch(row);
+        this.#dataCursor++;
       }
       this.#renderer.setCurrentTime(time);
       if (this.#lastImageId !== image.sourceFrameId) {
-        const bytes = await verifiedFetch(new URL(assetPath(image.asset), this.#base), image.asset.sha256, image.asset.size);
+        const bytes = await verifiedFetch(
+          new URL(assetPath(image.asset), this.#base),
+          image.asset.sha256,
+          image.asset.size,
+        );
         requireValue(bytes.byteLength === image.asset.size, "Camera asset size mismatch");
-        this.#dispatch({ timeNs: image.cameraTimeNs, role: "data", event: {
-          topic: this.#snapshot.recipe.source.cameraTopic, schemaName: "sensor_msgs/CompressedImage",
-          receiveTime: image.header.stamp, sizeInBytes: bytes.byteLength,
-          message: { header: image.header, format: image.format, data: new Uint8Array(bytes) },
-        } });
+        this.#dispatch({
+          timeNs: image.cameraTimeNs,
+          role: "data",
+          event: {
+            topic: this.#snapshot.recipe.source.cameraTopic,
+            schemaName: "sensor_msgs/CompressedImage",
+            receiveTime: image.header.stamp,
+            sizeInBytes: bytes.byteLength,
+            message: { header: image.header, format: image.format, data: new Uint8Array(bytes) },
+          },
+        });
         await this.#imageMode.decodeOriginal(image);
       }
       await this.#renderer.settleVideoDecodes();
@@ -194,13 +269,25 @@ export class OfflineRenderer {
       const capture = new ImageData(image.width, image.height);
       capture.data.set(pixels);
       this.#output.putImageData(capture, 0, 0);
-      this.#previousTime = time; this.#lastImageId = image.sourceFrameId;
-      return { ...plan, sourceFrameId: image.sourceFrameId, cameraTimeNs: image.cameraTimeNs,
-        width: this.#output.canvas.width, height: this.#output.canvas.height };
-    } catch (error) { this.#tainted = true; throw error; }
+      this.#previousTime = time;
+      this.#lastImageId = image.sourceFrameId;
+      return {
+        ...plan,
+        sourceFrameId: image.sourceFrameId,
+        cameraTimeNs: image.cameraTimeNs,
+        width: this.#output.canvas.width,
+        height: this.#output.canvas.height,
+      };
+    } catch (error) {
+      this.#tainted = true;
+      throw error;
+    }
   }
 
   public dispose(): void {
-    this.#tainted = true; this.#renderer.dispose(); this.#scratch.remove(); this.#output.canvas.remove();
+    this.#tainted = true;
+    this.#renderer.dispose();
+    this.#scratch.remove();
+    this.#output.canvas.remove();
   }
 }

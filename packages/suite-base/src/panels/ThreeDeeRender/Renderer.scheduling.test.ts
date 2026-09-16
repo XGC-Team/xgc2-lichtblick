@@ -64,7 +64,12 @@ describe("renderer resize scheduling and recovery", () => {
     let nextFrame = 0;
     jest.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       const id = nextFrame++;
-      frames.set(id, callback);
+      // A fired rAF is consumed by the browser; mirror that so invoking a
+      // stored callback also removes it, like a real frame delivery.
+      frames.set(id, (time) => {
+        frames.delete(id);
+        callback(time);
+      });
       return id;
     });
     jest.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {

@@ -41,8 +41,15 @@ export function readFramePixels(
 }
 
 export function flipRows(source: Uint8Array, width: number, height: number): Uint8ClampedArray {
-  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
-      width > 16384 || height > 16384 || source.byteLength !== width * height * 4) {
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width < 1 ||
+    height < 1 ||
+    width > 16384 ||
+    height > 16384 ||
+    source.byteLength !== width * height * 4
+  ) {
     throw new Error("Invalid RGBA buffer");
   }
   const result = new Uint8ClampedArray(source.byteLength);

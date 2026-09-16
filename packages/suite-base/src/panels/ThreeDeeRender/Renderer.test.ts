@@ -536,12 +536,22 @@ describe("3D Renderer", () => {
     const poseArrays = renderer.sceneExtensions.get(PoseArrays.extensionId) as PoseArrays;
     const renderable = poseArrays.renderables.get(topic);
     expect(renderable).toBeDefined();
-    expect(renderable?.userData.axes).toHaveLength(path.poses.length);
+    // One batched Axis draws every pose: two meshes with three instances per pose.
+    const axes = renderable?.userData.axes;
+    expect(axes).toBeDefined();
+    expect(axes?.children).toHaveLength(2);
+    for (const child of axes?.children ?? []) {
+      expect((child as THREE.InstancedMesh).count).toBe(path.poses.length * 3);
+    }
     expect(renderable?.userData.arrows).toHaveLength(0);
     expect(renderable?.userData.lineStrip?.userData.marker.points).toEqual(
       path.poses.map(({ pose }) => pose.position),
     );
-    expect(renderable?.userData.axes[1]?.quaternion.z).toBeCloseTo(Math.SQRT1_2);
+    const poseMatrix = new THREE.Matrix4();
+    (axes?.children[0] as THREE.InstancedMesh).getMatrixAt(3, poseMatrix);
+    const poseOrientation = new THREE.Quaternion();
+    poseMatrix.decompose(new THREE.Vector3(), poseOrientation, new THREE.Vector3());
+    expect(poseOrientation.z).toBeCloseTo(Math.SQRT1_2);
 
     const settingsNode = poseArrays
       .settingsNodes()
