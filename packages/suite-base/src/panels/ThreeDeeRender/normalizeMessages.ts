@@ -170,9 +170,44 @@ export function normalizeTransformStamped(
 }
 
 export function normalizeTFMessage(tfMessage: PartialMessage<TFMessage> | undefined): TFMessage {
+  const transforms = tfMessage?.transforms;
+  // Deserializers (ROS bridge, Foxglove websocket, mcap) already produce fully
+  // populated TransformStamped objects. Rebuilding the array plus five-plus
+  // objects per transform on every message is pure churn in that case, so only
+  // fall back to per-field normalization when something is actually missing.
+  if (transforms?.every(isCompleteTransformStamped) === true) {
+    return tfMessage as TFMessage;
+  }
   return {
-    transforms: (tfMessage?.transforms ?? []).map(normalizeTransformStamped),
+    transforms: (transforms ?? []).map(normalizeTransformStamped),
   };
+}
+
+function isCompleteTransformStamped(
+  tf: PartialMessage<TransformStamped> | undefined,
+): tf is TransformStamped {
+  const header = tf?.header;
+  const stamp = header?.stamp;
+  const translation = tf?.transform?.translation;
+  const rotation = tf?.transform?.rotation;
+  return (
+    tf != undefined &&
+    typeof tf.child_frame_id === "string" &&
+    header != undefined &&
+    typeof header.frame_id === "string" &&
+    stamp != undefined &&
+    typeof stamp.sec === "number" &&
+    typeof stamp.nsec === "number" &&
+    translation != undefined &&
+    typeof translation.x === "number" &&
+    typeof translation.y === "number" &&
+    typeof translation.z === "number" &&
+    rotation != undefined &&
+    typeof rotation.x === "number" &&
+    typeof rotation.y === "number" &&
+    typeof rotation.z === "number" &&
+    typeof rotation.w === "number"
+  );
 }
 
 export function normalizeFrameTransform(

@@ -6,6 +6,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import i18next from "i18next";
 import { setupJestCanvasMock } from "jest-canvas-mock";
 import * as THREE from "three";
 
@@ -394,6 +395,24 @@ describe("3D Renderer", () => {
 
       renderer.dispose();
     });
+
+    it("skips the repaint when the hovered set does not change", () => {
+      const { renderer, hoverCanvas } = createHoverRenderer();
+      const frameSpy = jest.spyOn(renderer, "animationFrame");
+
+      // First hover result (empty) is a change from "no hover state": repaint.
+      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10 }));
+      expect(frameSpy).toHaveBeenCalledTimes(1);
+
+      // Moving within the same (empty) hover result must not repaint again.
+      jest.advanceTimersByTime(HOVER_PICK_THROTTLE_MS);
+      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 11, clientY: 11 }));
+      jest.advanceTimersByTime(HOVER_PICK_THROTTLE_MS);
+      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 12, clientY: 12 }));
+      expect(frameSpy).toHaveBeenCalledTimes(1);
+
+      renderer.dispose();
+    });
   });
 
   it("updates color scheme to dark", () => {
@@ -731,6 +750,100 @@ describe("3D Renderer", () => {
 
     // Then: Should not queue animation frame
     expect(animationFrameSpy).not.toHaveBeenCalled();
+
+    renderer.dispose();
+  });
+
+  it("renders only the selected subtree for the selection highlight pass", () => {
+    // Given: A renderer with a selected renderable
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const mockRenderable = {
+      id: "test-id",
+      name: "test-name",
+      visible: true,
+      parent: ReactNull,
+      layers: { set: jest.fn() },
+      traverse: jest.fn(),
+    };
+    // @ts-expect-error - Partial mock for testing
+    renderer.setSelectedRenderable({ renderable: mockRenderable, instanceIndex: 0 });
+    const renderSpy = jest.spyOn(renderer.gl, "render");
+    renderSpy.mockClear();
+
+    // When: Rendering a frame
+    renderer.animationFrame();
+
+    // Then: Main scene renders once, the backdrop once, and the highlight pass
+    // draws only the selected subtree instead of re-walking the whole scene
+    const renderedScenes = renderSpy.mock.calls.map((call) => call[0] as unknown);
+    const mainScene = renderedScenes[0];
+    expect(renderedScenes).toHaveLength(3);
+    expect(renderedScenes.filter((scene) => scene === mainScene)).toHaveLength(1);
+    expect(renderedScenes[2]).toBe(mockRenderable);
+
+    renderer.dispose();
+  });
+
+  it("skips the selection highlight pass when the selection is hidden", () => {
+    // Given: A renderer with a selected but invisible renderable
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const mockRenderable = {
+      id: "test-id",
+      name: "test-name",
+      visible: false,
+      parent: ReactNull,
+      layers: { set: jest.fn() },
+      traverse: jest.fn(),
+    };
+    // @ts-expect-error - Partial mock for testing
+    renderer.setSelectedRenderable({ renderable: mockRenderable, instanceIndex: 0 });
+    const renderSpy = jest.spyOn(renderer.gl, "render");
+    renderSpy.mockClear();
+
+    // When: Rendering a frame
+    renderer.animationFrame();
+
+    // Then: Only the main scene and backdrop render
+    expect(renderSpy.mock.calls).toHaveLength(2);
+
+    renderer.dispose();
+  });
+
+  it("translates the follow-frame error only when the error state changes", () => {
+    // Given: A renderer whose follow frame does not exist in the tree
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const tSpy = jest.spyOn(i18next, "t");
+    renderer.setFollowFrameId("missing_frame");
+    tSpy.mockClear();
+
+    // When: Rendering several frames with the same persistent error
+    renderer.animationFrame();
+    renderer.animationFrame();
+    renderer.animationFrame();
+
+    // Then: The error is registered once and the message translated once
+    expect(
+      renderer.settings.errors.hasError(["general", "followTf"], "FOLLOW_FRAME_NOT_FOUND"),
+    ).toBe(true);
+    expect(tSpy.mock.calls.filter((call) => call[0] === "threeDee:frameNotFound")).toHaveLength(1);
+
+    renderer.dispose();
+  });
+
+  it("seeds configured frames again after the transforms config changes", () => {
+    // Given: A renderer with no visible configured frames
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    renderer.animationFrame();
+    expect(renderer.transformTree.hasFrame("configured_world")).toBe(false);
+
+    // When: A visible frame setting is added and a frame is rendered
+    renderer.updateConfig((draft) => {
+      draft.transforms["frame:configured_world"] = { visible: true };
+    });
+    renderer.animationFrame();
+
+    // Then: The configured frame is seeded into the transform tree
+    expect(renderer.transformTree.hasFrame("configured_world")).toBe(true);
 
     renderer.dispose();
   });
