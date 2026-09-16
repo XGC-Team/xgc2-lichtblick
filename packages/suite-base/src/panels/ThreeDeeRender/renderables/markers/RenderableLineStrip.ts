@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 
+import { LineStripBuffers } from "./LineStripBuffers";
 import { RenderableMarker } from "./RenderableMarker";
 import {
   makeLineMaterial,
@@ -26,8 +27,10 @@ export class RenderableLineStrip extends RenderableMarker {
   #geometry: LineGeometry;
   #linePrepass: Line2;
   #line: Line2;
-  #positionBuffer = new Float32Array();
-  #colorBuffer = new Uint8Array();
+  #buffers = new LineStripBuffers();
+  #positionBuffer?: THREE.InstancedInterleavedBuffer;
+  #colorBuffer?: THREE.InstancedInterleavedBuffer;
+  #distanceBuffer?: THREE.InstancedInterleavedBuffer;
 
   public constructor(
     topic: string,
@@ -38,6 +41,7 @@ export class RenderableLineStrip extends RenderableMarker {
     super(topic, marker, receiveTime, renderer);
 
     this.#geometry = new LineGeometry();
+    this.#geometry.instanceCount = 0;
 
     const options = { resolution: renderer.input.canvasSize, worldUnits: true };
 
@@ -66,6 +70,9 @@ export class RenderableLineStrip extends RenderableMarker {
   }
 
   public override dispose(): void {
+    // The two passes share this geometry. Neither the base class nor Line2
+    // releases it, so dispose it once, including its instanced GPU buffers.
+    this.#geometry.dispose();
     this.#linePrepass.material.dispose();
     this.#line.material.dispose();
 
@@ -77,117 +84,125 @@ export class RenderableLineStrip extends RenderableMarker {
   }
 
   public override update(newMarker: Marker, receiveTime: bigint | undefined): void {
-    const prevMarker = this.userData.marker;
     super.update(newMarker, receiveTime);
     const marker = this.userData.marker;
-
     const pointsLength = marker.points.length;
     const lineWidth = marker.scale.x;
     const transparent = markerHasTransparency(marker);
 
-    if (pointsLength === 0) {
-      // THREE.LineGeometry.setPositions crashes when given an empty array:
-      // https://github.com/foxglove/studio/issues/3954
-      this.#linePrepass.visible = false;
-      this.#line.visible = false;
-      return;
-    } else {
-      this.#linePrepass.visible = true;
-      this.#line.visible = true;
-    }
-
-    if (transparent !== markerHasTransparency(prevMarker)) {
-      this.#linePrepass.material.transparent = transparent;
-      this.#linePrepass.material.depthWrite = !transparent;
-      this.#linePrepass.material.needsUpdate = true;
-      this.#line.material.transparent = transparent;
-      this.#line.material.depthWrite = !transparent;
-      this.#line.material.needsUpdate = true;
-    }
-
+    // Apply styles even while empty; comparing against the previous message
+    // misses an alpha transition that happened while there were no segments.
     const matLinePrepass = this.#linePrepass.material as LineMaterialWithAlphaVertex;
-    matLinePrepass.lineWidth = lineWidth;
     const matLine = this.#line.material as LineMaterialWithAlphaVertex;
-    matLine.lineWidth = lineWidth;
-
-    const prevPointsLength = this.#positionBuffer.length / 3;
-    if (pointsLength > prevPointsLength) {
-      this.#geometry.dispose();
-      this.#geometry = new LineGeometry();
-      this.#linePrepass.geometry = this.#geometry;
-      this.#line.geometry = this.#geometry;
+    if (matLine.transparent !== transparent) {
+      matLinePrepass.transparent = transparent;
+      matLinePrepass.depthWrite = !transparent;
+      matLinePrepass.needsUpdate = true;
+      matLine.transparent = transparent;
+      matLine.depthWrite = !transparent;
+      matLine.needsUpdate = true;
     }
+    matLinePrepass.lineWidth = lineWidth;
+    matLine.lineWidth = lineWidth;
+    this.#linePrepass.visible = pointsLength > 1;
+    this.#line.visible = pointsLength > 1;
+    const pickingMaterial = this.#line.userData.pickingMaterial as THREE.ShaderMaterial;
+    pickingMaterial.uniforms["linewidth"]!.value = lineWidth * 1.2;
 
-    this.#setPositions(marker, pointsLength);
+    if (this.#buffers.update(marker.points)) {
+      this.#bindBuffers();
+    }
+    this.#geometry.instanceCount = this.#buffers.segmentCount;
+    const { min, max, center, radius } = this.#buffers;
+    this.#geometry.boundingBox ??= new THREE.Box3();
+    this.#geometry.boundingBox.min.set(min.x, min.y, min.z);
+    this.#geometry.boundingBox.max.set(max.x, max.y, max.z);
+    this.#geometry.boundingSphere ??= new THREE.Sphere();
+    this.#geometry.boundingSphere.center.set(center.x, center.y, center.z);
+    this.#geometry.boundingSphere.radius = radius;
+
+    if (this.#buffers.segmentCount === 0) {
+      return;
+    }
     this.#setColors(marker, pointsLength);
-
-    this.#linePrepass.computeLineDistances();
-    this.#line.computeLineDistances();
+    markUpdated(this.#positionBuffer!, this.#buffers.segmentCount * 6);
+    markUpdated(this.#colorBuffer!, this.#buffers.segmentCount * 8);
+    markUpdated(this.#distanceBuffer!, this.#buffers.segmentCount * 2);
   }
 
-  #setPositions(marker: Marker, pointsLength: number): void {
-    if (3 * pointsLength > this.#positionBuffer.length) {
-      this.#positionBuffer = new Float32Array(3 * pointsLength);
-    }
-    const positions = this.#positionBuffer;
-    for (let i = 0; i < pointsLength; i++) {
-      const point = marker.points[i]!;
-      const offset = i * 3;
-      positions[offset + 0] = point.x;
-      positions[offset + 1] = point.y;
-      positions[offset + 2] = point.z;
-    }
-
-    this.#geometry.setPositions(positions);
-    this.#geometry.instanceCount = pointsLength - 1;
+  #bindBuffers(): void {
+    // WebGL cannot resize an uploaded attribute. Release the old allocation
+    // only when capacity grows, never for an ordinary update or path shrink.
+    this.#geometry.dispose();
+    const geometry = (this.#geometry = new LineGeometry());
+    this.#linePrepass.geometry = geometry;
+    this.#line.geometry = geometry;
+    const positions = (this.#positionBuffer = new THREE.InstancedInterleavedBuffer(
+      this.#buffers.positions,
+      6,
+      1,
+    ));
+    const colors = (this.#colorBuffer = new THREE.InstancedInterleavedBuffer(
+      this.#buffers.colors,
+      8,
+      1,
+    ));
+    const distances = (this.#distanceBuffer = new THREE.InstancedInterleavedBuffer(
+      this.#buffers.distances,
+      2,
+      1,
+    ));
+    positions.setUsage(THREE.DynamicDrawUsage);
+    colors.setUsage(THREE.DynamicDrawUsage);
+    distances.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute("instanceStart", new THREE.InterleavedBufferAttribute(positions, 3, 0));
+    geometry.setAttribute("instanceEnd", new THREE.InterleavedBufferAttribute(positions, 3, 3));
+    geometry.setAttribute(
+      "instanceColorStart",
+      new THREE.InterleavedBufferAttribute(colors, 4, 0, true),
+    );
+    geometry.setAttribute(
+      "instanceColorEnd",
+      new THREE.InterleavedBufferAttribute(colors, 4, 4, true),
+    );
+    geometry.setAttribute(
+      "instanceDistanceStart",
+      new THREE.InterleavedBufferAttribute(distances, 1, 0),
+    );
+    geometry.setAttribute(
+      "instanceDistanceEnd",
+      new THREE.InterleavedBufferAttribute(distances, 1, 1),
+    );
   }
 
   #setColors(marker: Marker, pointsLength: number): void {
-    // Converts color-per-point to pairs format in a flattened typed array
-    if (8 * pointsLength > this.#colorBuffer.length) {
-      this.#colorBuffer = new Uint8Array(8 * pointsLength);
-      // [rgba, rgba]
-      const instanceColorBuffer = new THREE.InstancedInterleavedBuffer(this.#colorBuffer, 8, 1);
-      this.#geometry.setAttribute(
-        "instanceColorStart",
-        new THREE.InterleavedBufferAttribute(instanceColorBuffer, 4, 0, true),
-      );
-      this.#geometry.setAttribute(
-        "instanceColorEnd",
-        new THREE.InterleavedBufferAttribute(instanceColorBuffer, 4, 4, true),
-      );
-    } else {
-      this.#geometry.getAttribute("instanceColorStart").needsUpdate = true;
-      this.#geometry.getAttribute("instanceColorEnd").needsUpdate = true;
-    }
-
-    const colorBuffer = this.#colorBuffer;
+    const colorBuffer = this.#buffers.colors;
     const color1: THREE.Vector4Tuple = tempTuple4;
-    color1[0] = 0;
-    color1[1] = 0;
-    color1[2] = 0;
-    color1[3] = 0;
     this._markerColorsToLinear(marker, pointsLength, (color2, ii) => {
       if (ii === 0) {
         copyTuple4(color2, color1);
         return;
       }
-      const i = ii - 1;
-      const offset = i * 8;
-
+      const offset = (ii - 1) * 8;
       colorBuffer[offset + 0] = Math.floor(255 * color1[0]);
       colorBuffer[offset + 1] = Math.floor(255 * color1[1]);
       colorBuffer[offset + 2] = Math.floor(255 * color1[2]);
       colorBuffer[offset + 3] = Math.floor(255 * color1[3]);
-
       colorBuffer[offset + 4] = Math.floor(255 * color2[0]);
       colorBuffer[offset + 5] = Math.floor(255 * color2[1]);
       colorBuffer[offset + 6] = Math.floor(255 * color2[2]);
       colorBuffer[offset + 7] = Math.floor(255 * color2[3]);
-
       copyTuple4(color2, color1);
     });
   }
+}
+
+// Three r156 uses one updateRange per interleaved buffer. Keep attribute counts
+// at capacity (the VAO caches that limit); instanceCount selects active segments.
+function markUpdated(buffer: THREE.InstancedInterleavedBuffer, count: number): void {
+  buffer.updateRange.offset = 0;
+  buffer.updateRange.count = count;
+  buffer.needsUpdate = true;
 }
 
 function copyTuple4(from: THREE.Vector4Tuple, to: THREE.Vector4Tuple): void {
