@@ -158,6 +158,33 @@ describe("updatePose", () => {
     expect(applySpy.mock.calls.length).toBeGreaterThan(callsWhileMissing);
   });
 
+  it("invalidates when reparenting swaps path frames with a colliding version sum", () => {
+    // Regression: the memo must key on the ordered identity of path frames,
+    // not a numeric summary. Here base_link moves from parent a to parent b
+    // while the summed frame versions stay identical (a=4 + base=2 before,
+    // b=2 + base=4 after).
+    const tree = new TransformTree(new ObjectPool(Transform.Empty));
+    tree.addTransform("a", "world", 0n, translation(1, 0, 0)); // a: v2
+    tree.addTransform("a", "world", 1n, translation(1, 0, 0)); // a: v3
+    tree.addTransform("a", "world", 2n, translation(1, 0, 0)); // a: v4
+    tree.addTransform("base_link", "a", 0n, translation(0, 0, 0)); // base_link: v2
+    const renderable = makeRenderable();
+
+    updatePose(renderable, tree, "world", "world", "base_link", 5n, 5n);
+    expect(renderable.position.x).toBeCloseTo(1);
+
+    tree.addTransform("b", "world", 0n, translation(10, 0, 0)); // b: v2
+    tree.addTransform("base_link", "b", 0n, translation(0, 0, 0)); // base_link: v4
+    updatePose(renderable, tree, "world", "world", "base_link", 5n, 5n);
+
+    // Ground truth from the tree itself, bypassing the memo
+    const expected = makePose();
+    const applied = tree.apply(expected, makePose(), "world", "world", "base_link", 5n, 5n);
+    expect(applied).toBeDefined();
+    expect(renderable.position.x).toBeCloseTo(expected.position.x);
+    expect(renderable.position.x).toBeCloseTo(10);
+  });
+
   it("invalidates when a frame offset is applied to the path", () => {
     const tree = makeTree();
     const renderable = makeRenderable();

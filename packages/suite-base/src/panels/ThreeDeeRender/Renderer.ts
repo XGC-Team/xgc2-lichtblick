@@ -1386,25 +1386,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       this.gl.render(this.#selectionBackdropScene, camera);
       this.gl.clearDepth();
       camera.layers.set(LAYER_SELECTED);
-      // Every object in the selected subtree is on LAYER_SELECTED, so render
-      // only that subtree instead of walking the whole scene just to cull
-      // everything else. Ancestor visibility is checked explicitly because
-      // scene-graph traversal normally honors it.
-      const selectedObject = this.#selectedRenderable.renderable;
-      let selectionVisible = true;
-      for (
-        let object: THREE.Object3D | null = selectedObject;
-        object;
-        object = object.parent
-      ) {
-        if (!object.visible) {
-          selectionVisible = false;
-          break;
-        }
-      }
-      if (selectionVisible) {
-        this.gl.render(selectedObject, camera);
-      }
+      // The scene render is required here even though only LAYER_SELECTED
+      // objects draw: projectObject() collects the scene's lights into the
+      // render state along the way, and lit materials (e.g. URDF
+      // MeshStandardMaterial) render black in this pass without them.
+      this.gl.render(this.#scene, camera);
     }
 
     this.emit("endFrame", currentTime, this);

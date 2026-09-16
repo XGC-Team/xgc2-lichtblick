@@ -14,11 +14,17 @@ import { Time } from "./transforms/time";
 
 const tempPose = makePose();
 
-// Reused scratch buffers for offset reference collection during signature
+// Reused scratch buffers for path frame/offset collection during signature
 // walks; updatePose is not reentrant.
 const scratchSrcOffsets: (vec3 | undefined)[] = [];
 const scratchDstOffsets: (vec3 | undefined)[] = [];
+const scratchSrcFrames: CoordinateFrame<AnyFrameId>[] = [];
+const scratchSrcVersions: number[] = [];
+const scratchDstFrames: CoordinateFrame<AnyFrameId>[] = [];
+const scratchDstVersions: number[] = [];
 const NO_OFFSETS: readonly (vec3 | undefined)[] = [];
+const NO_FRAMES: readonly CoordinateFrame<AnyFrameId>[] = [];
+const NO_VERSIONS: readonly number[] = [];
 
 /**
  * Cached outcome of one updatePose() call. `srcTime`/`dstTime` are the exact
@@ -36,7 +42,14 @@ type PoseMemo = {
   srcFrameId: string;
   srcTime: Time | undefined;
   dstTime: Time | undefined;
-  pathVersion: number;
+  /**
+   * Ordered identity + mutation version of every walked path frame (src chain
+   * first, then dst chain). Compared element-wise: a numeric summary such as a
+   * version sum can collide when reparenting swaps which frames are on the
+   * path while leaving the total unchanged.
+   */
+  pathFrames: readonly CoordinateFrame<AnyFrameId>[];
+  pathVersions: readonly number[];
   /** offsetPosition/offsetEulerDegrees references of every walked frame */
   offsetRefs: readonly (vec3 | undefined)[];
   poseValues: readonly [number, number, number, number, number, number, number];
@@ -50,7 +63,6 @@ type PoseMemo = {
 const poseMemos = new WeakMap<THREE.Object3D, PoseMemo>();
 
 type ChainSignature = {
-  version: number;
   newestTime: Time | undefined;
   framesRead: number;
   /** True when the walk stopped at `stopAt`, i.e. it is an ancestor frame */
@@ -60,30 +72,32 @@ type ChainSignature = {
 
 /**
  * Signature of the ancestor chain `apply()` reads when transforming through
- * `frame` towards `stopAt`: the summed mutation versions plus the newest
- * transform stamp. `GetTransformMatrix` reads each frame's history up to but
- * excluding the destination frame, so the walk stops at `stopAt` when it is an
- * ancestor (exact); otherwise it walks the whole chain (conservative
+ * `frame` towards `stopAt`. `GetTransformMatrix` reads each frame's history up
+ * to but excluding the destination frame, so the walk stops at `stopAt` when
+ * it is an ancestor (exact); otherwise it walks the whole chain (conservative
  * superset). A query at or after `newestTime` clamps to the newest transform
  * on every frame of the chain, so its result no longer depends on the exact
- * query time.
+ * query time. Walked frames, their versions, and their offset references are
+ * collected in order into the scratch outputs for identity comparison.
  */
 function chainSignature(
   frame: CoordinateFrame<AnyFrameId>,
   stopAt: CoordinateFrame<AnyFrameId> | undefined,
   offsetsOut: (vec3 | undefined)[],
+  framesOut: CoordinateFrame<AnyFrameId>[],
+  versionsOut: number[],
 ): ChainSignature {
-  let version = 0;
   let newestTime: Time | undefined;
   let framesRead = 0;
   let hasEmptyFrame = false;
   let current: CoordinateFrame<AnyFrameId> | undefined = frame;
   while (current) {
     if (current === stopAt) {
-      return { version, newestTime, framesRead, exact: true, hasEmptyFrame };
+      return { newestTime, framesRead, exact: true, hasEmptyFrame };
     }
-    version += current.getVersion();
     framesRead++;
+    framesOut.push(current);
+    versionsOut.push(current.getVersion());
     // GetTransformMatrix reads offset fields directly, so the memo must
     // observe them being replaced; references are compared later.
     offsetsOut.push(current.offsetPosition, current.offsetEulerDegrees);
@@ -95,7 +109,7 @@ function chainSignature(
     }
     current = current.parent();
   }
-  return { version, newestTime, framesRead, exact: false, hasEmptyFrame };
+  return { newestTime, framesRead, exact: false, hasEmptyFrame };
 }
 
 /**
@@ -108,11 +122,12 @@ function pathSignature(
   leaf: CoordinateFrame<AnyFrameId>,
   rootFrame: CoordinateFrame<AnyFrameId> | undefined,
   offsetsOut: (vec3 | undefined)[],
+  framesOut: CoordinateFrame<AnyFrameId>[],
+  versionsOut: number[],
 ): ChainSignature {
-  const sig = chainSignature(leaf, rootFrame, offsetsOut);
+  const sig = chainSignature(leaf, rootFrame, offsetsOut, framesOut, versionsOut);
   if (!sig.exact && rootFrame && rootFrame !== leaf) {
-    const rootSig = chainSignature(rootFrame, undefined, offsetsOut);
-    sig.version += rootSig.version;
+    const rootSig = chainSignature(rootFrame, undefined, offsetsOut, framesOut, versionsOut);
     sig.framesRead += rootSig.framesRead;
     if (
       rootSig.newestTime != undefined &&
@@ -182,6 +197,39 @@ function offsetRefsEqual(
   return true;
 }
 
+/**
+ * Element-wise comparison of the ordered walked-frame identity sequence and
+ * their mutation versions (src chain first, then dst chain). Reparenting
+ * changes the identities even when a numeric version summary would collide.
+ */
+function pathFramesEqual(
+  memoFrames: readonly CoordinateFrame<AnyFrameId>[],
+  memoVersions: readonly number[],
+  srcFrames: readonly CoordinateFrame<AnyFrameId>[],
+  srcVersions: readonly number[],
+  dstFrames: readonly CoordinateFrame<AnyFrameId>[],
+  dstVersions: readonly number[],
+): boolean {
+  if (
+    memoFrames.length !== srcFrames.length + dstFrames.length ||
+    memoVersions.length !== memoFrames.length
+  ) {
+    return false;
+  }
+  for (let i = 0; i < srcFrames.length; i++) {
+    if (memoFrames[i] !== srcFrames[i] || memoVersions[i] !== srcVersions[i]) {
+      return false;
+    }
+  }
+  for (let i = 0; i < dstFrames.length; i++) {
+    const offset = srcFrames.length + i;
+    if (memoFrames[offset] !== dstFrames[i] || memoVersions[offset] !== dstVersions[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function updatePose(
   renderable: THREE.Object3D,
   transformTree: TransformTree,
@@ -218,9 +266,15 @@ export function updatePose(
     const rootFrame = fixedFrame ?? renderFrame?.root();
     scratchSrcOffsets.length = 0;
     scratchDstOffsets.length = 0;
-    const srcSig = srcFrame ? pathSignature(srcFrame, rootFrame, scratchSrcOffsets) : undefined;
+    scratchSrcFrames.length = 0;
+    scratchSrcVersions.length = 0;
+    scratchDstFrames.length = 0;
+    scratchDstVersions.length = 0;
+    const srcSig = srcFrame
+      ? pathSignature(srcFrame, rootFrame, scratchSrcOffsets, scratchSrcFrames, scratchSrcVersions)
+      : undefined;
     const dstSig = renderFrame
-      ? pathSignature(renderFrame, rootFrame, scratchDstOffsets)
+      ? pathSignature(renderFrame, rootFrame, scratchDstOffsets, scratchDstFrames, scratchDstVersions)
       : undefined;
     // The source time only drives the src->root path and the destination time
     // only the root->render path, so each is evaluated independently. A
@@ -229,7 +283,6 @@ export function updatePose(
     const dstTimeIndependent = !renderFrame || isTimeIndependent(dstSig!, dstTime);
     const srcTimeKey = srcTimeIndependent ? undefined : srcTime;
     const dstTimeKey = dstTimeIndependent ? undefined : dstTime;
-    const pathVersion = (srcSig?.version ?? 0) + (dstSig?.version ?? 0);
     const poseValues = readPoseValues(pose);
 
     const memo = poseMemos.get(renderable);
@@ -243,7 +296,14 @@ export function updatePose(
       memo.srcFrameId === srcFrameId &&
       memo.srcTime === srcTimeKey &&
       memo.dstTime === dstTimeKey &&
-      memo.pathVersion === pathVersion &&
+      pathFramesEqual(
+        memo.pathFrames,
+        memo.pathVersions,
+        scratchSrcFrames,
+        scratchSrcVersions,
+        scratchDstFrames,
+        scratchDstVersions,
+      ) &&
       offsetRefsEqual(memo.offsetRefs, scratchSrcOffsets, scratchDstOffsets) &&
       poseValuesEqual(memo.poseValues, poseValues)
     ) {
@@ -260,6 +320,7 @@ export function updatePose(
     }
 
     const applied = computePose(renderable, transformTree, renderFrameId, fixedFrameId, srcFrameId, dstTime, srcTime, pose);
+    const pathLength = scratchSrcFrames.length + scratchDstFrames.length;
     poseMemos.set(renderable, {
       tree: transformTree,
       renderFrame,
@@ -270,7 +331,10 @@ export function updatePose(
       srcFrameId,
       srcTime: srcTimeKey,
       dstTime: dstTimeKey,
-      pathVersion,
+      pathFrames:
+        pathLength === 0 ? NO_FRAMES : [...scratchSrcFrames, ...scratchDstFrames],
+      pathVersions:
+        pathLength === 0 ? NO_VERSIONS : [...scratchSrcVersions, ...scratchDstVersions],
       offsetRefs:
         scratchSrcOffsets.length + scratchDstOffsets.length === 0
           ? NO_OFFSETS

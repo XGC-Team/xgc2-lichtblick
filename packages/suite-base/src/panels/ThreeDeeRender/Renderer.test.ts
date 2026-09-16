@@ -754,7 +754,7 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
-  it("renders only the selected subtree for the selection highlight pass", () => {
+  it("renders the whole scene with LAYER_SELECTED for the selection highlight pass", () => {
     // Given: A renderer with a selected renderable
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
     const mockRenderable = {
@@ -767,24 +767,33 @@ describe("3D Renderer", () => {
     };
     // @ts-expect-error - Partial mock for testing
     renderer.setSelectedRenderable({ renderable: mockRenderable, instanceIndex: 0 });
-    const renderSpy = jest.spyOn(renderer.gl, "render");
-    renderSpy.mockClear();
+    // Capture the camera layer mask at each render call; the camera object is
+    // reused across passes and its layers are mutated between them.
+    const renderPasses: { scene: unknown; layersMask: number }[] = [];
+    (renderer.gl.render as jest.Mock).mockImplementation(
+      (scene: unknown, camera: THREE.Camera) => {
+        renderPasses.push({ scene, layersMask: camera.layers.mask });
+      },
+    );
 
     // When: Rendering a frame
     renderer.animationFrame();
 
-    // Then: Main scene renders once, the backdrop once, and the highlight pass
-    // draws only the selected subtree instead of re-walking the whole scene
-    const renderedScenes = renderSpy.mock.calls.map((call) => call[0] as unknown);
-    const mainScene = renderedScenes[0];
-    expect(renderedScenes).toHaveLength(3);
-    expect(renderedScenes.filter((scene) => scene === mainScene)).toHaveLength(1);
-    expect(renderedScenes[2]).toBe(mockRenderable);
+    // Then: Main scene renders with the default layer, the backdrop once, and
+    // the highlight pass renders the main scene again with LAYER_SELECTED.
+    // Rendering the scene (not just the selected subtree) is required so
+    // projectObject() collects the scene lights into the render state.
+    expect(renderPasses).toHaveLength(3);
+    const mainScene = renderPasses[0]!.scene;
+    expect(renderPasses[0]!.layersMask).toBe(1);
+    expect(renderPasses[1]!.scene).not.toBe(mainScene);
+    expect(renderPasses[2]!.scene).toBe(mainScene);
+    expect(renderPasses[2]!.layersMask).toBe(1 << 1);
 
     renderer.dispose();
   });
 
-  it("skips the selection highlight pass when the selection is hidden", () => {
+  it("runs the selection highlight pass even when the selection is hidden", () => {
     // Given: A renderer with a selected but invisible renderable
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
     const mockRenderable = {
@@ -803,8 +812,9 @@ describe("3D Renderer", () => {
     // When: Rendering a frame
     renderer.animationFrame();
 
-    // Then: Only the main scene and backdrop render
-    expect(renderSpy.mock.calls).toHaveLength(2);
+    // Then: The scene pass still runs; scene-graph traversal culls the
+    // invisible selection internally
+    expect(renderSpy.mock.calls).toHaveLength(3);
 
     renderer.dispose();
   });
