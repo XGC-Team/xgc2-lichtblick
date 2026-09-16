@@ -49,12 +49,22 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
   public readonly id: ID;
   public maxStorageTime: Duration;
   public maxCapacity: number;
+  // GetTransformMatrix reads these directly. Writers must replace them
+  // wholesale (never mutate in place) so updatePose() memoization observes
+  // the change by reference; current writers (FrameAxes settings sync, URDF
+  // joint editing) all do.
   public offsetPosition: vec3 | undefined;
   public offsetEulerDegrees: vec3 | undefined;
 
   #transformPool: ObjectPool<Transform>;
   #parent?: CoordinateFrame;
   #transforms: ArrayMap<Time, Transform>;
+  /**
+   * Monotonic counter bumped on every history or topology mutation that can
+   * change the result of transforming a pose through this frame. Used by
+   * updatePose() memoization to detect stale poses.
+   */
+  #version = 0;
 
   public constructor(
     id: ID,
@@ -110,6 +120,24 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
   }
 
   /**
+   * Mutation counter. History edits and reparenting increment it; it never
+   * decreases for the lifetime of the frame. Offset field changes are tracked
+   * separately by updatePose() via reference comparison.
+   */
+  public getVersion(): number {
+    return this.#version;
+  }
+
+  /**
+   * Stamp of the newest transform in the history, if any. Queries at or after
+   * this stamp clamp to the newest transform, making their result independent
+   * of the exact query time.
+   */
+  public newestTransformTime(): Time | undefined {
+    return this.#transforms.maxKey();
+  }
+
+  /**
    * Returns the number of transforms stored in the transform history.
    */
   public transformsSize(): number {
@@ -126,6 +154,9 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
       for (const [, tf] of removed) {
         this.#transformPool.release(tf);
       }
+    }
+    if (this.#parent !== parent) {
+      this.#version++;
     }
     this.#parent = parent;
   }
@@ -160,6 +191,7 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
     if (oldTf) {
       this.#transformPool.release(oldTf);
     }
+    this.#version++;
 
     // Remove transforms that are too old
     const transformsFull = this.#transforms.size >= this.maxCapacity;
@@ -190,6 +222,9 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
     for (const [, tf] of removed) {
       this.#transformPool.release(tf);
     }
+    if (removed.length > 0) {
+      this.#version++;
+    }
   }
 
   /** Removes a transform with a specific timestamp */
@@ -197,6 +232,7 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
     const tf = this.#transforms.remove(time);
     if (tf?.[1]) {
       this.#transformPool.release(tf[1]);
+      this.#version++;
     }
   }
 

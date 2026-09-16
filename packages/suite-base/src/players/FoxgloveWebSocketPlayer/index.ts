@@ -111,6 +111,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #closed: boolean = false; // Whether the player has been completely closed using close().
   #topics?: Topic[]; // Topics as published by the WebSocket.
   #topicsStats = new Map<string, TopicStats>(); // Topic names to topic statistics.
+  // Set when #topicsStats was mutated in place since the last emitted state;
+  // the next #emitState mints a fresh Map identity for consumers.
+  #topicsStatsChanged = false;
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
   #parsedMessages = new LiveMessageQueue<MessageEvent>(
     PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes,
@@ -590,15 +593,16 @@ export default class FoxgloveWebSocketPlayer implements Player {
           });
         }
 
-        // Update the message count for this topic
-        const topicStats = new Map(this.#topicsStats);
-        let stats = topicStats.get(topic);
+        // Update the message count for this topic. Count in place: #emitState
+        // is debounced, so cloning the Map per message would almost always be
+        // discarded. A fresh Map identity is minted only when state is emitted.
+        let stats = this.#topicsStats.get(topic);
         if (!stats) {
           stats = { numMessages: 0 };
-          topicStats.set(topic, stats);
+          this.#topicsStats.set(topic, stats);
         }
         stats.numMessages++;
-        this.#topicsStats = topicStats;
+        this.#topicsStatsChanged = true;
 
         if (!this.#ishighFrequencyMessage) {
           const duration =
@@ -937,6 +941,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
     }
     if (!this.#endTime || isGreaterThan(currentTime, this.#endTime)) {
       this.#endTime = currentTime;
+    }
+
+    // Message handlers mutate #topicsStats in place; give consumers a new Map
+    // identity only when counts actually changed since the previous emit.
+    if (this.#topicsStatsChanged) {
+      this.#topicsStats = new Map(this.#topicsStats);
+      this.#topicsStatsChanged = false;
     }
 
     const messages = this.#parsedMessages.drain();

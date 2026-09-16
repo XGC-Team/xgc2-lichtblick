@@ -223,6 +223,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #selectionBackdropScene: THREE.Scene;
   #selectionBackdrop: ScreenOverlay;
   #selectedRenderable: PickedRenderable | undefined;
+  /** Hovered set from the previous hover pick, used to skip no-op repaints. */
+  #lastHoverSelections: PickedRenderable[] | undefined;
   public colorScheme: "dark" | "light" = "light";
   public modelCache: ModelCache;
 
@@ -256,6 +258,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #drawingBufferSize = new THREE.Vector2();
   #canvasResizeTimer: number | undefined;
   #cameraSyncError: undefined | string;
+  // Cache of the frame ids derived from config.transforms; config is immutable
+  // (rebuilt via produce on every update), so a reference change is an exact
+  // invalidation signal.
+  #seededConfigTransforms: Immutable<RendererConfig["transforms"]> | undefined;
+  #seededFrameIds: string[] = [];
+  // followFrameId value the current FOLLOW_FRAME_NOT_FOUND error was written
+  // for; avoids re-translating the message every frame.
+  #followFrameNotFoundFor: string | undefined;
   #devicePixelRatioMediaQuery?: MediaQueryList;
   #fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];
 
@@ -1168,17 +1178,26 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   // just to create this root. Do not seed followTf alone: an empty follow
   // frame would change follow-none camera snapshots before real TFs arrive.
   #seedConfiguredFrames(): void {
-    for (const key of Object.keys(this.config.transforms)) {
-      if (!key.startsWith("frame:")) {
-        continue;
+    const transforms = this.config.transforms;
+    if (this.#seededConfigTransforms !== transforms) {
+      this.#seededConfigTransforms = transforms;
+      const frameIds: string[] = [];
+      for (const key of Object.keys(transforms)) {
+        if (!key.startsWith("frame:")) {
+          continue;
+        }
+        if (transforms[key]?.visible !== true) {
+          continue;
+        }
+        const frameId = key.slice("frame:".length);
+        if (frameId.length > 0) {
+          frameIds.push(frameId);
+        }
       }
-      if (this.config.transforms[key]?.visible !== true) {
-        continue;
-      }
-      const frameId = key.slice("frame:".length);
-      if (frameId.length > 0) {
-        this.addCoordinateFrame(frameId);
-      }
+      this.#seededFrameIds = frameIds;
+    }
+    for (const frameId of this.#seededFrameIds) {
+      this.addCoordinateFrame(frameId);
     }
   }
 
@@ -1367,7 +1386,25 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       this.gl.render(this.#selectionBackdropScene, camera);
       this.gl.clearDepth();
       camera.layers.set(LAYER_SELECTED);
-      this.gl.render(this.#scene, camera);
+      // Every object in the selected subtree is on LAYER_SELECTED, so render
+      // only that subtree instead of walking the whole scene just to cull
+      // everything else. Ancestor visibility is checked explicitly because
+      // scene-graph traversal normally honors it.
+      const selectedObject = this.#selectedRenderable.renderable;
+      let selectionVisible = true;
+      for (
+        let object: THREE.Object3D | null = selectedObject;
+        object;
+        object = object.parent
+      ) {
+        if (!object.visible) {
+          selectionVisible = false;
+          break;
+        }
+      }
+      if (selectionVisible) {
+        this.gl.render(selectedObject, camera);
+      }
     }
 
     this.emit("endFrame", currentTime, this);
@@ -1532,6 +1569,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       return;
     }
 
+    // Picking forces a pending resize to settle, which can reallocate (and
+    // clear) the drawing buffer; that case always needs a repaint.
+    const resizeSettling = this.#canvasResizeTimer != undefined;
+
     const camera = this.cameraHandler.getActiveCamera();
     const selections: PickedRenderable[] = [];
     let curSelection: PickedRenderable | undefined = this.#pickSingleObject(cursorCoords);
@@ -1544,7 +1585,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     for (const selection of selections) {
       selection.renderable.visible = true;
     }
-    this.animationFrame();
+    // The intermediate picking passes render without clearing (autoClear is
+    // off), so the visible frame still shows the pre-pick image. Repaint only
+    // when the hovered set changed or the canvas was disturbed.
+    const hoverChanged = !hoverSelectionsEqual(this.#lastHoverSelections, selections);
+    this.#lastHoverSelections = selections;
+    if (this.debugPicking || resizeSettling || hoverChanged) {
+      this.animationFrame();
+    }
     this.emit("renderableHovered", selections, cursorCoords, this);
   };
 
@@ -1694,12 +1742,15 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #updateFrameErrors(): void {
     if (this.followFrameId == undefined) {
-      // No frames available
-      this.settings.errors.add(
-        FOLLOW_TF_PATH,
-        NO_FRAME_SELECTED,
-        i18next.t("threeDee:noCoordinateFramesFound"),
-      );
+      // No frames available. Translate only when the error is actually written;
+      // LayerErrors.add() would dedupe the identical message anyway.
+      if (!this.settings.errors.hasError(FOLLOW_TF_PATH, NO_FRAME_SELECTED)) {
+        this.settings.errors.add(
+          FOLLOW_TF_PATH,
+          NO_FRAME_SELECTED,
+          i18next.t("threeDee:noCoordinateFramesFound"),
+        );
+      }
       return;
     }
 
@@ -1711,16 +1762,23 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     // we still need to watch out for the case that the transform tree was
     // cleared before that could be updated
     if (!frame) {
-      this.settings.errors.add(
-        FOLLOW_TF_PATH,
-        FOLLOW_FRAME_NOT_FOUND,
-        i18next.t("threeDee:frameNotFound", {
-          frameId: this.followFrameId,
-        }),
-      );
+      if (
+        this.#followFrameNotFoundFor !== this.followFrameId ||
+        !this.settings.errors.hasError(FOLLOW_TF_PATH, FOLLOW_FRAME_NOT_FOUND)
+      ) {
+        this.#followFrameNotFoundFor = this.followFrameId;
+        this.settings.errors.add(
+          FOLLOW_TF_PATH,
+          FOLLOW_FRAME_NOT_FOUND,
+          i18next.t("threeDee:frameNotFound", {
+            frameId: this.followFrameId,
+          }),
+        );
+      }
       return;
     }
 
+    this.#followFrameNotFoundFor = undefined;
     this.settings.errors.remove(FOLLOW_TF_PATH, FOLLOW_FRAME_NOT_FOUND);
   }
   public getContextMenuItems = (): PanelContextMenuItem[] => {
@@ -1805,6 +1863,21 @@ function queueMessage(
       subscription.queue.push(messageEvent);
     }
   }
+}
+
+function hoverSelectionsEqual(
+  a: PickedRenderable[] | undefined,
+  b: PickedRenderable[],
+): boolean {
+  if (a?.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.renderable !== b[i]!.renderable || a[i]!.instanceIndex !== b[i]!.instanceIndex) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function selectObject(object: THREE.Object3D) {
