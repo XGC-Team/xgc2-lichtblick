@@ -12,11 +12,20 @@ import { Marker, MarkerAction, MarkerType } from "../../ros";
 function marker(points: Marker["points"], overrides: Partial<Marker> = {}): Marker {
   return {
     header: { frame_id: "world", stamp: { sec: 12, nsec: 34 } },
-    ns: "path", id: 1, type: MarkerType.LINE_STRIP, action: MarkerAction.ADD,
+    ns: "path",
+    id: 1,
+    type: MarkerType.LINE_STRIP,
+    action: MarkerAction.ADD,
     pose: { position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0.6, w: 0.8 } },
-    scale: { x: 0.1, y: 1, z: 1 }, color: { r: 1, g: 1, b: 1, a: 1 },
-    lifetime: { sec: 0, nsec: 0 }, frame_locked: true, points, colors: [], text: "",
-    mesh_resource: "", mesh_use_embedded_materials: false,
+    scale: { x: 0.1, y: 1, z: 1 },
+    color: { r: 1, g: 1, b: 1, a: 1 },
+    lifetime: { sec: 0, nsec: 0 },
+    frame_locked: true,
+    points,
+    colors: [],
+    text: "",
+    mesh_resource: "",
+    mesh_use_embedded_materials: false,
     ...overrides,
   };
 }
@@ -67,10 +76,18 @@ describe("RenderableLineStrip buffer lifecycle", () => {
   });
 
   it("restricts rendering and bounds to active segments after shrink and reuses capacity on regrow", () => {
-    const { renderable, depth, color } = makeRenderable(marker([...points, { x: 10000, y: 0, z: 0 }]));
+    const { renderable, depth, color } = makeRenderable(
+      marker([...points, { x: 10000, y: 0, z: 0 }]),
+    );
     const geometry = color.geometry;
     try {
-      renderable.update(marker([{ x: 10, y: 0, z: 0 }, { x: 12, y: 0, z: 0 }]), 200n);
+      renderable.update(
+        marker([
+          { x: 10, y: 0, z: 0 },
+          { x: 12, y: 0, z: 0 },
+        ]),
+        200n,
+      );
       expect(color.geometry).toBe(geometry);
       expect(geometry.instanceCount).toBe(1);
       expect(geometry.boundingBox?.min.x).toBe(10);
@@ -94,17 +111,18 @@ describe("RenderableLineStrip buffer lifecycle", () => {
   });
 
   it("preserves per-vertex RGBA, including alpha, in adjacent segment pairs", () => {
-    const { renderable, color } = makeRenderable(marker(points.slice(0, 3), {
-      colors: [
-        { r: 1, g: 0, b: 0, a: 1 },
-        { r: 0, g: 1, b: 0, a: 0.5 },
-        { r: 0, g: 0, b: 1, a: 0.25 },
-      ],
-    }));
+    const { renderable, color } = makeRenderable(
+      marker(points.slice(0, 3), {
+        colors: [
+          { r: 1, g: 0, b: 0, a: 1 },
+          { r: 0, g: 1, b: 0, a: 0.5 },
+          { r: 0, g: 0, b: 1, a: 0.25 },
+        ],
+      }),
+    );
     try {
       expect(Array.from(buffer(color, "instanceColorStart").array)).toEqual([
-        255, 0, 0, 255, 0, 255, 0, 127,
-        0, 255, 0, 127, 0, 0, 255, 63,
+        255, 0, 0, 255, 0, 255, 0, 127, 0, 255, 0, 127, 0, 0, 255, 63,
       ]);
       expect(buffer(color, "instanceColorEnd")).toBe(buffer(color, "instanceColorStart"));
     } finally {
@@ -113,9 +131,11 @@ describe("RenderableLineStrip buffer lifecycle", () => {
   });
 
   it("recovers opaque materials after an empty update and keeps picking width in sync", () => {
-    const { renderable, depth, color } = makeRenderable(marker(points, {
-      color: { r: 1, g: 1, b: 1, a: 0.5 },
-    }));
+    const { renderable, depth, color } = makeRenderable(
+      marker(points, {
+        color: { r: 1, g: 1, b: 1, a: 0.5 },
+      }),
+    );
     try {
       renderable.update(marker([]), 124n);
       renderable.update(marker(points, { scale: { x: 0.4, y: 1, z: 1 } }), 125n);

@@ -54,7 +54,10 @@ describe("LineStripBuffers", () => {
 
   it("updates in place and does not mutate input points", () => {
     const buffers = new LineStripBuffers();
-    buffers.update([{ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }]);
+    buffers.update([
+      { x: 0, y: 0, z: 0 },
+      { x: 1, y: 1, z: 1 },
+    ]);
     const { positions, colors, distances } = buffers;
     const points = Object.freeze([
       Object.freeze({ x: -3, y: 4, z: 5 }),
@@ -71,11 +74,15 @@ describe("LineStripBuffers", () => {
   it("does not include a stale tail in bounds after shrink, empty and regrow", () => {
     const buffers = new LineStripBuffers();
     buffers.update([
-      { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      { x: 1, y: 0, z: 0 },
       { x: 10000, y: -10000, z: 20000 },
     ]);
     const { positions, colors, distances } = buffers;
-    const points = [{ x: 10, y: 0, z: 0 }, { x: 12, y: 0, z: 0 }];
+    const points = [
+      { x: 10, y: 0, z: 0 },
+      { x: 12, y: 0, z: 0 },
+    ];
     expect(buffers.update(points)).toBe(false);
     expect(buffers.segmentCount).toBe(1);
     expect(buffers.min).toEqual(points[0]);
@@ -103,7 +110,9 @@ describe("LineStripBuffers", () => {
     };
     for (let run = 0; run < 100; run++) {
       const points = Array.from({ length: (run * 37) % 201 }, () => ({
-        x: random(), y: random(), z: random(),
+        x: random(),
+        y: random(),
+        z: random(),
       }));
       buffers.update(points);
       const expected = reference(points);

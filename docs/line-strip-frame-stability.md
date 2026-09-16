@@ -9,6 +9,7 @@ rates, TF history, pose/quaternion data, joint updates, saved layouts, path samp
 visible point counts, or the two-pass line rendering technique.
 
 Baseline: product branch `xgc2` at `4c55c4b0e8a98ee630dc205527a2550013deec09`.
+Integration tracking: XGC-Team/xgc2-harness#104 (remains open).
 
 ## Source-confirmed defects
 
@@ -28,40 +29,55 @@ remaining shared geometry exactly once.
 
 ## Executed checks
 
-In an isolated environment with Node 22.16.0 and TypeScript 5.8.3:
+### Local isolated checks
 
-- Strict compilation with `noUncheckedIndexedAccess` of the dependency-free
-  `LineStripBuffers.ts` passed. This was not a whole-workspace type check and did
-  not use the repository's pinned TypeScript 6.0.3.
-- Syntax transpilation of the four changed/new TypeScript files passed.
-- Seven native Node assertion checks against the compiled buffer owner passed:
-  empty/singleton, duplicate points, immutable input/in-place updates, shrink and
-  regrow, 1,000 deterministic varying paths, 4,096 incremental growth updates,
-  and large arbitrary growth with Float32 rounding equivalence.
-- The incremental case retained 4,097 points and changed buffer capacity 13 times.
-  This is an allocation counter, not an FPS measurement or a speedup multiplier.
+Node 22.16.0 and TypeScript 5.8.3 strict compilation with
+`noUncheckedIndexedAccess` of the dependency-free `LineStripBuffers.ts` passed.
+Syntax transpilation of the four TypeScript files passed. Seven native Node
+assertion checks against the compiled buffer owner passed, including 1,000
+deterministic varying paths and 4,096 incremental growth updates retaining all
+4,097 points with 13 buffer capacity changes. This is an allocation counter,
+not an FPS measurement or speedup multiplier.
 
-## Committed regression coverage (execution pending)
+### Repository CI for implementation commit 787573dc
+
+GitHub Actions run `35052373132`, PR merge test ref
+`682015113b6febe167510b379e3143f0d8a90ee5` (not an actual product merge):
+
+- `test (ubuntu-latest)`, job `104655329392`: success. 552/552 suites,
+  9,228 tests passed, 7 skipped, and 89/89 snapshots passed. Both newly added
+  regression files passed. The log also includes a worker force-exit warning;
+  this is not evidence of a leak-free complete application.
+- In `lint (ubuntu-latest)`, job `104655329363`, license check, dedupe and
+  the full `yarn run tsc --noEmit` step passed using the installed workspace
+  dependencies. Formatting then failed in 23 files: the two new test files
+  and 21 files not modified by this PR. This follow-up applies the formatter's
+  requested changes to our two test files; later lint/dependency checks were
+  not reached in that run. Do not treat the whole lint job as passed.
+- `npm audit (ubuntu-latest)`, job `104655329411`, failed on high-severity
+  findings in the unchanged dependency graph (`@xmldom/xmldom`, `js-yaml`,
+  `svgo`). No manifest or lockfile is modified here. Do not disable the audit
+  or mix an unvalidated dependency upgrade into this rendering change.
+
+The formatting/documentation follow-up does not alter production code. Its new
+head still requires the normal CI rerun; the results above identify the precise
+implementation commit tested rather than claiming all checks are green.
+
+## Regression coverage
 
 `LineStripBuffers.test.ts` covers positions, cumulative Float32 distances, bounds,
 input preservation and amortized growth. `RenderableLineStrip.test.ts` covers
 shared Three.js attributes, active segments/bounds, RGBA, timestamps/pose metadata,
 empty recovery, picking width and geometry/material disposal.
 
-Run in the complete workspace using the pinned Yarn version:
-
 ```sh
 yarn test --runInBand \
   packages/suite-base/src/panels/ThreeDeeRender/renderables/markers/LineStripBuffers.test.ts \
   packages/suite-base/src/panels/ThreeDeeRender/renderables/markers/RenderableLineStrip.test.ts
 yarn run tsc --noEmit
+yarn format:ci
 yarn lint:ci
 ```
-
-The isolated environment did not have the complete workspace, Three.js/Jest,
-a browser/GPU rendering session or the production ROS data plane. Repository
-Jest, full typecheck/lint, desktop/web visuals and actual GL resource behavior
-have NOT been reported as passed.
 
 ## Deployment acceptance remains open
 
@@ -74,7 +90,8 @@ video decode/presentation and actual display cadence. Record allocation/heap,
 GPU resources and input/output message counts; verify path points, quaternion
 axes, TF alignment, colors/alpha, labels, camera overlays and picking visually.
 
-Do not close the integration issue based solely on average FPS, unit tests,
-a main-page rAF counter, or a test with the camera/viewer stopped. The candidate
-must still be built, packaged and consumed by the product before a source fix
-can be described as an installed fix.
+Browser/GPU and production ROS acceptance has not been executed here. Do not
+close the integration issue based solely on average FPS, unit tests, a main-page
+rAF counter, or a test with the camera/viewer stopped. The candidate must still
+be built, packaged and consumed by the product before a source fix can be
+described as an installed fix.
