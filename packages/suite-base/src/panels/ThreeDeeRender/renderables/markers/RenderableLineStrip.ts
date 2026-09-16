@@ -7,7 +7,6 @@
 
 import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
-import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 
 import { RenderableMarker } from "./RenderableMarker";
 import {
@@ -16,6 +15,7 @@ import {
   makeLinePickingMaterial,
   markerHasTransparency,
 } from "./materials";
+import { DynamicLineGeometry } from "../../DynamicLineGeometry";
 import type { IRenderer } from "../../IRenderer";
 import { LineMaterialWithAlphaVertex } from "../../LineMaterialWithAlphaVertex";
 import { Marker } from "../../ros";
@@ -23,11 +23,9 @@ import { Marker } from "../../ros";
 const tempTuple4: THREE.Vector4Tuple = [0, 0, 0, 0];
 
 export class RenderableLineStrip extends RenderableMarker {
-  #geometry: LineGeometry;
+  #geometry: DynamicLineGeometry;
   #linePrepass: Line2;
   #line: Line2;
-  #positionBuffer = new Float32Array();
-  #colorBuffer = new Uint8Array();
 
   public constructor(
     topic: string,
@@ -37,7 +35,7 @@ export class RenderableLineStrip extends RenderableMarker {
   ) {
     super(topic, marker, receiveTime, renderer);
 
-    this.#geometry = new LineGeometry();
+    this.#geometry = new DynamicLineGeometry();
 
     const options = { resolution: renderer.input.canvasSize, worldUnits: true };
 
@@ -73,11 +71,11 @@ export class RenderableLineStrip extends RenderableMarker {
     pickingMaterial.dispose();
     this.#line.userData.pickingMaterial = undefined;
 
+    this.#geometry.dispose();
     super.dispose();
   }
 
   public override update(newMarker: Marker, receiveTime: bigint | undefined): void {
-    const prevMarker = this.userData.marker;
     super.update(newMarker, receiveTime);
     const marker = this.userData.marker;
 
@@ -85,18 +83,9 @@ export class RenderableLineStrip extends RenderableMarker {
     const lineWidth = marker.scale.x;
     const transparent = markerHasTransparency(marker);
 
-    if (pointsLength === 0) {
-      // THREE.LineGeometry.setPositions crashes when given an empty array:
-      // https://github.com/foxglove/studio/issues/3954
-      this.#linePrepass.visible = false;
-      this.#line.visible = false;
-      return;
-    } else {
-      this.#linePrepass.visible = true;
-      this.#line.visible = true;
-    }
-
-    if (transparent !== markerHasTransparency(prevMarker)) {
+    // Compare with material state, not the previous message: empty messages and
+    // pooled renderables must not leave stale transparency when data returns.
+    if (transparent !== this.#line.material.transparent) {
       this.#linePrepass.material.transparent = transparent;
       this.#linePrepass.material.depthWrite = !transparent;
       this.#linePrepass.material.needsUpdate = true;
@@ -110,58 +99,18 @@ export class RenderableLineStrip extends RenderableMarker {
     const matLine = this.#line.material as LineMaterialWithAlphaVertex;
     matLine.lineWidth = lineWidth;
 
-    const prevPointsLength = this.#positionBuffer.length / 3;
-    if (pointsLength > prevPointsLength) {
-      this.#geometry.dispose();
-      this.#geometry = new LineGeometry();
-      this.#linePrepass.geometry = this.#geometry;
-      this.#line.geometry = this.#geometry;
+    this.#geometry.setPoints(marker.points, "strip");
+    const visible = this.#geometry.instanceCount > 0;
+    this.#linePrepass.visible = visible;
+    this.#line.visible = visible;
+    if (visible) {
+      this.#setColors(marker, pointsLength);
+      this.#geometry.updateColors();
     }
-
-    this.#setPositions(marker, pointsLength);
-    this.#setColors(marker, pointsLength);
-
-    this.#linePrepass.computeLineDistances();
-    this.#line.computeLineDistances();
-  }
-
-  #setPositions(marker: Marker, pointsLength: number): void {
-    if (3 * pointsLength > this.#positionBuffer.length) {
-      this.#positionBuffer = new Float32Array(3 * pointsLength);
-    }
-    const positions = this.#positionBuffer;
-    for (let i = 0; i < pointsLength; i++) {
-      const point = marker.points[i]!;
-      const offset = i * 3;
-      positions[offset + 0] = point.x;
-      positions[offset + 1] = point.y;
-      positions[offset + 2] = point.z;
-    }
-
-    this.#geometry.setPositions(positions);
-    this.#geometry.instanceCount = pointsLength - 1;
   }
 
   #setColors(marker: Marker, pointsLength: number): void {
-    // Converts color-per-point to pairs format in a flattened typed array
-    if (8 * pointsLength > this.#colorBuffer.length) {
-      this.#colorBuffer = new Uint8Array(8 * pointsLength);
-      // [rgba, rgba]
-      const instanceColorBuffer = new THREE.InstancedInterleavedBuffer(this.#colorBuffer, 8, 1);
-      this.#geometry.setAttribute(
-        "instanceColorStart",
-        new THREE.InterleavedBufferAttribute(instanceColorBuffer, 4, 0, true),
-      );
-      this.#geometry.setAttribute(
-        "instanceColorEnd",
-        new THREE.InterleavedBufferAttribute(instanceColorBuffer, 4, 4, true),
-      );
-    } else {
-      this.#geometry.getAttribute("instanceColorStart").needsUpdate = true;
-      this.#geometry.getAttribute("instanceColorEnd").needsUpdate = true;
-    }
-
-    const colorBuffer = this.#colorBuffer;
+    const colorBuffer = this.#geometry.colorBuffer;
     const color1: THREE.Vector4Tuple = tempTuple4;
     color1[0] = 0;
     color1[1] = 0;

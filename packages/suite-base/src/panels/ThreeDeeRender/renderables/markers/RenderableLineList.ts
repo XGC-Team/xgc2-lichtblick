@@ -7,7 +7,6 @@
 
 import * as THREE from "three";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
-import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 
 import { RenderableMarker } from "./RenderableMarker";
 import {
@@ -16,16 +15,15 @@ import {
   makeLinePickingMaterial,
   markerHasTransparency,
 } from "./materials";
+import { DynamicLineGeometry } from "../../DynamicLineGeometry";
 import type { IRenderer } from "../../IRenderer";
 import { LineMaterialWithAlphaVertex } from "../../LineMaterialWithAlphaVertex";
 import { Marker } from "../../ros";
 
 export class RenderableLineList extends RenderableMarker {
-  #geometry: LineSegmentsGeometry;
+  #geometry: DynamicLineGeometry;
   #linePrepass: LineSegments2;
   #line: LineSegments2;
-  #positionBuffer = new Float32Array();
-  #colorBuffer = new Uint8Array();
 
   public constructor(
     topic: string,
@@ -36,7 +34,7 @@ export class RenderableLineList extends RenderableMarker {
   ) {
     super(topic, marker, receiveTime, renderer);
 
-    this.#geometry = new LineSegmentsGeometry();
+    this.#geometry = new DynamicLineGeometry();
 
     const { worldUnits = true } = options;
     const lineOptions = { resolution: this.renderer.input.canvasSize, worldUnits };
@@ -71,24 +69,24 @@ export class RenderableLineList extends RenderableMarker {
 
     const pickingMaterial = this.#line.userData.pickingMaterial as THREE.ShaderMaterial;
     pickingMaterial.dispose();
+    this.#line.userData.pickingMaterial = undefined;
 
     this.#geometry.dispose();
+    super.dispose();
   }
 
   public override update(newMarker: Marker, receiveTime: bigint | undefined): void {
-    const prevMarker = this.userData.marker;
     super.update(newMarker, receiveTime);
     const marker = this.userData.marker;
 
-    let pointsLength = marker.points.length;
-    if (pointsLength % 2 !== 0) {
-      pointsLength--;
-    }
-
+    // An unmatched last point in LINE_LIST is not a drawable segment.
+    const pointsLength = marker.points.length - (marker.points.length % 2);
     const lineWidth = marker.scale.x;
     const transparent = markerHasTransparency(marker);
 
-    if (transparent !== markerHasTransparency(prevMarker)) {
+    // Compare with material state, not the previous message: empty messages and
+    // pooled renderables must not leave stale transparency when data returns.
+    if (transparent !== this.#line.material.transparent) {
       this.#linePrepass.material.transparent = transparent;
       this.#linePrepass.material.depthWrite = !transparent;
       this.#linePrepass.material.needsUpdate = true;
@@ -102,59 +100,18 @@ export class RenderableLineList extends RenderableMarker {
     const matLine = this.#line.material as LineMaterialWithAlphaVertex;
     matLine.lineWidth = lineWidth;
 
-    const prevPointsLength = this.#positionBuffer.length / 3;
-    if (pointsLength > prevPointsLength) {
-      this.#geometry.dispose();
-      this.#geometry = new LineSegmentsGeometry();
-      this.#linePrepass.geometry = this.#geometry;
-      this.#line.geometry = this.#geometry;
+    this.#geometry.setPoints(marker.points, "list");
+    const visible = this.#geometry.instanceCount > 0;
+    this.#linePrepass.visible = visible;
+    this.#line.visible = visible;
+    if (visible) {
+      this.#setColors(marker, pointsLength);
+      this.#geometry.updateColors();
     }
-
-    this.#setPositions(marker, pointsLength);
-    this.#setColors(marker, pointsLength);
-
-    // These both update the same `LineSegmentsGeometry` reference, so no need to call both
-    // this.linePrepass.computeLineDistances();
-    this.#line.computeLineDistances();
-  }
-
-  #setPositions(marker: Marker, pointsLength: number): void {
-    if (3 * pointsLength > this.#positionBuffer.length) {
-      this.#positionBuffer = new Float32Array(3 * pointsLength);
-    }
-    const positions = this.#positionBuffer;
-    for (let i = 0; i < pointsLength; i++) {
-      const point = marker.points[i]!;
-      const offset = i * 3;
-      positions[offset + 0] = point.x;
-      positions[offset + 1] = point.y;
-      positions[offset + 2] = point.z;
-    }
-
-    this.#geometry.setPositions(positions);
-    this.#geometry.instanceCount = pointsLength >>> 1;
   }
 
   #setColors(marker: Marker, pointsLength: number): void {
-    // Converts color-per-point to a flattened typed array
-    if (4 * pointsLength > this.#colorBuffer.length) {
-      this.#colorBuffer = new Uint8Array(4 * pointsLength);
-      // [rgba, rgba]
-      const instanceColorBuffer = new THREE.InstancedInterleavedBuffer(this.#colorBuffer, 8, 1);
-      this.#geometry.setAttribute(
-        "instanceColorStart",
-        new THREE.InterleavedBufferAttribute(instanceColorBuffer, 4, 0, true),
-      );
-      this.#geometry.setAttribute(
-        "instanceColorEnd",
-        new THREE.InterleavedBufferAttribute(instanceColorBuffer, 4, 4, true),
-      );
-    } else {
-      this.#geometry.getAttribute("instanceColorStart").needsUpdate = true;
-      this.#geometry.getAttribute("instanceColorEnd").needsUpdate = true;
-    }
-
-    const colorBuffer = this.#colorBuffer;
+    const colorBuffer = this.#geometry.colorBuffer;
     this._markerColorsToLinear(marker, pointsLength, (color, i) => {
       const offset = i * 4;
       colorBuffer[offset + 0] = Math.floor(255 * color[0]);
