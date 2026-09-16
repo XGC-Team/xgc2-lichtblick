@@ -23,9 +23,9 @@ describe("PoseArrays instanced representations", () => {
   let sharedGeometry: SharedGeometry;
 
   function send(schemaName: string, message: unknown): void {
-    const sub = extension.getSubscriptions().find(
-      (entry) => entry.type === "schema" && entry.schemaNames.has(schemaName),
-    );
+    const sub = extension
+      .getSubscriptions()
+      .find((entry) => entry.type === "schema" && entry.schemaNames.has(schemaName));
     if (sub == undefined) {
       throw new Error(`Missing subscription for ${schemaName}`);
     }
@@ -173,7 +173,9 @@ describe("PoseArrays instanced representations", () => {
       sendPoses(POSES.map((p) => ({ ...p, position: { ...p.position, x: p.position.x + i } })));
       expect(renderable.userData.axes).toBe(before);
       expect(renderable.userData.poseArrayMessage.poses).toHaveLength(POSES.length);
-      expect(renderable.userData.poseArrayMessage.poses[0]!.orientation).toEqual(POSES[0]!.orientation);
+      expect(renderable.userData.poseArrayMessage.poses[0]!.orientation).toEqual(
+        POSES[0]!.orientation,
+      );
     }
   });
 });

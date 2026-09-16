@@ -146,7 +146,10 @@ describe("Axis pose instancing", () => {
       material: mesh.material,
     }));
     for (const count of [4, 2, 0, 1, 4]) {
-      axis.setPoses(Array.from({ length: count }, (_, i) => pose(i * 2)), 0.3);
+      axis.setPoses(
+        Array.from({ length: count }, (_, i) => pose(i * 2)),
+        0.3,
+      );
       expect(axis.visible).toBe(count > 0);
       for (let i = 0; i < 2; i++) {
         const mesh = meshes(axis)[i]!;

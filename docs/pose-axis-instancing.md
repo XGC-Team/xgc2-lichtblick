@@ -59,7 +59,7 @@ calibration, TF and the existing video GOP/reset boundaries remain. Broad
 feature removal requires a consumer/usage inventory and an explicit product
 capability profile; no unverified "live-only" flags are introduced here.
 
-## Regression coverage and validation status at submission
+## Regression coverage and validation evidence
 
 `Axis.instancing.test.ts` covers legacy axes, all N RGB directions, world-matrix
 parity with individual axes under a transformed parent, authored quaternions,
@@ -75,7 +75,33 @@ Axis `ef04edb4f60adc334b12440ed0b396104069972b` and PoseArrays
 TypeScript files passed using local TypeScript 5.8.3. This is not full type
 checking and does not execute the tests. The container cannot resolve GitHub
 or install workspace dependencies; repository CI must run the real tests.
-No local Jest, WebGL, GPU or ROS performance result is claimed at submission.
+No local Jest, WebGL, GPU or ROS performance result is claimed. Remote CI
+results below supersede the submission-time pending repository validation.
+
+### Repository CI for implementation commit `01f8e484`
+
+GitHub Actions run `35102735553`, PR merge-test ref
+`ffda75d48e68ebcd148d3e424d5cc0615baccc16` (not a product merge):
+
+- `test (ubuntu-latest)`, job `104815966589`: success. 552/552 suites,
+  9,234 tests passed, 7 skipped and 89/89 snapshots passed. Both new test
+  files passed (17 new cases). A worker force-exit warning remains in the
+  log; the suite result is not proof that the entire application is leak-free.
+- `lint (ubuntu-latest)`, job `104815966422`: license check, dedupe and full
+  workspace `yarn run tsc --noEmit` passed. Formatting then reported our two
+  test files plus 21 files not modified by this PR. This follow-up applies the
+  requested formatting to our tests only. Later lint/export/dependency stages
+  were not reached; the lint job is not green.
+- `npm audit (ubuntu-latest)`, job `104815966540`: failed on high-severity
+  findings in the unchanged dependency graph (`@xmldom/xmldom`, `js-yaml`,
+  `svgo`). No manifest, lockfile or audit policy is changed by this patch.
+- Both desktop end-to-end shards completed successfully. Their workflow is
+  separate from target-hardware ROS/AR performance acceptance.
+
+This evidence identifies the implementation commit actually tested. The
+formatting/documentation follow-up does not alter production code, but its
+new head still requires the normal CI rerun. No blanket all-checks-green or
+hardware frame-rate claim is made.
 
 With the repository's pinned Yarn dependencies:
 
