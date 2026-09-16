@@ -16,7 +16,7 @@ function run(cmd,args,env = process.env) {
 try {
   let status = 0;
   for (const [directory,module] of [['cjs','commonjs'],['esm','ES2022']]) {
-    status ||= run(command,[...prefix,'--strict','--target','ES2022','--module',module,'--lib','ES2022,DOM',
+    status ||= run(command,[...prefix,'--ignoreConfig','--strict','--target','ES2022','--module',module,'--lib','ES2022,DOM',
       '--outDir',path.join(temp,directory),path.join(root,'src/offline/state.ts'),path.join(root,'src/offline/capture.ts'),path.join(root,'src/offline/history.ts')]);
   }
   process.exitCode = status || run(process.execPath,['--test',path.join(__dirname,'contract.test.cjs')],{
