@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
@@ -9,15 +12,14 @@ import type {
 import type { NodeError } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
 import { Renderer } from "@lichtblick/suite-base/panels/ThreeDeeRender/Renderer";
 import { ImageMode } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/ImageMode";
-import { MeasurementTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/MeasurementTool";
-import { PublishClickTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PublishClickTool";
 import { Markers } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Markers";
+import { MeasurementTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/MeasurementTool";
 import { PoseArrays } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PoseArrays";
-
+import { PublishClickTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PublishClickTool";
 import { resolveLiveTfHistory } from "@lichtblick/suite-base/panels/ThreeDeeRender/transforms/TransformTree";
 
-import { OFFLINE_TF_HISTORY_SECONDS, validateTransformHistory } from "./history";
 import { readFramePixels } from "./capture";
+import { OFFLINE_TF_HISTORY_SECONDS, validateTransformHistory } from "./history";
 import {
   assetPath,
   nanos,
@@ -44,10 +46,9 @@ class OfflineImageMode extends ImageMode {
     const stamp = "header" in image ? image.header.stamp : image.timestamp;
     requireValue(rosNanos(stamp) === nanos(frame.cameraTimeNs), "Native image timestamp mismatch");
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Original image decoding timed out")),
-        30000,
-      );
+      const timeout = setTimeout(() => {
+        reject(new Error("Original image decoding timed out"));
+      }, 30000);
       // The native handler may have started a 1920px preview decode. A second,
       // newer submission uses original width; its callback gates this frame.
       renderable.setImage(image, frame.width, () => {
@@ -108,8 +109,8 @@ export class OfflineRenderer {
     requireValue(
       Object.keys(config.layers).length === 0 &&
         config.imageMode.rotation === 0 &&
-        !config.imageMode.flipHorizontal &&
-        !config.imageMode.flipVertical,
+        config.imageMode.flipHorizontal !== true &&
+        config.imageMode.flipVertical !== true,
       "Unsupported layout transformation",
     );
     this.#snapshot = snapshot;

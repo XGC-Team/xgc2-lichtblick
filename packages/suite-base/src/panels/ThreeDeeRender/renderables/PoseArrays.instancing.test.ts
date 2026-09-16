@@ -1,15 +1,18 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
 import * as THREE from "three";
 
 import { PoseArrays, LayerSettingsPoseArray } from "./PoseArrays";
-import { RenderableLineStrip } from "./markers/RenderableLineStrip";
 import type { IRenderer, RendererConfig } from "../IRenderer";
 import { onlyLastByTopicMessage } from "../SceneExtension";
 import { SharedGeometry } from "../SharedGeometry";
 import { DetailLevel } from "../lod";
 import type { Pose } from "../transforms";
+import { RenderableLineStrip } from "./markers/RenderableLineStrip";
 
 const TOPIC = "/prediction";
 const HEADER = { frame_id: "world", stamp: { sec: 12, nsec: 34 } };
@@ -63,7 +66,9 @@ describe("PoseArrays instanced representations", () => {
       sharedGeometry,
       topics: [],
       settings: { setNodesForKey: jest.fn(), errors: { addToTopic: jest.fn() } },
-      updateConfig: (update: (draft: RendererConfig) => void) => update(config),
+      updateConfig: (update: (draft: RendererConfig) => void) => {
+        update(config);
+      },
       normalizeFrameId: (id: string) => id.replace(/^\//, ""),
     } as unknown as IRenderer;
     extension = new PoseArrays(renderer);
@@ -158,11 +163,17 @@ describe("PoseArrays instanced representations", () => {
   it("inherits selection layers when a new representation is created", () => {
     sendPoses();
     const renderable = extension.renderables.get(TOPIC)!;
-    renderable.traverse((object) => object.layers.set(1));
+    renderable.traverse((object) => {
+      object.layers.set(1);
+    });
     setType("line");
-    renderable.userData.lineStrip!.traverse((object) => expect(object.layers.mask).toBe(2));
+    renderable.userData.lineStrip!.traverse((object) => {
+      expect(object.layers.mask).toBe(2);
+    });
     setType("line-axes");
-    renderable.userData.axes!.traverse((object) => expect(object.layers.mask).toBe(2));
+    renderable.userData.axes!.traverse((object) => {
+      expect(object.layers.mask).toBe(2);
+    });
   });
 
   it("processes successive messages without trimming poses or synthesizing orientations", () => {

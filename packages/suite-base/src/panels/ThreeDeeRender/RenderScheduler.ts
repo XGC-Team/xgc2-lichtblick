@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
@@ -18,7 +21,9 @@ export class RenderScheduler {
     render: () => void,
     requestFrame: (callback: FrameRequestCallback) => number = (callback) =>
       requestAnimationFrame(callback),
-    cancelFrame: (handle: number) => void = (handle) => cancelAnimationFrame(handle),
+    cancelFrame: (handle: number) => void = (handle) => {
+      cancelAnimationFrame(handle);
+    },
   ) {
     this.#render = render;
     this.#requestFrame = requestFrame;

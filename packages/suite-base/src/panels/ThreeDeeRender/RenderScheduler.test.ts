@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
@@ -124,7 +127,9 @@ describe("RenderScheduler", () => {
       frames.request,
       frames.cancel,
     );
-    expect(() => scheduler.flush()).toThrow("scene failure");
+    expect(() => {
+      scheduler.flush();
+    }).toThrow("scene failure");
     expect(frames.callbacks.size).toBe(0);
     scheduler.flush();
     expect(renders).toBe(2);
@@ -143,7 +148,9 @@ describe("RenderScheduler", () => {
       frames.cancel,
     );
     scheduler.queue();
-    expect(() => frames.step()).toThrow("scene failure");
+    expect(() => {
+      frames.step();
+    }).toThrow("scene failure");
     expect(frames.callbacks.size).toBe(0);
     scheduler.queue();
     frames.step();
@@ -163,7 +170,9 @@ describe("RenderScheduler", () => {
       frames.request,
       frames.cancel,
     );
-    expect(() => scheduler.flush()).toThrow("scene failure");
+    expect(() => {
+      scheduler.flush();
+    }).toThrow("scene failure");
     expect(frames.callbacks.size).toBe(1);
     frames.step();
     expect(renders).toBe(2);

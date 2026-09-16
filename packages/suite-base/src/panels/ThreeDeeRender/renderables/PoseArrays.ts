@@ -436,7 +436,9 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
       for (let i = 0; i < poseArrayMessage.poses.length; i++) {
         setObjectPose(renderable.userData.arrows[i]!, poseArrayMessage.poses[i]!);
       }
-    } else if (settings.type === "line" || settings.type === "line-axes") {
+    } else {
+      // After the axis early-return and the arrow branch, only "line" and
+      // "line-axes" remain.
       const lineStripMarker = createLineStripMarker(
         poseArrayMessage,
         settings.lineWidth,

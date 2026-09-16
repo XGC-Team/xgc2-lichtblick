@@ -53,7 +53,7 @@ export class DynamicLineGeometry extends LineGeometry {
 
       // Match LineSegments2.computeLineDistances, including Float32 rounding and
       // cumulative distance across disconnected segments. Do this once per update.
-      const dx = this.#positions[offset + 3]! - this.#positions[offset]!;
+      const dx = this.#positions[offset + 3]! - this.#positions[offset];
       const dy = this.#positions[offset + 4]! - this.#positions[offset + 1]!;
       const dz = this.#positions[offset + 5]! - this.#positions[offset + 2]!;
       const distance = i === 0 ? 0 : this.#distances[2 * i - 1]!;

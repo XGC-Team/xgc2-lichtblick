@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 /** @jest-environment jsdom */
 
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
@@ -30,19 +33,20 @@ function message(index: number, topic = "/pose", schemaName = "pose"): MessageEv
   };
 }
 
-function queueOnlyRenderer(): Renderer {
+function queueOnlyRenderer(): { renderer: Renderer; addCoordinateFrame: jest.Mock } {
   // Exercise the real queue methods without constructing a WebGL context.
   // These methods only use these public maps and addCoordinateFrame.
   const renderer = Object.create(Renderer.prototype) as Renderer;
   renderer.topicSubscriptions = new Map();
   renderer.schemaSubscriptions = new Map();
-  renderer.addCoordinateFrame = jest.fn();
-  return renderer;
+  const addCoordinateFrame = jest.fn();
+  renderer.addCoordinateFrame = addCoordinateFrame;
+  return { renderer, addCoordinateFrame };
 }
 
 describe("Renderer batch ingestion", () => {
   it("preserves interleaved schema aliases sharing a subscription", () => {
-    const renderer = queueOnlyRenderer();
+    const { renderer } = queueOnlyRenderer();
     const sub = subscription();
     renderer.schemaSubscriptions.set("pose", [sub]);
     renderer.schemaSubscriptions.set("pose_alias", [sub]);
@@ -52,7 +56,7 @@ describe("Renderer batch ingestion", () => {
   });
 
   it("preserves interleaved topics sharing a subscription", () => {
-    const renderer = queueOnlyRenderer();
+    const { renderer } = queueOnlyRenderer();
     const sub = subscription();
     renderer.topicSubscriptions.set("/pose", [sub]);
     renderer.topicSubscriptions.set("/other", [sub]);
@@ -62,7 +66,7 @@ describe("Renderer batch ingestion", () => {
   });
 
   it("queues a large backfill without argument spreading or sample loss", () => {
-    const renderer = queueOnlyRenderer();
+    const { renderer } = queueOnlyRenderer();
     const sub = subscription();
     renderer.topicSubscriptions.set("/pose", [sub]);
     const events = Array.from({ length: 200_000 }, (_, index) => message(index));
@@ -76,7 +80,7 @@ describe("Renderer batch ingestion", () => {
   });
 
   it("retains message identity, timestamps, orientations, and frame extraction", () => {
-    const renderer = queueOnlyRenderer();
+    const { renderer, addCoordinateFrame } = queueOnlyRenderer();
     const topicSub = subscription();
     const schemaSub = subscription();
     renderer.topicSubscriptions.set("/pose", [topicSub]);
@@ -87,11 +91,11 @@ describe("Renderer batch ingestion", () => {
     expect(topicSub.queue?.[0]).toBe(event);
     expect(schemaSub.queue?.[0]).toBe(event);
     expect(JSON.stringify(event)).toBe(original);
-    expect(renderer.addCoordinateFrame).toHaveBeenCalledWith("world");
+    expect(addCoordinateFrame).toHaveBeenCalledWith("world");
   });
 
   it("appends to an existing queue and leaves it intact for an empty batch", () => {
-    const renderer = queueOnlyRenderer();
+    const { renderer } = queueOnlyRenderer();
     const sub = subscription();
     const first = message(0);
     const next = message(1);
@@ -105,8 +109,8 @@ describe("Renderer batch ingestion", () => {
   });
 
   it("has the same delivery multiplicity and order as single-message ingestion", () => {
-    const batch = queueOnlyRenderer();
-    const single = queueOnlyRenderer();
+    const { renderer: batch } = queueOnlyRenderer();
+    const { renderer: single } = queueOnlyRenderer();
     const batchSub = subscription();
     const singleSub = subscription();
     for (const [renderer, sub] of [

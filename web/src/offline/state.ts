@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
@@ -49,7 +52,7 @@ export type SnapshotEvent = {
   };
 };
 export function requireValue(value: unknown, message: string): asserts value {
-  if (!value) {
+  if (value == undefined || value === false || value === 0 || value === "") {
     throw new Error(message);
   }
 }
@@ -79,7 +82,7 @@ export function assetPath(asset: Asset): string {
     record(asset) &&
       /^[a-f0-9]{64}$/.test(asset.sha256) &&
       /^assets\/[a-f0-9]{64}\.(json|jpg|png)$/.test(asset.path) &&
-      asset.path.split("/")[1]?.startsWith(asset.sha256 + ".") &&
+      asset.path.split("/")[1]?.startsWith(asset.sha256 + ".") === true &&
       Number.isSafeInteger(asset.size) &&
       asset.size > 0,
     "Invalid asset reference",
@@ -110,7 +113,7 @@ export async function verifiedFetch(
   try {
     for (;;) {
       const next = await reader.read();
-      if (next.done === true) {
+      if (next.done) {
         break;
       }
       size += next.value.byteLength;
@@ -180,7 +183,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     requireValue(
       f.width === 3840 &&
         f.height === 2160 &&
-        (f.format === "jpeg" || f.format === "png") &&
+        ["jpeg", "png"].includes(f.format) &&
         rosNanos(f.header.stamp) === sample &&
         Boolean(f.header.frame_id),
       "Invalid camera frame",
@@ -266,7 +269,9 @@ export function parseEvents(value: unknown, topics: Snapshot["topics"]): Snapsho
     requireValue(Array.isArray(markers), "Invalid markers");
     for (const marker of markers) {
       requireValue(
-        record(marker) && marker.type !== 10 && !marker.mesh_resource,
+        record(marker) &&
+          marker.type !== 10 &&
+          (marker.mesh_resource == undefined || marker.mesh_resource === ""),
         "Mesh asset loading is not supported in V1",
       );
     }

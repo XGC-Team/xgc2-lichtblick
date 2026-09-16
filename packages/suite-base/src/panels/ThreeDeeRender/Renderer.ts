@@ -248,7 +248,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #prevResolution = new THREE.Vector2();
   #pickingEnabled = false;
-  #renderScheduler = new RenderScheduler(() => this.#frameHandler(this.currentTime));
+  #renderScheduler = new RenderScheduler(() => {
+    this.#frameHandler(this.currentTime);
+  });
   #disposed = false;
   #appliedCanvasSize = new THREE.Vector2();
   #drawingBufferSize = new THREE.Vector2();

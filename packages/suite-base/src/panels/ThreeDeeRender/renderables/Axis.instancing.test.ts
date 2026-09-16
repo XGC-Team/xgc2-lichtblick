@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
@@ -183,7 +186,9 @@ describe("Axis pose instancing", () => {
 
   it("preserves selected layers on growth and does not dispose shared resources", () => {
     const axis = createAxis();
-    axis.traverse((object) => object.layers.set(1));
+    axis.traverse((object) => {
+      object.layers.set(1);
+    });
     const previous = meshes(axis).slice();
     const instanceDisposals = previous.map((mesh) => jest.spyOn(mesh, "dispose"));
     const geometryDisposals = previous.map((mesh) => jest.spyOn(mesh.geometry, "dispose"));
