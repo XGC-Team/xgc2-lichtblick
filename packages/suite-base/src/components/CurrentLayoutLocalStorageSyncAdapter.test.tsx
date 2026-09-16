@@ -134,4 +134,68 @@ describe("CurrentLayoutLocalStorageSyncAdapter", () => {
       data: modifiedData,
     });
   });
+
+  describe("when requestIdleCallback is available but never fires", () => {
+    const requestIdleCallbackMock = jest.fn().mockReturnValue(1);
+    const cancelIdleCallbackMock = jest.fn();
+
+    beforeEach(() => {
+      Object.defineProperty(window, "requestIdleCallback", {
+        writable: true,
+        configurable: true,
+        value: requestIdleCallbackMock,
+      });
+      Object.defineProperty(window, "cancelIdleCallback", {
+        writable: true,
+        configurable: true,
+        value: cancelIdleCallbackMock,
+      });
+    });
+
+    afterEach(() => {
+      delete (window as { requestIdleCallback?: unknown }).requestIdleCallback;
+      delete (window as { cancelIdleCallback?: unknown }).cancelIdleCallback;
+    });
+
+    it("flushes the pending layout to localStorage on beforeunload", async () => {
+      // Given
+      renderComponent();
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 300)); // Wait for debounce
+      });
+
+      // The write was deferred to the idle callback, which has not run
+      expect(requestIdleCallbackMock).toHaveBeenCalled();
+      expect(localStorage.getItem(LOCAL_STORAGE_STUDIO_LAYOUT_KEY)).toBeNull();
+
+      // When
+      act(() => {
+        window.dispatchEvent(new Event("beforeunload"));
+      });
+
+      // Then
+      expect(localStorage.getItem(LOCAL_STORAGE_STUDIO_LAYOUT_KEY)).toBe(
+        JSON.stringify(mockLayoutData),
+      );
+    });
+
+    it("flushes the pending layout to localStorage on unmount", async () => {
+      // Given
+      const { unmount } = renderComponent();
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 300)); // Wait for debounce
+      });
+
+      expect(localStorage.getItem(LOCAL_STORAGE_STUDIO_LAYOUT_KEY)).toBeNull();
+
+      // When
+      unmount();
+
+      // Then
+      expect(cancelIdleCallbackMock).toHaveBeenCalled();
+      expect(localStorage.getItem(LOCAL_STORAGE_STUDIO_LAYOUT_KEY)).toBe(
+        JSON.stringify(mockLayoutData),
+      );
+    });
+  });
 });
