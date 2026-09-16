@@ -58,6 +58,7 @@ import {
 import { Input } from "./Input";
 import { DEFAULT_MESH_UP_AXIS, ModelCache } from "./ModelCache";
 import { PickedRenderable, Picker } from "./Picker";
+import { RenderScheduler } from "./RenderScheduler";
 import type { Renderable } from "./Renderable";
 import { SceneExtension } from "./SceneExtension";
 import { SceneExtensionConfig } from "./SceneExtensionConfig";
@@ -247,8 +248,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #prevResolution = new THREE.Vector2();
   #pickingEnabled = false;
-  #rendering = false;
-  #animationFrame?: number;
+  #renderScheduler = new RenderScheduler(() => this.#frameHandler(this.currentTime));
   #disposed = false;
   #appliedCanvasSize = new THREE.Vector2();
   #drawingBufferSize = new THREE.Vector2();
@@ -472,12 +472,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       return;
     }
     this.#disposed = true;
+    // Stop queued and late async render requests before releasing GPU resources.
+    this.#renderScheduler.dispose();
     window.clearTimeout(this.#canvasResizeTimer);
     this.#canvasResizeTimer = undefined;
-    if (this.#animationFrame != undefined) {
-      cancelAnimationFrame(this.#animationFrame);
-      this.#animationFrame = undefined;
-    }
     log.debug(`Disposing renderer`);
     this.#devicePixelRatioMediaQuery?.removeEventListener("change", this.#onDevicePixelRatioChange);
     this.removeAllListeners();
@@ -1083,53 +1081,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
-  private queueByKey(
-    groups: Map<string, MessageEvent[]>,
-    subscriptions: Map<string, RendererSubscription[]>,
-  ): void {
-    for (const [key, messageEvents] of groups) {
-      const subs = subscriptions.get(key);
-      if (!subs) {
-        continue;
-      }
-
-      for (const sub of subs) {
-        sub.queue ??= [];
-        sub.queue.push(...messageEvents);
-      }
-    }
-  }
-
-  /**
-   * Batch version of addMessageEvent that processes multiple messages more efficiently
-   * by grouping them by topic/schema before queueing
-   */
+  /** Queue every message in input order without per-topic/schema staging arrays. */
   public addMessageEventBatch(messageEvents: readonly MessageEvent[]): void {
-    // Extract coordinate frames from all messages
+    // Subscriptions can be shared by several topics or schema aliases. Grouping
+    // by key reorders their messages, and push(...batch) can exceed the engine's
+    // argument limit. The single-message path preserves samples and identity.
     for (const messageEvent of messageEvents) {
-      this.addMessageEvent(messageEvent, { inBatch: true });
+      this.addMessageEvent(messageEvent);
     }
-
-    // Group messages by topic and schema for efficient batching
-    const messagesByTopic = new Map<string, MessageEvent[]>();
-    const messagesBySchema = new Map<string, MessageEvent[]>();
-    for (const msg of messageEvents) {
-      // Group by topic
-      if (!messagesByTopic.has(msg.topic)) {
-        messagesByTopic.set(msg.topic, []);
-      }
-      messagesByTopic.get(msg.topic)!.push(msg);
-
-      // Group by schema
-      if (!messagesBySchema.has(msg.schemaName)) {
-        messagesBySchema.set(msg.schemaName, []);
-      }
-      messagesBySchema.get(msg.schemaName)!.push(msg);
-    }
-
-    // Queue messages in batches
-    this.queueByKey(messagesByTopic, this.topicSubscriptions);
-    this.queueByKey(messagesBySchema, this.schemaSubscriptions);
   }
 
   public addMessageEvent(
@@ -1325,31 +1284,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   // Callback handlers
 
   public animationFrame = (): void => {
-    if (this.#disposed) {
-      return;
-    }
-    // Cancel any requestAnimationFrame (rAF) that `queueAnimationFrame()` scheduled. When this runs synchronously (e.g. a
-    // seek's `handleSeek`/`clear` queued a frame and the render-if-requested effect then calls us
-    // directly in the same tick) the queued rAF would otherwise fire on the next tick and paint a
-    // redundant second frame.
-    if (this.#animationFrame != undefined) {
-      cancelAnimationFrame(this.#animationFrame);
-      this.#animationFrame = undefined;
-    }
-    if (!this.#rendering) {
-      try {
-        this.#frameHandler(this.currentTime);
-      } finally {
-        // An extension/upload error must not permanently block all subsequent frames.
-        this.#rendering = false;
-      }
-    }
+    this.#renderScheduler.flush();
   };
 
   public queueAnimationFrame(): void {
-    if (!this.#disposed && this.#animationFrame == undefined) {
-      this.#animationFrame = requestAnimationFrame(this.animationFrame);
-    }
+    this.#renderScheduler.queue();
   }
 
   public async settleVideoDecodes(): Promise<void> {
@@ -1375,7 +1314,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   }
 
   #frameHandler = (currentTime: bigint): void => {
-    this.#rendering = true;
     this.currentTime = currentTime;
     // Resize immediately before painting, never in a separate observer/rAF turn:
     // changing canvas dimensions clears its drawing buffer.
