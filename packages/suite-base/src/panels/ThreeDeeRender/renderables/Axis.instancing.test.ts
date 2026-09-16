@@ -214,7 +214,10 @@ describe("Axis pose instancing", () => {
     const axis = createAxis();
     axis.setPoses([pose(0), pose(3)], AXIS_LENGTH);
     axis.updateMatrixWorld(true);
-    const ray = new THREE.Raycaster(new THREE.Vector3(3.05, 0, 1), new THREE.Vector3(0, 0, -1));
+    // Aim slightly off the cylinder seam: a ray exactly through a vertex column
+    // is culled as degenerate by intersectTriangle in both legacy and batched
+    // axes alike, independent of the instancing change.
+    const ray = new THREE.Raycaster(new THREE.Vector3(3.05, 0.004, 1), new THREE.Vector3(0, 0, -1));
     expect(ray.intersectObject(axis, true).length).toBeGreaterThan(0);
     axis.setPoses([pose(0)], AXIS_LENGTH);
     for (const mesh of meshes(axis)) {
