@@ -10,6 +10,7 @@ import * as THREE from "three";
 import type { IRenderer } from "../IRenderer";
 import { arrowHeadSubdivisions, arrowShaftSubdivisions, DetailLevel } from "../lod";
 import { ColorRGBA } from "../ros";
+import type { Pose } from "../transforms";
 
 const SHAFT_LENGTH = 0.154;
 const SHAFT_DIAMETER = 0.02;
@@ -33,11 +34,19 @@ const PI_2 = Math.PI / 2;
 
 const tempMat4 = new THREE.Matrix4();
 const tempVec = new THREE.Vector3();
+const tempPosition = new THREE.Vector3();
+const tempQuaternion = new THREE.Quaternion();
+const tempScale = new THREE.Vector3();
+const tempPoseMatrix = new THREE.Matrix4();
 
 export class Axis extends THREE.Object3D {
   readonly #renderer: IRenderer;
   #shaftMesh: THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   #headMesh: THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+
+  #localShaftMatrices?: THREE.Matrix4[];
+  #localHeadMatrices?: THREE.Matrix4[];
+  #disposed = false;
 
   public constructor(name: string, renderer: IRenderer) {
     super();
@@ -71,7 +80,108 @@ export class Axis extends THREE.Object3D {
     this.add(this.#headMesh);
   }
 
+  /**
+   * Draw every supplied pose using two meshes, rather than two meshes per pose.
+   * Single-axis users need not call this method and retain the original behavior.
+   * Poses are in this object's parent frame; their quaternions are not normalized
+   * or synthesized here. The parent Renderable still owns the timestamped TF.
+   */
+  public setPoses(poses: readonly Pose[], lengthMeters: number): void {
+    if (this.#disposed) {
+      return;
+    }
+    if (this.#localShaftMatrices == undefined || this.#localHeadMatrices == undefined) {
+      // Capture the original Float32 local transforms before the first batch.
+      this.#localShaftMatrices = [];
+      this.#localHeadMatrices = [];
+      for (let i = 0; i < 3; i++) {
+        const shaft = new THREE.Matrix4();
+        const head = new THREE.Matrix4();
+        this.#shaftMesh.getMatrixAt(i, shaft);
+        this.#headMesh.getMatrixAt(i, head);
+        this.#localShaftMatrices.push(shaft);
+        this.#localHeadMatrices.push(head);
+      }
+    }
+
+    const capacity = this.#shaftMesh.instanceMatrix.count / 3;
+    if (poses.length > capacity) {
+      const nextCapacity = Math.max(poses.length, capacity * 2);
+      this.#shaftMesh = this.#growMesh(this.#shaftMesh, nextCapacity);
+      this.#headMesh = this.#growMesh(this.#headMesh, nextCapacity);
+    }
+
+    // Rebase near the data before conversion to Float32 instance matrices.
+    // Otherwise small movements around large map coordinates lose precision.
+    const origin = poses[0]?.position;
+    this.position.set(origin?.x ?? 0, origin?.y ?? 0, origin?.z ?? 0);
+    this.quaternion.identity();
+    this.scale.set(1, 1, 1);
+    this.matrixAutoUpdate = false;
+    this.updateMatrix();
+    this.visible = poses.length > 0;
+    const scale = axisObjectScale(lengthMeters);
+    tempScale.set(scale, scale, scale);
+
+    for (let i = 0; i < poses.length; i++) {
+      const { position: p, orientation: q } = poses[i]!;
+      tempPosition.set(p.x - this.position.x, p.y - this.position.y, p.z - this.position.z);
+      tempQuaternion.set(q.x, q.y, q.z, q.w);
+      tempPoseMatrix.compose(tempPosition, tempQuaternion, tempScale);
+      for (let axis = 0; axis < 3; axis++) {
+        tempMat4.multiplyMatrices(tempPoseMatrix, this.#localShaftMatrices[axis]!);
+        this.#shaftMesh.setMatrixAt(i * 3 + axis, tempMat4);
+        tempMat4.multiplyMatrices(tempPoseMatrix, this.#localHeadMatrices[axis]!);
+        this.#headMesh.setMatrixAt(i * 3 + axis, tempMat4);
+      }
+    }
+    this.#updateMesh(this.#shaftMesh, poses.length * 3);
+    this.#updateMesh(this.#headMesh, poses.length * 3);
+  }
+
+  #growMesh(
+    previous: THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>,
+    poseCapacity: number,
+  ): THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> {
+    const mesh = new THREE.InstancedMesh(previous.geometry, previous.material, poseCapacity * 3);
+    mesh.frustumCulled = previous.frustumCulled;
+    mesh.castShadow = previous.castShadow;
+    mesh.receiveShadow = previous.receiveShadow;
+    // Selection sets layers on descendants. Do not lose the highlight on growth.
+    mesh.layers.mask = previous.layers.mask;
+    for (let i = 0; i < poseCapacity; i++) {
+      mesh.setColorAt(i * 3, RED_COLOR);
+      mesh.setColorAt(i * 3 + 1, GREEN_COLOR);
+      mesh.setColorAt(i * 3 + 2, BLUE_COLOR);
+    }
+    this.remove(previous);
+    this.add(mesh);
+    // Only instance storage is owned here. Geometry is renderer-shared and
+    // the material transfers to the replacement mesh until final disposal.
+    previous.dispose();
+    return mesh;
+  }
+
+  #updateMesh(mesh: THREE.InstancedMesh, count: number): void {
+    mesh.count = count;
+    mesh.matrixAutoUpdate = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    if (count > 0) {
+      mesh.instanceMatrix.updateRange.offset = 0;
+      mesh.instanceMatrix.updateRange.count = count * 16;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    // GPU picking uses the same instances; invalidate cached CPU raycast bounds
+    // too. Frustum culling stays disabled, as in the original Axis.
+    mesh.boundingBox = null;
+    mesh.boundingSphere = null;
+  }
+
   public dispose(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#disposed = true;
     this.#shaftMesh.material.dispose();
     this.#shaftMesh.dispose();
     this.#headMesh.material.dispose();

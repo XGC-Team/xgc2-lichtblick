@@ -7,7 +7,6 @@
 
 import { PosesInFrame } from "@foxglove/schemas";
 import { t } from "i18next";
-import * as _ from "lodash-es";
 import * as THREE from "three";
 
 import { toNanoSec } from "@lichtblick/rostime";
@@ -99,16 +98,14 @@ export type PoseArrayUserData = BaseUserData & {
   topic: string;
   poseArrayMessage: PoseArray;
   originalMessage: Record<string, RosValue>;
-  axes: Axis[];
+  axes?: Axis;
   arrows: RenderableArrow[];
   lineStrip?: RenderableLineStrip;
 };
 
 export class PoseArrayRenderable extends Renderable<PoseArrayUserData> {
   public override dispose(): void {
-    this.userData.axes.forEach((axis) => {
-      axis.dispose();
-    });
+    this.userData.axes?.dispose();
     this.userData.arrows.forEach((arrow) => {
       arrow.dispose();
     });
@@ -129,11 +126,11 @@ export class PoseArrayRenderable extends Renderable<PoseArrayUserData> {
   }
 
   public removeAxes(): void {
-    for (const axis of this.userData.axes) {
-      this.remove(axis);
-      axis.dispose();
+    if (this.userData.axes) {
+      this.remove(this.userData.axes);
+      this.userData.axes.dispose();
+      this.userData.axes = undefined;
     }
-    this.userData.axes.length = 0;
   }
 
   public removeLineStrip(): void {
@@ -316,7 +313,6 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
         topic,
         poseArrayMessage,
         originalMessage,
-        axes: [],
         arrows: [],
       });
 
@@ -333,36 +329,16 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
     );
   }
 
-  #createAxesToMatchPoses(
-    renderable: PoseArrayRenderable,
-    poseArray: PoseArray,
-    topic: string,
-  ): void {
-    const scale = renderable.userData.settings.axisScale * (1 / AXIS_LENGTH);
-
-    // Update the scale and visibility of existing AxisRenderables as needed
-    const existingUpdateCount = Math.min(renderable.userData.axes.length, poseArray.poses.length);
-    for (let i = 0; i < existingUpdateCount; i++) {
-      const axis = renderable.userData.axes[i]!;
-      axis.visible = true;
-      axis.scale.set(scale, scale, scale);
+  #updateAxes(renderable: PoseArrayRenderable, poseArray: PoseArray, topic: string): void {
+    if (renderable.userData.axes == undefined && poseArray.poses.length > 0) {
+      const axes = new Axis(topic, this.renderer);
+      axes.traverse((object) => {
+        object.layers.mask = renderable.layers.mask;
+      });
+      renderable.userData.axes = axes;
+      renderable.add(axes);
     }
-
-    // Create any AxisRenderables as needed
-    for (let i = renderable.userData.axes.length; i < poseArray.poses.length; i++) {
-      const axis = new Axis(topic, this.renderer);
-      renderable.userData.axes.push(axis);
-      renderable.add(axis);
-
-      // Set the scale for each new axis
-      axis.scale.set(scale, scale, scale);
-    }
-
-    // Hide any AxisRenderables as needed
-    for (let i = poseArray.poses.length; i < renderable.userData.axes.length; i++) {
-      const axis = renderable.userData.axes[i]!;
-      axis.visible = false;
-    }
+    renderable.userData.axes?.setPoses(poseArray.poses, renderable.userData.settings.axisScale);
   }
 
   #createArrowsToMatchPoses(
@@ -378,7 +354,7 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
         tempColor3,
         colorStart,
         colorEnd,
-        i / (poseArray.poses.length - 1),
+        i / Math.max(1, poseArray.poses.length - 1),
       );
       return createArrowMarker(renderable.userData.settings.arrowScale, color);
     };
@@ -421,19 +397,11 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
     renderable.userData.originalMessage = originalMessage;
 
     const { topic, settings: prevSettings } = renderable.userData;
-    const displaySettingsChanged =
-      settings.type !== prevSettings.type ||
-      settings.axisScale !== prevSettings.axisScale ||
-      !_.isEqual(settings.arrowScale, prevSettings.arrowScale) ||
-      !_.isEqual(settings.gradient, prevSettings.gradient) ||
-      (renderable.userData.arrows.length === 0 && renderable.userData.axes.length === 0);
-
     renderable.userData.settings = settings;
 
-    const colorStart = stringToRgba(tempColor1, settings.gradient[0]);
-    const colorEnd = stringToRgba(tempColor2, settings.gradient[1]);
-
-    if (displaySettingsChanged) {
+    // Only a representation change retires children. Style changes are applied
+    // in place below; deep-comparing gradients/scales on every message is unnecessary.
+    if (settings.type !== prevSettings.type) {
       switch (renderable.userData.settings.type) {
         case "axis":
           renderable.removeArrows();
@@ -453,7 +421,22 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
       }
     }
 
-    const updateLineStrip = (): void => {
+    if (settings.type === "axis" || settings.type === "line-axes") {
+      this.#updateAxes(renderable, poseArrayMessage, topic);
+    }
+    if (settings.type === "axis") {
+      // Fixed RGB axes do not use the gradient, so do not parse it per message.
+      return;
+    }
+
+    const colorStart = stringToRgba(tempColor1, settings.gradient[0]);
+    const colorEnd = stringToRgba(tempColor2, settings.gradient[1]);
+    if (settings.type === "arrow") {
+      this.#createArrowsToMatchPoses(renderable, poseArrayMessage, topic, colorStart, colorEnd);
+      for (let i = 0; i < poseArrayMessage.poses.length; i++) {
+        setObjectPose(renderable.userData.arrows[i]!, poseArrayMessage.poses[i]!);
+      }
+    } else if (settings.type === "line" || settings.type === "line-axes") {
       const lineStripMarker = createLineStripMarker(
         poseArrayMessage,
         settings.lineWidth,
@@ -461,38 +444,15 @@ export class PoseArrays extends SceneExtension<PoseArrayRenderable> {
         colorEnd,
       );
       if (!renderable.userData.lineStrip) {
+        // The constructor already applies the marker; do not upload it twice.
         const lineStrip = new RenderableLineStrip(topic, lineStripMarker, undefined, this.renderer);
+        lineStrip.traverse((object) => {
+          object.layers.mask = renderable.layers.mask;
+        });
         renderable.userData.lineStrip = lineStrip;
         renderable.add(lineStrip);
-      }
-      renderable.userData.lineStrip.update(lineStripMarker, undefined);
-    };
-
-    // Update the pose for each pose renderable
-    switch (settings.type) {
-      case "axis":
-        this.#createAxesToMatchPoses(renderable, poseArrayMessage, topic);
-        for (let i = 0; i < poseArrayMessage.poses.length; i++) {
-          setObjectPose(renderable.userData.axes[i]!, poseArrayMessage.poses[i]!);
-        }
-        break;
-      case "arrow":
-        this.#createArrowsToMatchPoses(renderable, poseArrayMessage, topic, colorStart, colorEnd);
-        for (let i = 0; i < poseArrayMessage.poses.length; i++) {
-          setObjectPose(renderable.userData.arrows[i]!, poseArrayMessage.poses[i]!);
-        }
-        break;
-      case "line": {
-        updateLineStrip();
-        break;
-      }
-      case "line-axes": {
-        this.#createAxesToMatchPoses(renderable, poseArrayMessage, topic);
-        for (let i = 0; i < poseArrayMessage.poses.length; i++) {
-          setObjectPose(renderable.userData.axes[i]!, poseArrayMessage.poses[i]!);
-        }
-        updateLineStrip();
-        break;
+      } else {
+        renderable.userData.lineStrip.update(lineStripMarker, undefined);
       }
     }
   }
@@ -519,7 +479,9 @@ function createLineStripMarker(
   // Create a gradient of colors for the line strip
   const colors: ColorRGBA[] = [];
   for (let i = 0; i < message.poses.length; i++) {
-    colors.push(rgbaGradient(makeRgba(), colorStart, colorEnd, i / (message.poses.length - 1)));
+    colors.push(
+      rgbaGradient(makeRgba(), colorStart, colorEnd, i / Math.max(1, message.poses.length - 1)),
+    );
   }
 
   return {
