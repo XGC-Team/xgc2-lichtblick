@@ -99,6 +99,10 @@ export class RenderableLineStrip extends RenderableMarker {
     const matLine = this.#line.material as LineMaterialWithAlphaVertex;
     matLine.lineWidth = lineWidth;
 
+    // Picking renders at 1.2x width; keep it in sync with the visible width.
+    const pickingMaterial = this.#line.userData.pickingMaterial as THREE.ShaderMaterial;
+    pickingMaterial.uniforms["linewidth"]!.value = lineWidth * 1.2;
+
     this.#geometry.setPoints(marker.points, "strip");
     const visible = this.#geometry.instanceCount > 0;
     this.#linePrepass.visible = visible;
