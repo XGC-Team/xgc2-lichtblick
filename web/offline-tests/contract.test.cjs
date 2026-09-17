@@ -116,3 +116,27 @@ test('latched static TF old timestamp remains valid',()=>{
     {child_frame_id:'camera',header:{stamp:{sec:0,nsec:1}}},
   ]}}}],{maxStorageTime:600000000000n,maxCapacityPerFrame:76800});
 });
+
+test('interactive preview shares the offline query channel',()=>{
+  const i=require(path.join(directory,'cjs/interactive.js'));
+  assert.equal(i.interactivePreviewEnabled('?xgcTfHistorySeconds=600&xgcInteractive=1'),true);
+  assert.equal(i.interactivePreviewEnabled('?xgcInteractive=1&xgcTfHistorySeconds=600'),true);
+  assert.equal(i.interactivePreviewEnabled('?xgcTfHistorySeconds=600'),false);
+  assert.equal(i.interactivePreviewEnabled('?xgcInteractive=0'),false);
+  assert.equal(i.interactivePreviewEnabled('?xgcInteractive=true'),false);
+  assert.equal(i.interactivePreviewEnabled(''),false);
+});
+test('DPR=1 capture requirement is relaxed only for interactive frames',()=>{
+  const i=require(path.join(directory,'cjs/interactive.js'));
+  i.requireCapturePixelRatio(1,false);
+  i.requireCapturePixelRatio(1,true);
+  i.requireCapturePixelRatio(1.25,true);
+  i.requireCapturePixelRatio(2,true);
+  assert.throws(()=>i.requireCapturePixelRatio(1.25,false),/devicePixelRatio=1/);
+  assert.throws(()=>i.requireCapturePixelRatio(2,false),/devicePixelRatio=1/);
+});
+test('interactive scrub failure does not taint; strict capture still taints',()=>{
+  const i=require(path.join(directory,'cjs/interactive.js'));
+  assert.equal(i.taintsOnFrameError(true),false);
+  assert.equal(i.taintsOnFrameError(false),true);
+});

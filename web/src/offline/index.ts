@@ -7,6 +7,7 @@
 import i18next from "i18next";
 
 import { OfflineRenderer } from "./renderer";
+import { interactivePreviewEnabled } from "./interactive";
 import {
   assetPath,
   parseEvents,
@@ -21,6 +22,7 @@ const channel = "xgc2.offline-video";
 let renderer: OfflineRenderer | undefined;
 let busy = false;
 let failed = false;
+const interactive = interactivePreviewEnabled(location.search);
 const parameters = new URLSearchParams(location.hash.slice(1));
 const expectedHash = parameters.get("sha256") ?? "";
 const initialization = (async () => {
@@ -87,7 +89,10 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
       const actual = await instance.frame(value.plan as unknown as FramePlan);
       reply("frame-ready", { plan: actual });
     } catch (error) {
-      failed = true;
+      // Interactive preview reports a failed/timed-out scrub frame without
+      // tainting the page, so the host can retry or drop it. Strict capture
+      // keeps its taint semantics: any frame error fails the whole page.
+      failed = failed || !interactive;
       reply("frame-error", {
         error: (error instanceof Error ? error.message : String(error)).slice(0, 4096),
       });

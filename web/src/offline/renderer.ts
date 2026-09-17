@@ -20,6 +20,7 @@ import { resolveLiveTfHistory } from "@lichtblick/suite-base/panels/ThreeDeeRend
 
 import { readFramePixels } from "./capture";
 import { OFFLINE_TF_HISTORY_SECONDS, validateTransformHistory } from "./history";
+import { interactivePreviewEnabled, requireCapturePixelRatio, taintsOnFrameError } from "./interactive";
 import {
   assetPath,
   nanos,
@@ -75,8 +76,10 @@ function errors(node: NodeError): string[] {
 export class OfflineRenderer {
   readonly #renderer: Renderer;
   readonly #imageMode: OfflineImageMode;
-  readonly #output: CanvasRenderingContext2D;
-  readonly #scratch: HTMLDivElement;
+  readonly #interactive: boolean;
+  readonly #output: CanvasRenderingContext2D | undefined;
+  readonly #scratch: HTMLDivElement | undefined;
+  readonly #canvas: HTMLCanvasElement;
   readonly #snapshot: Snapshot;
   readonly #sha256: string;
   readonly #base: URL;
@@ -97,7 +100,8 @@ export class OfflineRenderer {
       "Offline TF history query is missing; do not use the two-second live defaults",
     );
     validateTransformHistory(history, resolveLiveTfHistory(location.search));
-    requireValue(window.devicePixelRatio === 1, "Offline capture requires devicePixelRatio=1");
+    const interactive = interactivePreviewEnabled(location.search);
+    requireCapturePixelRatio(window.devicePixelRatio, interactive);
     requireValue(record(snapshot.rendererConfig), "Missing renderer config");
     const config = snapshot.rendererConfig as unknown as RendererConfig;
     requireValue(
@@ -116,33 +120,43 @@ export class OfflineRenderer {
     this.#snapshot = snapshot;
     this.#sha256 = sha256;
     this.#base = base;
+    this.#interactive = interactive;
     this.#data = history.filter((r) => r.role === "data");
     this.#tf = history.filter((r) => r.role === "tf");
     this.#static = history.filter((r) => r.role === "tf-static");
 
-    // Keep the native canvas sized/layout-active, but never expose incomplete draws.
-    this.#scratch = document.createElement("div");
-    Object.assign(this.#scratch.style, {
-      position: "absolute",
-      left: "-10000px",
-      top: "0",
-      width: "3840px",
-      height: "2160px",
-    });
     const canvas = document.createElement("canvas");
     canvas.width = 3840;
     canvas.height = 2160;
-    this.#scratch.append(canvas);
-    document.body.append(this.#scratch);
-    const display = document.createElement("canvas");
-    display.id = "offline-output";
-    display.width = 3840;
-    display.height = 2160;
-    Object.assign(display.style, { display: "block", width: "3840px", height: "2160px" });
-    document.body.append(display);
-    const output = display.getContext("2d");
-    requireValue(output != undefined, "Missing capture canvas context");
-    this.#output = output;
+    this.#canvas = canvas;
+    if (interactive) {
+      // Interactive preview renders straight to the visible WebGL canvas. The
+      // native input/resize pipeline owns its drawing-buffer size from here.
+      Object.assign(canvas.style, { display: "block", width: "100vw", height: "100vh" });
+      document.body.append(canvas);
+    } else {
+      // Keep the native canvas sized/layout-active, but never expose incomplete draws.
+      const scratch = document.createElement("div");
+      Object.assign(scratch.style, {
+        position: "absolute",
+        left: "-10000px",
+        top: "0",
+        width: "3840px",
+        height: "2160px",
+      });
+      scratch.append(canvas);
+      document.body.append(scratch);
+      this.#scratch = scratch;
+      const display = document.createElement("canvas");
+      display.id = "offline-output";
+      display.width = 3840;
+      display.height = 2160;
+      Object.assign(display.style, { display: "block", width: "3840px", height: "2160px" });
+      document.body.append(display);
+      const output = display.getContext("2d");
+      requireValue(output != undefined, "Missing capture canvas context");
+      this.#output = output;
+    }
     let imageMode: OfflineImageMode | undefined;
     this.#renderer = new Renderer({
       canvas,
@@ -173,8 +187,10 @@ export class OfflineRenderer {
     requireValue(imageMode != undefined, "Native ImageMode was not initialized");
     this.#imageMode = imageMode;
     this.#renderer.ros = true;
-    // This instance has no live data player, publish tool listener or scene editor.
-    this.#renderer.queueAnimationFrame = () => undefined;
+    if (!interactive) {
+      // This instance has no live data player, publish tool listener or scene editor.
+      this.#renderer.queueAnimationFrame = () => undefined;
+    }
     this.#renderer.setTopics(snapshot.topics);
     this.#renderer.setPickingEnabled(false);
     this.#renderer.setColorScheme("light", undefined);
@@ -264,23 +280,33 @@ export class OfflineRenderer {
       this.#renderer.animationFrame();
       const found = errors(this.#renderer.settings.errors.errors);
       requireValue(found.length === 0, found.slice(0, 8).join("; "));
-      const gl = this.#renderer.gl.getContext();
-      requireValue(gl instanceof WebGL2RenderingContext, "WebGL2 required");
-      const pixels = readFramePixels(gl, image.width, image.height);
-      const capture = new ImageData(image.width, image.height);
-      capture.data.set(pixels);
-      this.#output.putImageData(capture, 0, 0);
+      let width = image.width;
+      let height = image.height;
+      if (this.#output != undefined) {
+        // Strict capture only: interactive frames stay on the GPU canvas and
+        // never pay the 4K readback/2D copy.
+        const gl = this.#renderer.gl.getContext();
+        requireValue(gl instanceof WebGL2RenderingContext, "WebGL2 required");
+        const pixels = readFramePixels(gl, image.width, image.height);
+        const capture = new ImageData(image.width, image.height);
+        capture.data.set(pixels);
+        this.#output.putImageData(capture, 0, 0);
+        width = this.#output.canvas.width;
+        height = this.#output.canvas.height;
+      }
       this.#previousTime = time;
       this.#lastImageId = image.sourceFrameId;
       return {
         ...plan,
         sourceFrameId: image.sourceFrameId,
         cameraTimeNs: image.cameraTimeNs,
-        width: this.#output.canvas.width,
-        height: this.#output.canvas.height,
+        width,
+        height,
       };
     } catch (error) {
-      this.#tainted = true;
+      // Strict capture taints on any failure. An interactive scrub frame may
+      // fail without tainting; the host can retry it or drop it.
+      this.#tainted = this.#tainted || taintsOnFrameError(this.#interactive);
       throw error;
     }
   }
@@ -288,7 +314,8 @@ export class OfflineRenderer {
   public dispose(): void {
     this.#tainted = true;
     this.#renderer.dispose();
-    this.#scratch.remove();
-    this.#output.canvas.remove();
+    this.#scratch?.remove();
+    this.#output?.canvas.remove();
+    this.#canvas.remove();
   }
 }
