@@ -49,7 +49,6 @@ export class RenderableCubeList extends RenderableMarker {
     const transparent = markerHasTransparency(marker);
     if (transparent !== markerHasTransparency(prevMarker)) {
       this.#mesh.material.transparent = transparent;
-      this.#mesh.material.depthWrite = !transparent;
       this.#mesh.material.needsUpdate = true;
     }
 

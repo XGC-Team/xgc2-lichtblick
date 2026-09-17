@@ -40,6 +40,10 @@ export function markerHasTransparency(marker: Marker): boolean {
   }
 }
 
+// Translucent solid meshes still write depth so that coincident interior
+// faces (e.g. shared planes between convex decomposition parts) and back
+// faces are culled instead of blending twice, which would draw the
+// decomposition seams through the fill.
 export function makeStandardMaterial(color: ColorRGBA): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: new THREE.Color(color.r, color.g, color.b).convertSRGBToLinear(),
@@ -48,7 +52,7 @@ export function makeStandardMaterial(color: ColorRGBA): THREE.MeshStandardMateri
     dithering: true,
     opacity: color.a,
     transparent: color.a < 1,
-    depthWrite: color.a === 1,
+    depthWrite: true,
   });
 }
 
@@ -62,7 +66,7 @@ export function makeStandardVertexColorMaterial(marker: Marker): THREE.MeshStand
     side: THREE.DoubleSide,
     opacity: 1,
     transparent,
-    depthWrite: !transparent,
+    depthWrite: true,
   });
 }
 
@@ -74,7 +78,7 @@ export function makeStandardInstancedMaterial(marker: Marker): THREE.MeshStandar
     dithering: true,
     opacity: 1,
     transparent,
-    depthWrite: !transparent,
+    depthWrite: true,
   });
 }
 

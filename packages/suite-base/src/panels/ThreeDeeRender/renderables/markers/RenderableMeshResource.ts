@@ -61,7 +61,6 @@ export class RenderableMeshResource extends RenderableMarker {
     const transparent = marker.color.a < 1;
     if (transparent !== this.#material.transparent) {
       this.#material.transparent = transparent;
-      this.#material.depthWrite = !transparent;
       this.#material.needsUpdate = true;
     }
 

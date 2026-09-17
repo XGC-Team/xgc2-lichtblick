@@ -60,7 +60,6 @@ export class RenderableCylinder extends RenderableMarker {
     const transparent = marker.color.a < 1;
     if (transparent !== this.#mesh.material.transparent) {
       this.#mesh.material.transparent = transparent;
-      this.#mesh.material.depthWrite = !transparent;
       this.#mesh.material.needsUpdate = true;
     }
 

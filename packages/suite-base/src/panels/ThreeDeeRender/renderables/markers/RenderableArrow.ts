@@ -97,10 +97,8 @@ export class RenderableArrow extends RenderableMarker {
     const transparent = marker.color.a < 1;
     if (transparent !== this.shaftMesh.material.transparent) {
       this.shaftMesh.material.transparent = transparent;
-      this.shaftMesh.material.depthWrite = !transparent;
       this.shaftMesh.material.needsUpdate = true;
       this.headMesh.material.transparent = transparent;
-      this.headMesh.material.depthWrite = !transparent;
       this.headMesh.material.needsUpdate = true;
     }
 
