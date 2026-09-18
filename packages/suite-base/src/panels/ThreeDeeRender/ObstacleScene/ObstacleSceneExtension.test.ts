@@ -206,3 +206,70 @@ describe("3D obstacle authoring", () => {
     dispose();
   });
 });
+
+describe("AR overlay color override", () => {
+  async function setupOverlay(obstacleScene: { namespace: string; color?: unknown }) {
+    const canvas = document.createElement("canvas");
+    document.body.appendChild(canvas);
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    camera.position.set(0, -5, 4);
+    camera.up.set(0, 0, 1);
+    camera.lookAt(0, 0, 1);
+    camera.updateMatrixWorld(true);
+    const renderer = {
+      gl: { domElement: canvas },
+      settings: { setNodesForKey: jest.fn() },
+      config: { scene: { obstacleScene } },
+      queueAnimationFrame: jest.fn(),
+      cameraHandler: { getActiveCamera: () => camera, setInteractionEnabled: jest.fn() },
+      addCoordinateFrame: jest.fn(),
+    };
+    jest
+      .spyOn(embeddedSceneBridge, "getBinding")
+      .mockReturnValue({ namespace: "/xgc/scene", editable: false });
+    const extension = new ObstacleSceneExtension(renderer as unknown as IRenderer);
+    extension.session!.accept(envelope());
+    await Promise.resolve();
+    await Promise.resolve();
+    const mesh = extension.children[0]!.children[0]!.children[0]! as THREE.Mesh<
+      THREE.BufferGeometry,
+      THREE.MeshStandardMaterial
+    >;
+    return {
+      material: mesh.material,
+      dispose: () => {
+        extension.dispose();
+        canvas.remove();
+      },
+    };
+  }
+
+  it("renders the opaque product amber when the pane declares no override", async () => {
+    const { material, dispose } = await setupOverlay({ namespace: "/xgc/scene" });
+    expect(material.color.toArray()).toEqual([1, 0.5, 0.1]);
+    expect(material.opacity).toBe(1);
+    expect(material.transparent).toBe(false);
+    dispose();
+  });
+
+  it("applies the translucent image-pane override to every part material", async () => {
+    const { material, dispose } = await setupOverlay({
+      namespace: "/xgc/scene",
+      color: [1, 0.5, 0.1, 0.4],
+    });
+    expect(material.color.toArray()).toEqual([1, 0.5, 0.1]);
+    expect(material.opacity).toBe(0.4);
+    expect(material.transparent).toBe(true);
+    dispose();
+  });
+
+  it("falls back to the document color when the override is malformed", async () => {
+    for (const color of ["#ff801a66", [1, 0.5], [1, 0.5, 0.1, 2], [1, 0.5, 0.1, Number.NaN]]) {
+      const { material, dispose } = await setupOverlay({ namespace: "/xgc/scene", color });
+      expect(material.color.toArray()).toEqual([1, 0.5, 0.1]);
+      expect(material.opacity).toBe(1);
+      expect(material.transparent).toBe(false);
+      dispose();
+    }
+  });
+});

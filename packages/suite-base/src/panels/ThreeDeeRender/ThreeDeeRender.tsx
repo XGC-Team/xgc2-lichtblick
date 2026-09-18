@@ -99,7 +99,10 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
       cameraState,
       followMode: partialConfig?.followMode ?? DEFAULT_FOLLOW_MODE,
       followTf: partialConfig?.followTf,
-      scene: partialConfig?.scene ?? {},
+      // deep partial on config, makes the obstacleScene color tuple type
+      // [(number | undefined)?, ...] which is incompatible with RendererConfig;
+      // ObstacleScene re-parses namespace/color through sceneNamespace/sceneColorOverride
+      scene: (partialConfig?.scene ?? {}) as RendererConfig["scene"],
       transforms,
       topics: partialConfig?.topics ?? {},
       layers: partialConfig?.layers ?? {},
@@ -112,6 +115,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   const configRef = useLatest(config);
   const { cameraState } = config;
   const backgroundColor = config.scene.backgroundColor;
+  // Primitive rebuild key: the ObstacleScene extension reads the optional
+  // overlay color once at renderer construction.
+  const obstacleSceneColor = config.scene.obstacleScene?.color?.join(",");
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | ReactNull>(ReactNull);
   const [renderer, setRenderer] = useState<IRenderer | undefined>(undefined);
@@ -154,6 +160,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     configRef,
     config.scene.transforms?.enablePreloading,
     config.scene.obstacleScene?.namespace,
+    obstacleSceneColor,
     customSceneExtensions,
     customCameraModels,
     interfaceMode,

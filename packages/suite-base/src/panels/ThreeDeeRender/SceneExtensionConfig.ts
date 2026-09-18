@@ -67,7 +67,10 @@ export const DEFAULT_SCENE_EXTENSION_CONFIG: SceneExtensionConfig = {
         renderer.config.scene.obstacleScene?.namespace
           ? new ObstacleSceneExtension(renderer)
           : new SceneExtension(ObstacleSceneExtension.extensionId, renderer),
-      supportedInterfaceModes: ["3d"],
+      // Image mode renders the same document geometry as the AR overlay; the
+      // authoring controls stay inert there because only the 3D overlay mounts
+      // the editor that activates the session.
+      supportedInterfaceModes: ["3d", "image"],
     },
     [PublishSettings.extensionId]: {
       init: (renderer: IRenderer) => new PublishSettings(renderer),
