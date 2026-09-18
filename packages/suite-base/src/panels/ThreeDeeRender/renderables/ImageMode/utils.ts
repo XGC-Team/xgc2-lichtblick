@@ -13,12 +13,65 @@ import {
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/constants";
 
 export const IMAGE_MODE_MAX_DECODE_WIDTH = 1920;
+export const IMAGE_MODE_COARSE_DECODE_WIDTH = 1280;
+/** WebGL1 phones often advertise MAX_TEXTURE_SIZE 2048; never decode above this. */
+export const IMAGE_MODE_MAX_TEXTURE_WIDTH = 2048;
+
+export type ImageModePreviewHints = {
+  pointerCoarse?: boolean;
+  anyPointerCoarse?: boolean;
+  maxTouchPoints?: number;
+};
+
+function mediaMatches(query: string): boolean {
+  if (typeof matchMedia !== "function") {
+    return false;
+  }
+  try {
+    return matchMedia(query).matches === true;
+  } catch {
+    return false;
+  }
+}
+
+function defaultPreviewHints(): ImageModePreviewHints {
+  const maxTouchPoints =
+    typeof navigator === "undefined" ? 0 : Number(navigator.maxTouchPoints ?? 0);
+  return {
+    pointerCoarse: mediaMatches("(pointer: coarse)"),
+    anyPointerCoarse: mediaMatches("(any-pointer: coarse)"),
+    maxTouchPoints: Number.isFinite(maxTouchPoints) ? maxTouchPoints : 0,
+  };
+}
+
+/** Phone / tablet ImageMode budget. Desktop stays at {@link IMAGE_MODE_MAX_DECODE_WIDTH}. */
+export function imageModePreviewBudget(
+  hints: ImageModePreviewHints = defaultPreviewHints(),
+): number {
+  const touchPoints = hints.maxTouchPoints ?? 0;
+  if (
+    hints.pointerCoarse === true ||
+    hints.anyPointerCoarse === true ||
+    touchPoints > 0
+  ) {
+    return IMAGE_MODE_COARSE_DECODE_WIDTH;
+  }
+  return IMAGE_MODE_MAX_DECODE_WIDTH;
+}
 
 /** Keep detail available for image-panel zoom, independent of docked pane size. */
-export function imageModeDecodeWidth(sourceWidth?: number): number {
+export function imageModeDecodeWidth(
+  sourceWidth?: number,
+  maxWidth = IMAGE_MODE_MAX_DECODE_WIDTH,
+): number {
+  const requested =
+    maxWidth > 0 && Number.isFinite(maxWidth)
+      ? Math.max(1, Math.floor(maxWidth))
+      : IMAGE_MODE_MAX_DECODE_WIDTH;
+  const budget = Math.min(requested, IMAGE_MODE_MAX_TEXTURE_WIDTH);
   return sourceWidth != undefined && Number.isFinite(sourceWidth) && sourceWidth > 0
-    ? Math.min(IMAGE_MODE_MAX_DECODE_WIDTH, Math.max(1, Math.floor(sourceWidth)))
-    : IMAGE_MODE_MAX_DECODE_WIDTH;
+    ? Math.min(budget, Math.max(1, Math.floor(sourceWidth)))
+    : budget;
 }
 
 function mapRange(

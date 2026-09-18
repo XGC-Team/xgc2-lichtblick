@@ -36,6 +36,7 @@ import { RosValue } from "@lichtblick/suite-base/players/types";
 import { BoundedVideoFrameQueue } from "./BoundedVideoFrameQueue";
 import { AnyImage, CompressedVideo } from "./ImageTypes";
 import {
+  createImageBitmapMaybeResized,
   decodeCompressedImageToBitmap,
   decodeCompressedVideoToBitmap,
   emptyVideoFrame,
@@ -889,7 +890,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     }
 
     try {
-      const imageBitmap = await globalThis.createImageBitmap(result.frame, { resizeWidth });
+      const imageBitmap = await createImageBitmapMaybeResized(result.frame, resizeWidth);
       // The renderable releases the old bitmap after rebinding its texture.
       this.videoPlayer.lastImageBitmap = imageBitmap;
       this.#waitingForVideoKeyframe = false;
@@ -1328,7 +1329,7 @@ async function getErrorImage(width: number, height: number): Promise<ImageBitmap
 
   // Get the updated image data
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const bitmap = await createImageBitmap(imageData, { resizeWidth: width });
+  const bitmap = await createImageBitmapMaybeResized(imageData, width);
 
   return bitmap;
 }

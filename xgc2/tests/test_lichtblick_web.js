@@ -17,6 +17,7 @@ process.env.XGC2_LICHTBLICK_WEB_ENV_FILE = "/tmp/unused.env";
 
 const {
   buildAutoConnectScript,
+  createIndexLoader,
   defaultListenerOrigins,
   endpointMatches,
   normalizeOrigin,
@@ -165,6 +166,19 @@ test("does not replace an explicit data source", () => {
   const script = buildAutoConnectScript("/");
   assert.match(script, /searchParams\.has\("ds"\)/);
   assert.match(script, /history\.replaceState/);
+});
+
+test("reloads index.html after the webpack hash changes", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "xgc2-lichtblick-index-"));
+  const indexPath = path.join(temporary, "index.html");
+  fs.writeFileSync(indexPath, "<html><head></head><script src=\"main.old.js\"></script></html>");
+  const loadIndex = createIndexLoader("/", temporary);
+  assert.match(loadIndex(), /main\.old\.js/);
+  const later = new Date(Date.now() + 2000);
+  fs.writeFileSync(indexPath, "<html><head></head><script src=\"main.new.js\"></script></html>");
+  fs.utimesSync(indexPath, later, later);
+  assert.match(loadIndex(), /main\.new\.js/);
+  fs.rmSync(temporary, { recursive: true, force: true });
 });
 
 test("serves source-build metadata without an XGC layout and enforces WebSocket Origin", async (t) => {

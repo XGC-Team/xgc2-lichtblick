@@ -82,7 +82,7 @@ import { downloadFiles } from "@lichtblick/suite-base/util/download";
 import { ImageModeCamera } from "./ImageModeCamera";
 import { IMessageHandler, MessageHandler, MessageRenderState } from "./MessageHandler";
 import { ImageAnnotations } from "./annotations/ImageAnnotations";
-import { imageModeDecodeWidth } from "./utils";
+import { imageModeDecodeWidth, imageModePreviewBudget } from "./utils";
 import type {
   AnyRendererSubscription,
   IRenderer,
@@ -759,7 +759,10 @@ export class ImageMode
     }
 
     renderable.userData.receiveTime = receiveTime;
-    const resizeWidth = imageModeDecodeWidth(this.#cameraModel?.info.width);
+    const resizeWidth = imageModeDecodeWidth(
+      this.#cameraModel?.info.width,
+      imageModePreviewBudget(),
+    );
     renderable.setImage(image, resizeWidth, () => {
       if (this.#fallbackCameraModelActive()) {
         this.#updateFallbackCameraModel(renderable);

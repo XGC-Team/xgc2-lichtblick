@@ -42,12 +42,333 @@ import { ColorModeSettings, getColorConverter } from "../colorMode";
 // `@lichtblick/den/video` so both the renderer and the player-side seek backfill share a single
 // source of truth.
 
+const JPEG_BLOB_SUBTYPES = new Set(["jpeg", "jpg", "jpe", "mjpeg"]);
+
+export function isJpegBytes(data: Uint8Array): boolean {
+  return data.length >= 2 && data[0] === 0xff && data[1] === 0xd8;
+}
+
+function isPngBytes(data: Uint8Array): boolean {
+  return data.length >= 4 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47;
+}
+
+async function readBlobPrefix(blob: Blob, n: number): Promise<Uint8Array> {
+  const slice = blob.slice(0, n);
+  if (typeof slice.arrayBuffer === "function") {
+    try {
+      return new Uint8Array(await slice.arrayBuffer());
+    } catch {
+      // jsdom Blob#slice may not implement arrayBuffer().
+    }
+  }
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(new Uint8Array(reader.result as ArrayBuffer));
+    };
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("blob read failed"));
+    };
+    reader.readAsArrayBuffer(slice);
+  });
+}
+
+async function blobLooksLikeRaster(blob: Blob): Promise<boolean> {
+  const type = blob.type.toLowerCase();
+  if (
+    type === "image/jpeg" ||
+    type === "image/jpg" ||
+    type === "image/png" ||
+    type === "image/webp"
+  ) {
+    return true;
+  }
+  const header = await readBlobPrefix(blob, 4);
+  return isJpegBytes(header) || isPngBytes(header);
+}
+
+/**
+ * ROS `format` is often `jpg` / `mjpeg` / `jpeg; jpeg compressed rgb8` /
+ * `bgr8; jpeg compressed bgr8`. Safari rejects those MIME types; Chrome sniffs.
+ */
+export function compressedImageBlobType(format: string, data?: Uint8Array): string {
+  const raw = format.trim().toLowerCase();
+  const subtype = raw.split(";", 1)[0]!.trim();
+  if (
+    JPEG_BLOB_SUBTYPES.has(subtype) ||
+    subtype === "image/jpeg" ||
+    subtype === "image/jpg" ||
+    /\bjpe?g\b/.test(raw) ||
+    (data != undefined && isJpegBytes(data))
+  ) {
+    return "image/jpeg";
+  }
+  if (subtype === "png" || subtype === "image/png") {
+    return "image/png";
+  }
+  if (subtype === "webp" || subtype === "image/webp") {
+    return "image/webp";
+  }
+  if (subtype.startsWith("image/")) {
+    return subtype;
+  }
+  return `image/${subtype || "octet-stream"}`;
+}
+
+function revokeObjectUrl(url: string): void {
+  if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function" && url) {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** iPhone / iPad / mobile WebKit: Blob JPEG `createImageBitmap` often throws or poisons the GPU. */
+export function preferHtmlRasterDecode(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  const ua = navigator.userAgent ?? "";
+  const touchPoints = Number(navigator.maxTouchPoints ?? 0);
+  const iOSDevice =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && Number.isFinite(touchPoints) && touchPoints > 1);
+  const mobileWebKit = /AppleWebKit/.test(ua) && /Mobile/.test(ua);
+  return iOSDevice || mobileWebKit;
+}
+
+function closeBitmap(bitmap: ImageBitmap): void {
+  if (typeof bitmap.close === "function") {
+    bitmap.close();
+  }
+}
+
+type TwoDContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+function acquire2dContext(
+  width: number,
+  height: number,
+): { canvas: CanvasImageSource; context: TwoDContext } | undefined {
+  if (typeof OffscreenCanvas === "function") {
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d");
+    if (context) {
+      return { canvas, context };
+    }
+  }
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (context) {
+      return { canvas, context };
+    }
+  }
+  return undefined;
+}
+
+async function rasterToBitmap(
+  width: number,
+  height: number,
+  paint: (context: TwoDContext) => void,
+): Promise<ImageBitmap> {
+  const acquired = acquire2dContext(width, height);
+  if (!acquired) {
+    throw new Error(`Unable to rasterize image to ${width}x${height}`);
+  }
+  paint(acquired.context);
+  try {
+    const imageData = acquired.context.getImageData(0, 0, width, height);
+    return await createImageBitmap(imageData);
+  } catch {
+    return await createImageBitmap(acquired.canvas);
+  }
+}
+
+function scaledSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number | undefined,
+): { width: number; height: number } {
+  if (targetWidth == undefined || !(sourceWidth > targetWidth)) {
+    return { width: sourceWidth, height: sourceHeight };
+  }
+  return {
+    width: targetWidth,
+    height: Math.max(1, Math.round((sourceHeight * targetWidth) / sourceWidth)),
+  };
+}
+
+async function loadHtmlImage(blob: Blob): Promise<HTMLImageElement> {
+  if (typeof Image !== "function") {
+    throw new Error("HTML Image is not available");
+  }
+  const url = URL.createObjectURL(blob);
+  const image = new Image();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const fail = () => {
+        reject(new Error("HTML image failed to decode"));
+      };
+      image.onload = () => {
+        resolve();
+      };
+      image.onerror = fail;
+      image.src = url;
+    });
+    return image;
+  } catch (error) {
+    revokeObjectUrl(url);
+    throw error;
+  }
+}
+
+/**
+ * Phone WebKit can decode JPEG via HTML Image even when Blob `createImageBitmap`
+ * throws. Return ImageData for THREE.DataTexture — do not wrap it in
+ * `createImageBitmap`, which is the remaining red-X failure on iOS.
+ */
+async function imageDataFromHtmlImage(
+  blob: Blob,
+  targetWidth: number | undefined,
+): Promise<ImageData> {
+  const image = await loadHtmlImage(blob);
+  try {
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+    if (!(sourceWidth > 0 && sourceHeight > 0)) {
+      throw new Error("Decoded image has no dimensions");
+    }
+    const size = scaledSize(sourceWidth, sourceHeight, targetWidth);
+    if (typeof document === "undefined") {
+      throw new Error("document canvas is not available");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      throw new Error(`Unable to rasterize image to ${size.width}x${size.height}`);
+    }
+    context.drawImage(image, 0, 0, size.width, size.height);
+    return context.getImageData(0, 0, size.width, size.height);
+  } finally {
+    revokeObjectUrl(image.src);
+  }
+}
+
+async function downscaleBitmap(bitmap: ImageBitmap, targetWidth: number): Promise<ImageBitmap> {
+  const height = Math.max(1, Math.round((bitmap.height * targetWidth) / bitmap.width));
+  try {
+    const reduced = await createImageBitmap(bitmap, { resizeWidth: targetWidth });
+    if (reduced.width > 0 && !(reduced.width > targetWidth)) {
+      if (reduced !== bitmap) {
+        closeBitmap(bitmap);
+      }
+      return reduced;
+    }
+    if (reduced !== bitmap) {
+      closeBitmap(reduced);
+    }
+  } catch {
+    // Canvas / ImageData downscale below.
+  }
+
+  try {
+    const reduced = await rasterToBitmap(targetWidth, height, (context) => {
+      context.drawImage(bitmap, 0, 0, targetWidth, height);
+    });
+    closeBitmap(bitmap);
+    return reduced;
+  } catch (error) {
+    closeBitmap(bitmap);
+    throw error;
+  }
+}
+
+/**
+ * Phone WebKit often throws on Blob JPEG `createImageBitmap`, or on
+ * `resizeWidth`, or ignores it and returns a 4K bitmap that then fails WebGL
+ * (`MAX_TEXTURE_SIZE` 2048). Desktop Chrome is fine. Compressed JPEG fallback
+ * lives in {@link decodeCompressedImageToBitmap} (HTML Image → ImageData), not
+ * here — wrapping ImageData in `createImageBitmap` still red-Xes on iOS.
+ */
+export async function createImageBitmapMaybeResized(
+  source: ImageBitmapSource,
+  resizeWidth?: number,
+): Promise<ImageBitmap> {
+  const wantsResize = resizeWidth != undefined && Number.isFinite(resizeWidth) && resizeWidth > 0;
+  const targetWidth = wantsResize ? Math.floor(resizeWidth) : undefined;
+
+  if (source instanceof Blob) {
+    let bitmap: ImageBitmap | undefined;
+    try {
+      bitmap =
+        targetWidth != undefined
+          ? await createImageBitmap(source, { resizeWidth: targetWidth })
+          : await createImageBitmap(source);
+      if (bitmap != undefined && (targetWidth == undefined || !(bitmap.width > targetWidth))) {
+        return bitmap;
+      }
+    } catch {
+      bitmap = undefined;
+    }
+
+    if (bitmap == undefined) {
+      bitmap = await createImageBitmap(source);
+    }
+
+    if (bitmap == undefined) {
+      throw new Error("Unable to decode image bitmap");
+    }
+    if (targetWidth == undefined || !(bitmap.width > targetWidth)) {
+      return bitmap;
+    }
+    return await downscaleBitmap(bitmap, targetWidth);
+  }
+
+  let bitmap: ImageBitmap | undefined;
+  if (targetWidth == undefined) {
+    bitmap = await createImageBitmap(source);
+  } else {
+    try {
+      bitmap = await createImageBitmap(source, { resizeWidth: targetWidth });
+    } catch {
+      bitmap = undefined;
+    }
+    if (bitmap == undefined) {
+      bitmap = await createImageBitmap(source);
+    }
+  }
+
+  if (bitmap == undefined) {
+    throw new Error("Unable to decode image bitmap");
+  }
+  if (targetWidth == undefined || !(bitmap.width > targetWidth)) {
+    return bitmap;
+  }
+  return await downscaleBitmap(bitmap, targetWidth);
+}
+
 export async function decodeCompressedImageToBitmap(
   image: CompressedImageTypes,
   resizeWidth?: number,
-): Promise<ImageBitmap> {
-  const bitmapData = new Blob([new Uint8Array(image.data)], { type: `image/${image.format}` });
-  return await createImageBitmap(bitmapData, { resizeWidth });
+): Promise<ImageBitmap | ImageData> {
+  const data = new Uint8Array(image.data);
+  const bitmapData = new Blob([data], {
+    type: compressedImageBlobType(image.format, data),
+  });
+  const looksRaster = await blobLooksLikeRaster(bitmapData);
+  if (looksRaster && preferHtmlRasterDecode()) {
+    return await imageDataFromHtmlImage(bitmapData, resizeWidth);
+  }
+  try {
+    return await createImageBitmapMaybeResized(bitmapData, resizeWidth);
+  } catch (error) {
+    if (looksRaster) {
+      return await imageDataFromHtmlImage(bitmapData, resizeWidth);
+    }
+    throw error;
+  }
 }
 
 export function isCompressedVideoKeyframe(
@@ -148,7 +469,7 @@ export async function decodeCompressedVideoToBitmap(
     if (!videoFrame && videoPlayer.lastImageBitmap) {
       return videoPlayer.lastImageBitmap;
     }
-    const imageBitmap = await globalThis.createImageBitmap(frameToRender, { resizeWidth });
+    const imageBitmap = await createImageBitmapMaybeResized(frameToRender, resizeWidth);
     // A renderable may still own the previous bitmap as its current texture.
     // Closing it here detaches its dimensions and can force texture reallocation
     // or invalidate an upload before the replacement is ready to be presented.
@@ -270,5 +591,5 @@ export function emptyVideoFrame(
   const width = resizeWidth ?? 32;
   const size = videoPlayer?.codedSize() ?? { width, height: width };
   const data = new ImageData(size.width, size.height);
-  return createImageBitmap(data, { resizeWidth });
+  return createImageBitmapMaybeResized(data, size.width);
 }

@@ -16,10 +16,12 @@ import {
 import { BasicBuilder } from "@lichtblick/test-builders";
 
 import {
+  IMAGE_MODE_COARSE_DECODE_WIDTH,
   IMAGE_MODE_MAX_DECODE_WIDTH,
   clampBrightness,
   clampContrast,
   imageModeDecodeWidth,
+  imageModePreviewBudget,
 } from "./utils";
 
 describe("imageModeDecodeWidth", () => {
@@ -37,6 +39,27 @@ describe("imageModeDecodeWidth", () => {
     expect(imageModeDecodeWidth()).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
     expect(imageModeDecodeWidth(0)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
     expect(imageModeDecodeWidth(Number.NaN)).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+  });
+
+  it("caps 4K to the coarse-pointer budget", () => {
+    expect(imageModeDecodeWidth(3840, IMAGE_MODE_COARSE_DECODE_WIDTH)).toBe(1280);
+    expect(imageModePreviewBudget({ pointerCoarse: true })).toBe(IMAGE_MODE_COARSE_DECODE_WIDTH);
+    expect(imageModePreviewBudget({ pointerCoarse: false, anyPointerCoarse: false, maxTouchPoints: 0 })).toBe(
+      IMAGE_MODE_MAX_DECODE_WIDTH,
+    );
+  });
+
+  it("treats iOS-style fine pointer with touch as a phone budget", () => {
+    expect(
+      imageModePreviewBudget({ pointerCoarse: false, anyPointerCoarse: true, maxTouchPoints: 5 }),
+    ).toBe(IMAGE_MODE_COARSE_DECODE_WIDTH);
+    expect(
+      imageModePreviewBudget({ pointerCoarse: false, anyPointerCoarse: false, maxTouchPoints: 1 }),
+    ).toBe(IMAGE_MODE_COARSE_DECODE_WIDTH);
+  });
+
+  it("never exceeds the WebGL1 texture cap", () => {
+    expect(imageModeDecodeWidth(3840, 4096)).toBe(2048);
   });
 });
 
