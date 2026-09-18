@@ -293,6 +293,10 @@ export function convexHull2D(points: Vec2[]): Vec2[] {
  * Soft ground-contact patch: the part geometry is transformed into obstacle
  * space, projected straight down, and drawn as a faint fill plus outline at
  * floor level. A part with no area on the ground (degenerate) is skipped.
+ *
+ * The returned group stores its intended document-frame height in
+ * `userData.groundZ`; the owning extension re-pins it whenever the obstacle
+ * pose changes, because the obstacle origin is not necessarily on the floor.
  */
 export function createObstacleFootprint(
   geometry: THREE.BufferGeometry,
@@ -322,6 +326,7 @@ export function createObstacleFootprint(
   // Stacked parts share their ground projection; stagger micro-offsets so
   // coincident outlines never z-fight.
   group.position.z = FOOTPRINT_Z + lift;
+  group.userData.groundZ = FOOTPRINT_Z + lift;
   const fill = new THREE.Mesh(
     new THREE.ShapeGeometry(shape),
     new THREE.MeshBasicMaterial({

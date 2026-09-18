@@ -212,7 +212,10 @@ describe("3D obstacle authoring", () => {
 });
 
 describe("AR overlay color override", () => {
-  async function setupOverlay(obstacleScene: { namespace: string; color?: unknown }) {
+  async function setupOverlay(
+    obstacleScene: { namespace: string; color?: unknown },
+    mutate?: (doc: SceneEnvelope) => void,
+  ) {
     const canvas = document.createElement("canvas");
     document.body.appendChild(canvas);
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -232,7 +235,9 @@ describe("AR overlay color override", () => {
       .spyOn(embeddedSceneBridge, "getBinding")
       .mockReturnValue({ namespace: "/xgc/scene", editable: false });
     const extension = new ObstacleSceneExtension(renderer as unknown as IRenderer);
-    extension.session!.accept(envelope());
+    const doc = envelope();
+    mutate?.(doc);
+    extension.session!.accept(doc);
     await Promise.resolve();
     await Promise.resolve();
     const mesh = extension.children[0]!.children[0]!.children[0]! as THREE.Mesh<
@@ -241,6 +246,7 @@ describe("AR overlay color override", () => {
     >;
     return {
       material: mesh.material,
+      extension,
       dispose: () => {
         extension.dispose();
         canvas.remove();
@@ -275,5 +281,23 @@ describe("AR overlay color override", () => {
       expect(material.transparent).toBe(false);
       dispose();
     }
+  });
+
+  it("pins footprints to the floor when the obstacle origin sits at volume centre", async () => {
+    // The runtime scene service emits single-part obstacles with the origin at
+    // volume centre (z = half height), not on the ground.
+    const { extension, dispose } = await setupOverlay({ namespace: "/xgc/scene" }, (doc) => {
+      doc.document.obstacles[0]!.pose.position = [0, 0, 0.6];
+    });
+    const group = extension.children[0]!.children[0]!;
+    expect(group.position.z).toBeCloseTo(0.6);
+    const footprints = group.children.filter((child) => child.userData.footprint === true);
+    expect(footprints.length).toBeGreaterThan(0);
+    for (const footprint of footprints) {
+      const groundZ = footprint.userData.groundZ as number;
+      expect(footprint.position.z + group.position.z).toBeCloseTo(groundZ);
+      expect(groundZ).toBeLessThan(0.05);
+    }
+    dispose();
   });
 });

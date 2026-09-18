@@ -272,6 +272,7 @@ export class ObstacleSceneExtension extends SceneExtension {
         this.#groups.set(obstacle.id, group);
         this.#frame.add(group);
       }
+      this.#syncFootprintHeights();
     }
     this.#accepted = envelope;
     if (this.#drag && (this.session?.canEdit() !== true || !state.active)) {
@@ -284,6 +285,22 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#attach();
     this.renderer.queueAnimationFrame();
   };
+
+  /**
+   * Footprints pin to the document ground plane: the obstacle origin may sit
+   * at volume centre, and runtime poses move it further, so re-pin every
+   * rendered frame. Yaw-only obstacle rotations leave z untouched.
+   */
+  #syncFootprintHeights(): void {
+    for (const group of this.#frame.children) {
+      for (const child of group.children) {
+        const groundZ = child.userData.groundZ as number | undefined;
+        if (child.userData.footprint === true && groundZ != undefined) {
+          child.position.z = groundZ - group.position.z;
+        }
+      }
+    }
+  }
 
   #applyRuntimePoses(): void {
     const envelope = this.session?.getSnapshot().envelope;
@@ -382,6 +399,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     });
     this.#draftGroup = group;
     this.#frame.add(group);
+    this.#syncFootprintHeights();
   }
 
   public canTransform(): boolean {
@@ -682,6 +700,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     if (!envelope) {
       return;
     }
+    this.#syncFootprintHeights();
     const frame = this.renderer.normalizeFrameId(envelope.document.frame);
     const success = updatePose(
       this.#frame,
