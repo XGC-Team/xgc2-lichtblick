@@ -19,6 +19,7 @@ import { createGeometry, scaleGeometry, SCENE_DRAFT_ID } from "./geometry";
 import { withObstaclePose } from "./motion";
 import {
   isRecord,
+  sceneColorOverride,
   sceneNamespace,
   type SceneEnvelope,
   type SceneObstacle,
@@ -63,11 +64,13 @@ export class ObstacleSceneExtension extends SceneExtension {
   #lastState: { epoch: string; revision: number; poses: Map<string, ScenePose> } | undefined;
   #mode: "translate" | "rotate" | "scale" = "translate";
   #draftGroup: THREE.Group | undefined;
+  #colorOverride: [number, number, number, number] | undefined;
 
   public constructor(renderer: IRenderer) {
     super(ObstacleSceneExtension.extensionId, renderer);
     this.#canvas = renderer.gl.domElement;
     this.#frame.userData.pose = makePose();
+    this.#colorOverride = sceneColorOverride(renderer.config.scene.obstacleScene?.color);
     this.add(this.#frame);
     this.#controls = new TransformControls(renderer.cameraHandler.getActiveCamera(), this.#canvas);
     this.#controls.setSize(0.85);
@@ -176,7 +179,7 @@ export class ObstacleSceneExtension extends SceneExtension {
         group.name = obstacle.id;
         applyPose(group, obstacle.pose);
         for (const part of obstacle.parts) {
-          const [r, g, b, opacity] = part.color;
+          const [r, g, b, opacity] = this.#colorOverride ?? part.color;
           const material = new THREE.MeshStandardMaterial({
             color: new THREE.Color(r, g, b),
             opacity,

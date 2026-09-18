@@ -125,7 +125,11 @@ export type RendererConfig = {
   followMode: FollowMode;
   scene: {
     /** Explicit independent scene binding; it confers no write permission. */
-    obstacleScene?: { namespace?: string };
+    obstacleScene?: {
+      namespace?: string;
+      /** Optional RGBA override for the projected obstacles. Panes that omit it render the product opaque amber. */
+      color?: [number, number, number, number];
+    };
     /** Show rendering metrics in a DOM overlay */
     enableStats?: boolean;
     /** Background color override for the scene, sent to `glClearColor()` */

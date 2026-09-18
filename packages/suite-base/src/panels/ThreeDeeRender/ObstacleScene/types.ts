@@ -305,6 +305,17 @@ export function sceneNamespace(value: unknown): string | undefined {
     : undefined;
 }
 
+/**
+ * Per-pane RGBA override for the projected obstacles (the image AR pane uses a
+ * translucent variant). Invalid layout values fall back to the document color
+ * so a malformed config can never hide the scene.
+ */
+export function sceneColorOverride(value: unknown): [number, number, number, number] | undefined {
+  return finiteTuple(value, 4) && value.every((v) => v >= 0 && v <= 1)
+    ? [value[0]!, value[1]!, value[2]!, value[3]!]
+    : undefined;
+}
+
 export function initialPose(position: Vec3 = [0, 0, 0]): ScenePose {
   return { position, orientation: [0, 0, 0, 1] };
 }
