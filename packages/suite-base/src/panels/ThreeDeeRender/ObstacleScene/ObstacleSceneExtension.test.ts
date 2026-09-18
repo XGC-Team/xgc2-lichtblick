@@ -87,7 +87,11 @@ describe("3D obstacle authoring", () => {
     expect(renderer.addCoordinateFrame).toHaveBeenCalledWith("world");
     expect(controls.object?.name).toBe("lintel");
     expect(controls.object?.parent?.name).toBe("arch-1");
-    expect(controls.object?.parent?.children).toHaveLength(3);
+    expect(
+      controls.object?.parent?.children.filter(
+        (child) => child instanceof THREE.Mesh && child.userData.footprint !== true,
+      ),
+    ).toHaveLength(3);
     expect(
       extension
         .getSubscriptions()
@@ -233,7 +237,7 @@ describe("AR overlay color override", () => {
     await Promise.resolve();
     const mesh = extension.children[0]!.children[0]!.children[0]! as THREE.Mesh<
       THREE.BufferGeometry,
-      THREE.MeshStandardMaterial
+      THREE.MeshBasicMaterial
     >;
     return {
       material: mesh.material,
