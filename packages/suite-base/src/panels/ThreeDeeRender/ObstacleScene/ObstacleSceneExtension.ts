@@ -18,11 +18,22 @@ import { SceneEditorSession } from "./SceneEditorSession";
 import { createGeometry, scaleGeometry, SCENE_DRAFT_ID } from "./geometry";
 import { withObstaclePose } from "./motion";
 import {
+  convexFacePlanes,
+  createObstacleEdges,
+  createObstacleFill,
+  createObstacleFootprint,
+  RENDER_ORDER_FILL,
+  setObstacleVisualSelected,
+  trimSharedFaces,
+  type Rgb,
+} from "./visuals";
+import {
   isRecord,
   sceneColorOverride,
   sceneNamespace,
   type SceneEnvelope,
   type SceneObstacle,
+  type ScenePart,
   type ScenePose,
   type SceneSelection,
   type Vec3,
@@ -32,7 +43,7 @@ import { SceneExtension } from "../SceneExtension";
 import { makePose } from "../transforms";
 import { updatePose } from "../updatePose";
 
-type SceneMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+type SceneMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
 type Drag = {
   selection: SceneSelection;
   obstacle: SceneObstacle;
@@ -45,6 +56,45 @@ function applyPose(object: THREE.Object3D, pose: ScenePose): void {
   object.position.fromArray(pose.position);
   object.quaternion.fromArray(pose.orientation);
   object.scale.set(1, 1, 1);
+}
+
+function disposeVisuals(root: THREE.Object3D): void {
+  root.traverse((object) => {
+    if (
+      object instanceof THREE.Mesh ||
+      object instanceof THREE.LineSegments ||
+      object instanceof THREE.LineLoop
+    ) {
+      object.geometry.dispose();
+      const material = object.material as THREE.Material | THREE.Material[];
+      for (const entry of Array.isArray(material) ? material : [material]) {
+        entry.dispose();
+      }
+    }
+  });
+}
+
+function poseMatrix(pose: ScenePose): THREE.Matrix4 {
+  return new THREE.Matrix4().compose(
+    new THREE.Vector3(...pose.position),
+    new THREE.Quaternion(...pose.orientation),
+    new THREE.Vector3(1, 1, 1),
+  );
+}
+
+/** Sibling face planes in this part's local frame, for decomposition seam suppression. */
+function seamBlockers(
+  parts: ScenePart[],
+  planeSets: THREE.Plane[][],
+  index: number,
+): THREE.Plane[][] {
+  if (parts.length < 2) {
+    return [];
+  }
+  const inverse = poseMatrix(parts[index]!.pose).invert();
+  return planeSets
+    .filter((_, j) => j !== index)
+    .map((set) => set.map((plane) => plane.clone().applyMatrix4(inverse)));
 }
 
 /** Typed scene projection and authoring controls. Ordinary markers are never editable entities. */
@@ -178,23 +228,47 @@ export class ObstacleSceneExtension extends SceneExtension {
         const group = new THREE.Group();
         group.name = obstacle.id;
         applyPose(group, obstacle.pose);
-        for (const part of obstacle.parts) {
-          const [r, g, b, opacity] = this.#colorOverride ?? part.color;
-          const material = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(r, g, b),
-            opacity,
-            transparent: opacity < 1,
-            roughness: 0.8,
-            side: THREE.DoubleSide,
-          });
-          const mesh = new THREE.Mesh(createGeometry(part.geometry), material);
+        const planeSets = obstacle.parts.map((part) =>
+          convexFacePlanes(createGeometry(part.geometry), part.pose),
+        );
+        obstacle.parts.forEach((part, index) => {
+          const rgba = this.#colorOverride ?? part.color;
+          const blockers = seamBlockers(obstacle.parts, planeSets, index);
+          const mesh = new THREE.Mesh(
+            trimSharedFaces(createGeometry(part.geometry), blockers),
+            createObstacleFill(rgba),
+          );
           mesh.name = part.id;
           mesh.userData.obstacleId = obstacle.id;
           mesh.userData.partId = part.id;
+          mesh.renderOrder = RENDER_ORDER_FILL;
           applyPose(mesh, part.pose);
+          const edges = createObstacleEdges(
+            mesh.geometry,
+            rgba.slice(0, 3) as Rgb,
+            blockers,
+          );
+          if (edges) {
+            edges.name = `${part.id}:edges`;
+            mesh.add(edges);
+            mesh.userData.edges = edges;
+          }
           group.add(mesh);
           this.#meshes.push(mesh);
-        }
+        });
+        obstacle.parts.forEach((part, index) => {
+          const rgba = this.#colorOverride ?? part.color;
+          const footprint = createObstacleFootprint(
+            createGeometry(part.geometry),
+            part.pose,
+            rgba.slice(0, 3) as Rgb,
+            index * 0.001,
+          );
+          if (footprint) {
+            footprint.name = `${part.id}:footprint`;
+            group.add(footprint);
+          }
+        });
         this.#groups.set(obstacle.id, group);
         this.#frame.add(group);
       }
@@ -248,12 +322,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     }
     this.#meshes = this.#meshes.filter((mesh) => mesh.userData.draft !== true);
     this.#frame.remove(this.#draftGroup);
-    this.#draftGroup.traverse((object) => {
-      if (object instanceof THREE.Mesh) {
-        object.geometry.dispose();
-        object.material.dispose();
-      }
-    });
+    disposeVisuals(this.#draftGroup);
     this.#draftGroup = undefined;
   }
 
@@ -273,24 +342,44 @@ export class ObstacleSceneExtension extends SceneExtension {
     const group = new THREE.Group();
     group.name = SCENE_DRAFT_ID;
     applyPose(group, placement.pose);
-    for (const part of placement.parts) {
+    const planeSets = placement.parts.map((part) =>
+      convexFacePlanes(createGeometry(part.geometry), part.pose),
+    );
+    placement.parts.forEach((part, index) => {
       const [r, g, b] = part.color;
-      const material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(r, g, b),
-        opacity: 0.45,
-        transparent: true,
-        roughness: 0.8,
-        side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(createGeometry(part.geometry), material);
+      const blockers = seamBlockers(placement.parts, planeSets, index);
+      const mesh = new THREE.Mesh(
+        trimSharedFaces(createGeometry(part.geometry), blockers),
+        createObstacleFill([r, g, b, 0.45]),
+      );
       mesh.name = part.id;
       mesh.userData.obstacleId = SCENE_DRAFT_ID;
       mesh.userData.partId = part.id;
       mesh.userData.draft = true;
+      mesh.renderOrder = RENDER_ORDER_FILL;
       applyPose(mesh, part.pose);
+      const edges = createObstacleEdges(mesh.geometry, [r, g, b], blockers);
+      if (edges) {
+        edges.name = `${part.id}:edges`;
+        mesh.add(edges);
+        mesh.userData.edges = edges;
+      }
       group.add(mesh);
       this.#meshes.push(mesh);
-    }
+    });
+    placement.parts.forEach((part, index) => {
+      const [r, g, b] = part.color;
+      const footprint = createObstacleFootprint(
+        createGeometry(part.geometry),
+        part.pose,
+        [r, g, b],
+        index * 0.001,
+      );
+      if (footprint) {
+        footprint.name = `${part.id}:footprint`;
+        group.add(footprint);
+      }
+    });
     this.#draftGroup = group;
     this.#frame.add(group);
   }
@@ -370,7 +459,7 @@ export class ObstacleSceneExtension extends SceneExtension {
           ? !selection
           : mesh.userData.obstacleId === selection?.obstacleId &&
             (!selection?.partId || mesh.userData.partId === selection.partId));
-      mesh.material.emissive.setHex(selected ? 0x57431c : 0x000000);
+      setObstacleVisualSelected(mesh, selected);
     }
   }
 
@@ -610,10 +699,7 @@ export class ObstacleSceneExtension extends SceneExtension {
   #clearGeometry(): void {
     this.#controls.detach();
     this.#clearDraft();
-    for (const mesh of this.#meshes) {
-      mesh.geometry.dispose();
-      mesh.material.dispose();
-    }
+    disposeVisuals(this.#frame);
     this.#meshes = [];
     this.#groups.clear();
     this.#frame.clear();

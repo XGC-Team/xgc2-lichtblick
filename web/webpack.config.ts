@@ -16,7 +16,10 @@ import {
 import packageJson from "../package.json";
 
 const params: ConfigParams = {
-  outputPath: path.resolve(__dirname, ".webpack"),
+  // A dev server (CleanWebpackPlugin) wipes this directory on startup. The
+  // station's embedded viewer serves the static bundle from .webpack, so
+  // previews must override the output dir instead of sharing it.
+  outputPath: path.resolve(__dirname, process.env.LICHTBLICK_WEB_OUTPUT_DIR ?? ".webpack"),
   contextPath: path.resolve(__dirname, "src"),
   entrypoint: "./entrypoint.tsx",
   prodSourceMap: "source-map",
