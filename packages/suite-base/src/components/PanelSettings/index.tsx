@@ -115,15 +115,17 @@ export default function PanelSettings({
         initialValue={panelConfigById[selectedPanelId] ?? {}}
         onChange={(config) => {
           savePanelConfigs({
-            configs: [{
-              id: selectedPanelId,
-              config: sanitizeImportedPanelConfig(
-                config,
-                panelConfigById[selectedPanelId],
-                getPanelTypeFromId(selectedPanelId),
-              ),
-              override: true,
-            }],
+            configs: [
+              {
+                id: selectedPanelId,
+                config: sanitizeImportedPanelConfig(
+                  config,
+                  panelConfigById[selectedPanelId],
+                  getPanelTypeFromId(selectedPanelId),
+                ),
+                override: true,
+              },
+            ],
           });
           incrementSequenceNumber(selectedPanelId);
         }}

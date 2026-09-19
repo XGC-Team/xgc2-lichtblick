@@ -479,6 +479,25 @@ function transformIndexHtml(source, prefix) {
   return source.replace("</head>", `${autoConnect}</head>`);
 }
 
+function createIndexLoader(prefix, staticRoot = STATIC_ROOT) {
+  const indexPath = path.join(staticRoot, "index.html");
+  let mtimeNs = -1n;
+  let body = "";
+  return function loadTransformedIndex() {
+    const st = fs.statSync(indexPath);
+    const nextMtime = st.mtimeNs ?? BigInt(Math.round(st.mtimeMs * 1e6));
+    if (nextMtime !== mtimeNs) {
+      body = transformIndexHtml(fs.readFileSync(indexPath, "utf8"), prefix);
+      mtimeNs = nextMtime;
+    }
+    return body;
+  };
+}
+
+function resolveTransformedIndex(transformedIndex) {
+  return typeof transformedIndex === "function" ? transformedIndex() : transformedIndex;
+}
+
 function loadBuildInfo() {
   const parsed = JSON.parse(fs.readFileSync(BUILD_INFO_FILE, "utf8"));
   if (
@@ -503,7 +522,20 @@ function securityHeaders(frameAncestors) {
 }
 
 function serveIndex(res, transformedIndex, responseSecurityHeaders) {
-  const body = Buffer.from(transformedIndex);
+  let body;
+  try {
+    body = Buffer.from(resolveTransformedIndex(transformedIndex));
+  } catch (error) {
+    logWarn(`index.html is temporarily unavailable: ${error.message}`);
+    res.writeHead(503, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": "1",
+      ...responseSecurityHeaders,
+    });
+    res.end("Lichtblick is temporarily unavailable. Please retry.");
+    return;
+  }
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": body.length,
@@ -567,7 +599,12 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
     res.writeHead(200, {
       "Content-Type": mime,
       "Content-Length": stats.size,
-      "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=3600",
+      // Hashed bundles still change in source-dev without a process restart.
+      // Phone Safari kept the first-slice JS for max-age=3600 and stayed on the red X.
+      "Cache-Control":
+        ext === ".html" || ext === ".js" || ext === ".css" || ext === ".map"
+          ? "no-cache"
+          : "public, max-age=3600",
       ...responseSecurityHeaders,
     });
     fs.createReadStream(target).pipe(res);
@@ -688,13 +725,13 @@ function main() {
     prefix = prefix.slice(0, -1);
   }
 
-  let transformedIndex;
+  let loadIndex;
   let buildInfo;
   let validatedFrameAncestors;
   let configuredOrigins;
   try {
-    const indexSource = fs.readFileSync(path.join(STATIC_ROOT, "index.html"), "utf8");
-    transformedIndex = transformIndexHtml(indexSource, prefix);
+    loadIndex = createIndexLoader(prefix);
+    loadIndex();
     buildInfo = loadBuildInfo();
     validatedFrameAncestors = validateFrameAncestors(frameAncestorsValue);
     configuredOrigins = parseConfiguredOrigins(configuredOriginValues);
@@ -705,7 +742,7 @@ function main() {
 
   const responseSecurityHeaders = securityHeaders(validatedFrameAncestors);
   const server = http.createServer(
-    buildRequestListener(targetWs, prefix, transformedIndex, buildInfo, responseSecurityHeaders),
+    buildRequestListener(targetWs, prefix, loadIndex, buildInfo, responseSecurityHeaders),
   );
   let allowedOrigins = configuredOrigins;
 
@@ -769,6 +806,7 @@ if (require.main === module) {
 
 module.exports = {
   buildAutoConnectScript,
+  createIndexLoader,
   defaultListenerOrigins,
   endpointMatches,
   loadBuildInfo,

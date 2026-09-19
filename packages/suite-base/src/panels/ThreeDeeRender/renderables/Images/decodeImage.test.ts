@@ -16,12 +16,16 @@ import RosTimeBuilder from "@lichtblick/suite-base/testing/builders/RosTimeBuild
 import { CompressedImageTypes, CompressedVideo } from "./ImageTypes";
 import {
   decodeCompressedImageToBitmap,
+  decodeCompressedVideoToBitmap,
   isCompressedVideoKeyframe,
   getVideoDecoderConfig,
   prepareVideoFrame,
-  decodeCompressedVideoToBitmap,
   decodeRawImage,
   emptyVideoFrame,
+  compressedImageBlobType,
+  createImageBitmapMaybeResized,
+  isJpegBytes,
+  preferHtmlRasterDecode,
 } from "./decodeImage";
 import { PreparedVideoFrameStatus } from "./types";
 import { Image as RosImage } from "../../ros";
@@ -55,6 +59,180 @@ describe("decodeCompressedImageToBitmap", () => {
 
     // THEN an ImageBitmap is produced
     expect(bitmap).toBeInstanceOf(ImageBitmap);
+  });
+
+  it.each([
+    "jpg",
+    "mjpeg",
+    "JPEG",
+    "jpeg; jpeg compressed rgb8",
+    "bgr8; jpeg compressed bgr8",
+    "rgb8; jpeg compressed rgb8",
+  ])("normalizes %s to image/jpeg before createImageBitmap", async (format) => {
+    const original = globalThis.createImageBitmap;
+    const create = jest.fn().mockResolvedValue(new ImageBitmap());
+    globalThis.createImageBitmap = create as typeof createImageBitmap;
+    try {
+      await decodeCompressedImageToBitmap({
+        data: new Uint8Array([1, 2, 3]),
+        format,
+        timestamp: RosTimeBuilder.time(),
+        frame_id: "frame_1",
+      });
+      const blob = create.mock.calls[0]![0] as Blob;
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.type).toBe("image/jpeg");
+      expect(compressedImageBlobType(format)).toBe("image/jpeg");
+    } finally {
+      globalThis.createImageBitmap = original;
+    }
+  });
+
+  it("falls back when createImageBitmap rejects resizeWidth", async () => {
+    const original = globalThis.createImageBitmap;
+    const full = Object.assign(new ImageBitmap(), { width: 64, height: 36 });
+    const create = jest
+      .fn()
+      .mockRejectedValueOnce(new Error("resizeWidth unsupported"))
+      .mockResolvedValueOnce(full);
+    globalThis.createImageBitmap = create as typeof createImageBitmap;
+    try {
+      const bitmap = await decodeCompressedImageToBitmap(
+        {
+          data: new Uint8Array([1, 2, 3]),
+          format: "jpeg",
+          timestamp: RosTimeBuilder.time(),
+          frame_id: "frame_1",
+        },
+        1920,
+      );
+
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(create.mock.calls[0]![1]).toEqual({ resizeWidth: 1920 });
+      expect(create.mock.calls[1]).toHaveLength(1);
+      expect(bitmap).toBe(full);
+    } finally {
+      globalThis.createImageBitmap = original;
+    }
+  });
+
+  it("downscales when the browser ignores resizeWidth", async () => {
+    const original = globalThis.createImageBitmap;
+    const full = Object.assign(new ImageBitmap(), { width: 3840, height: 2160, close: jest.fn() });
+    const reduced = Object.assign(new ImageBitmap(), { width: 1920, height: 1080 });
+    const create = jest.fn().mockResolvedValueOnce(full).mockResolvedValueOnce(reduced);
+    globalThis.createImageBitmap = create as typeof createImageBitmap;
+    try {
+      const bitmap = await createImageBitmapMaybeResized(new Blob([new Uint8Array([1])]), 1920);
+
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(bitmap).toBe(reduced);
+      expect(full.close).toHaveBeenCalled();
+    } finally {
+      globalThis.createImageBitmap = original;
+    }
+  });
+
+  it("sniffs JPEG bytes even when ROS format is an encoding prefix", () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xdb]);
+    expect(isJpegBytes(jpeg)).toBe(true);
+    expect(compressedImageBlobType("bgr8", jpeg)).toBe("image/jpeg");
+    expect(compressedImageBlobType("bgr8", new Uint8Array([0x00, 0x00, 0x00, 0x01]))).toBe(
+      "image/bgr8",
+    );
+  });
+
+  function installFakeJpegImage(): () => void {
+    const width = jest
+      .spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+      .mockReturnValue(3840);
+    const height = jest
+      .spyOn(HTMLImageElement.prototype, "naturalHeight", "get")
+      .mockReturnValue(2160);
+    const source = jest
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(function (this: HTMLImageElement, value: string) {
+        this.setAttribute("src", value);
+        queueMicrotask(() => {
+          this.dispatchEvent(new Event("load"));
+        });
+      });
+    return () => {
+      source.mockRestore();
+      height.mockRestore();
+      width.mockRestore();
+    };
+  }
+
+  it("returns ImageData when Blob createImageBitmap throws", async () => {
+    const originalCreate = globalThis.createImageBitmap;
+    const create = jest.fn().mockRejectedValue(new Error("Safari cannot decode JPEG blobs"));
+    globalThis.createImageBitmap = create as typeof createImageBitmap;
+    const restoreImage = installFakeJpegImage();
+    const pixels = new ImageData(1280, 720);
+    const getContext = jest.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: jest.fn(),
+      getImageData: () => pixels,
+    } as unknown as CanvasRenderingContext2D);
+
+    try {
+      const decoded = await decodeCompressedImageToBitmap(
+        {
+          data: new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 1, 2, 3]),
+          format: "jpeg",
+          timestamp: RosTimeBuilder.time(),
+          frame_id: "frame_1",
+        },
+        1280,
+      );
+
+      expect(decoded).toBe(pixels);
+      expect(decoded).toBeInstanceOf(ImageData);
+      expect(create.mock.calls.every((call) => call[0] instanceof Blob)).toBe(true);
+      expect(create.mock.calls.some((call) => call[0] instanceof ImageData)).toBe(false);
+    } finally {
+      getContext.mockRestore();
+      restoreImage();
+      globalThis.createImageBitmap = originalCreate;
+    }
+  });
+
+  it("skips Blob createImageBitmap on iPhone and returns ImageData", async () => {
+    const originalCreate = globalThis.createImageBitmap;
+    const create = jest.fn().mockRejectedValue(new Error("should not be called"));
+    globalThis.createImageBitmap = create as typeof createImageBitmap;
+    const restoreImage = installFakeJpegImage();
+    const pixels = new ImageData(1280, 720);
+    const getContext = jest.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: jest.fn(),
+      getImageData: () => pixels,
+    } as unknown as CanvasRenderingContext2D);
+    const agent = jest
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+      );
+
+    try {
+      expect(preferHtmlRasterDecode()).toBe(true);
+      const decoded = await decodeCompressedImageToBitmap(
+        {
+          data: new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 1, 2, 3]),
+          format: "bgr8; jpeg compressed bgr8",
+          timestamp: RosTimeBuilder.time(),
+          frame_id: "frame_1",
+        },
+        1280,
+      );
+
+      expect(decoded).toBe(pixels);
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      agent.mockRestore();
+      getContext.mockRestore();
+      restoreImage();
+      globalThis.createImageBitmap = originalCreate;
+    }
   });
 });
 
@@ -248,7 +426,7 @@ describe("decodeCompressedVideoToBitmap", () => {
     // THEN the last video frame is reused to build the returned bitmap
     expect(bitmap).toBeInstanceOf(ImageBitmap);
     expect(mockVideoPlayer.lastImageBitmap).toBeDefined();
-    expect(createImageBitmapSpy).toHaveBeenCalledWith(lastVideoFrame, { resizeWidth: undefined });
+    expect(createImageBitmapSpy).toHaveBeenCalledWith(lastVideoFrame);
     self.createImageBitmap = originalCreateImageBitmap;
   });
 });

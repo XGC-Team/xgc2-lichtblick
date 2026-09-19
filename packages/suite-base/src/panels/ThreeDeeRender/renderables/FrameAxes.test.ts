@@ -157,11 +157,11 @@ describe("FrameAxes", () => {
     });
 
     it("seeds 1 m world origin axes from layout without waiting for TF", () => {
-      const canvas = document.createElement("canvas");
-      parent.appendChild(canvas);
+      const seededCanvas = document.createElement("canvas");
+      parent.appendChild(seededCanvas);
       const seeded = new Renderer({
         ...defaultRendererProps,
-        canvas,
+        canvas: seededCanvas,
         config: {
           ...defaultRendererConfig,
           followTf: "world",

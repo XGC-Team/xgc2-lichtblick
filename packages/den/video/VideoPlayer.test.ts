@@ -146,9 +146,10 @@ describe("VideoPlayer", () => {
     ]);
     await jest.advanceTimersByTimeAsync(45);
     const frame = createFrame(1000);
+    const close = jest.spyOn(frame, "close");
     outputFrames.get(1000)?.(frame);
     await expect(result).resolves.toEqual({ type: "target", frame });
-    expect(frame.close).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
     player.close();
   });
 

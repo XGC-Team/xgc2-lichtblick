@@ -6,8 +6,8 @@
 
 import i18next from "i18next";
 
-import { OfflineRenderer } from "./renderer";
 import { interactivePreviewEnabled } from "./interactive";
+import { OfflineRenderer } from "./renderer";
 import {
   assetPath,
   parseEvents,

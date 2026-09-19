@@ -435,10 +435,11 @@ function SceneInspector({
   const consumers = envelope?.consumers ?? [];
   const failed = consumers.filter((consumer) => !consumer.applied);
   const capability = consumers.filter((consumer) => consumer.capability === "unsupported");
-  const awaiting = consumers.some(
-    (consumer) =>
-      consumer.revision !== envelope?.revision || consumer.epoch !== envelope?.epoch,
-  );
+  const awaiting =
+    envelope != undefined &&
+    consumers.some(
+      (consumer) => consumer.revision !== envelope.revision || consumer.epoch !== envelope.epoch,
+    );
   const retrySync = envelope != undefined && canRetrySync(envelope);
   const update = (next: SceneObstacle) => {
     void session.command({ operation: "update", obstacle: next });
@@ -468,8 +469,8 @@ function SceneInspector({
         parts: [...obstacle.parts, ...next.parts.map((p) => ({ ...p, id: `${next.id}-${p.id}` }))],
       });
     } else {
-      const pose = placement?.pose ?? initialPose(DEFAULT_ADD_POSITION);
-      const body = { ...withObstaclePose(next, pose), id: uuid() };
+      const placementPose = placement?.pose ?? initialPose(DEFAULT_ADD_POSITION);
+      const body = { ...withObstaclePose(next, placementPose), id: uuid() };
       if (customGeometry) {
         body.name = next.name;
         body.parts = next.parts;
@@ -549,13 +550,13 @@ function SceneInspector({
           {failed
             .filter((consumer) => consumer.capability !== "unsupported")
             .map((consumer) => (
-            <Alert severity="error" key={consumer.consumer}>
-              {consumer.message ||
-                (zh
-                  ? "场景使用方未能应用更新，请检查对应工作流。"
-                  : "A scene consumer could not apply the update. Check its workflow.")}
-            </Alert>
-          ))}
+              <Alert severity="error" key={consumer.consumer}>
+                {consumer.message ||
+                  (zh
+                    ? "场景使用方未能应用更新，请检查对应工作流。"
+                    : "A scene consumer could not apply the update. Check its workflow.")}
+              </Alert>
+            ))}
           {awaiting && (
             <Alert severity="info">
               {zh

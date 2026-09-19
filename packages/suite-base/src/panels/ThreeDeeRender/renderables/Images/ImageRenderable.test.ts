@@ -107,13 +107,21 @@ describe("ImageRenderable", () => {
 
   it("should set and decode image", async () => {
     const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
-    renderable.setImage(sampleImage);
-    expect(renderable.userData.image).toBe(sampleImage);
-    expect(renderable.getDecodedImage()).toBeUndefined();
-
-    // @ts-expect-error decodeImage is protected, but ok to use on tests
-    await renderable.decodeImage(renderable.userData.image!, 100);
-    expect(renderable.getDecodedImage()).toBeInstanceOf(ImageBitmap);
+    jest.spyOn(renderable, "update").mockImplementation(() => undefined);
+    const originalCreateImageBitmap = self.createImageBitmap;
+    const bitmap = Object.assign(new ImageBitmap(), { width: 100, height: 50 });
+    self.createImageBitmap = jest.fn().mockResolvedValue(bitmap);
+    try {
+      renderable.setImage(sampleImage, 100);
+      expect(renderable.userData.image).toBe(sampleImage);
+      expect(renderable.getDecodedImage()).toBeUndefined();
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      expect(renderable.getDecodedImage()).toBe(bitmap);
+    } finally {
+      self.createImageBitmap = originalCreateImageBitmap;
+    }
   });
 
   it("should close the previous bitmap when replacing a same-size image", async () => {

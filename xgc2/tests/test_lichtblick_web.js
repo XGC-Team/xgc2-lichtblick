@@ -17,6 +17,7 @@ process.env.XGC2_LICHTBLICK_WEB_ENV_FILE = "/tmp/unused.env";
 
 const {
   buildAutoConnectScript,
+  createIndexLoader,
   defaultListenerOrigins,
   endpointMatches,
   normalizeOrigin,
@@ -167,6 +168,19 @@ test("does not replace an explicit data source", () => {
   assert.match(script, /history\.replaceState/);
 });
 
+test("reloads index.html after the webpack hash changes", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "xgc2-lichtblick-index-"));
+  const indexPath = path.join(temporary, "index.html");
+  fs.writeFileSync(indexPath, '<html><head></head><script src="main.old.js"></script></html>');
+  const loadIndex = createIndexLoader("/", temporary);
+  assert.match(loadIndex(), /main\.old\.js/);
+  const later = new Date(Date.now() + 2000);
+  fs.writeFileSync(indexPath, '<html><head></head><script src="main.new.js"></script></html>');
+  fs.utimesSync(indexPath, later, later);
+  assert.match(loadIndex(), /main\.new\.js/);
+  fs.rmSync(temporary, { recursive: true, force: true });
+});
+
 test("serves source-build metadata without an XGC layout and enforces WebSocket Origin", async (t) => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "xgc2-lichtblick-test-"));
   const webRoot = path.join(temporary, "web");
@@ -261,6 +275,42 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
   const index = await getText(port, "/");
   assert.match(index.body, /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/);
   assert.match(index.body, /foxglove-websocket/);
+
+  await t.test("retries a missing or partial index without serving stale HTML", async () => {
+    const indexPath = path.join(webRoot, "index.html");
+    const original = fs.readFileSync(indexPath, "utf8");
+    let revision = Date.now();
+    const replaceIndex = (html) => {
+      fs.writeFileSync(indexPath, html);
+      const modified = new Date((revision += 2000));
+      fs.utimesSync(indexPath, modified, modified);
+    };
+
+    for (const state of ["missing", "partial"]) {
+      if (state === "missing") {
+        fs.unlinkSync(indexPath);
+      } else {
+        replaceIndex("<!doctype html><html><head>");
+      }
+      for (const requestPath of ["/", "/index.html", "/workspace"]) {
+        const unavailable = await getText(port, requestPath);
+        assert.equal(unavailable.statusCode, 503);
+        assert.equal(unavailable.headers["cache-control"], "no-store");
+        assert.equal(unavailable.headers["retry-after"], "1");
+        assert.equal(
+          unavailable.headers["content-security-policy"],
+          index.headers["content-security-policy"],
+        );
+        assert.doesNotMatch(unavailable.body, /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/);
+      }
+
+      replaceIndex(original.replace("</body>", `<p>${state} recovered</p></body>`));
+      const recovered = await getText(port, "/");
+      assert.equal(recovered.statusCode, 200);
+      assert.match(recovered.body, new RegExp(`${state} recovered`));
+      assert.match(recovered.body, /foxglove-websocket/);
+    }
+  });
 
   assert.match(await websocketUpgradeStatus(port, "https://evil.example"), /^HTTP\/1\.1 403/);
   assert.match(await websocketUpgradeStatus(port, `http://127.0.0.1:${port}`), /^HTTP\/1\.1 101/);

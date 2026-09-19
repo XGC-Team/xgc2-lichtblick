@@ -103,7 +103,10 @@ describe("xgc managed layout import", () => {
     expect(sanitized.configById["3D!imported"]).toMatchObject({
       followTf: "world",
       followMode: "follow-none",
-      topics: { "/xgc/tf": { visible: false }, "/xgc/scene": { visible: true, showOutlines: false } },
+      topics: {
+        "/xgc/tf": { visible: false },
+        "/xgc/scene": { visible: true, showOutlines: false },
+      },
       transforms: { "frame:world": { visible: true } },
       scene: { meshUpAxis: "y_up", obstacleScene: { namespace: "/xgc/scene" } },
       layers: {
@@ -196,14 +199,23 @@ describe("xgc managed layout import", () => {
       "/xgc/tf": { visible: true },
       "/xgc/scene": { visible: true, showOutlines: false },
     });
-    expect((imported.scene as { obstacleScene: { namespace: string } }).obstacleScene.namespace).toBe(
-      "/xgc/scene",
-    );
+    expect(
+      (imported.scene as { obstacleScene: { namespace: string } }).obstacleScene.namespace,
+    ).toBe("/xgc/scene");
   });
 
   it("passes through layouts that are not panel config objects", () => {
     const raw = { data: "not-a-layout" };
     expect(sanitizeImportedLayoutData(raw, authorityLayout)).toEqual(raw);
+  });
+
+  it("keeps an explicit null transform authority when importing parked transforms", () => {
+    const imported = sanitizeImportedPanelConfig(
+      { transforms: { "frame:map": { visible: true } } },
+      { ...authorityThreeD, transforms: null },
+      "3D",
+    );
+    expect(imported.transforms).toBeNull();
   });
 
   it("installs Core layoutUrl as authority over a parked Scout ugv3 followTf", () => {
@@ -276,12 +288,18 @@ describe("xgc managed layout import", () => {
   it("uses Core layoutUrl as-is when the viewer has no parked layout", () => {
     const managed = {
       configById: {
-        "3D!xgc2": { followTf: "world", layers: { "xgc2-urdf-ugv2": { framePrefix: "xgc/robots/ugv2/" } } },
+        "3D!xgc2": {
+          followTf: "world",
+          layers: { "xgc2-urdf-ugv2": { framePrefix: "xgc/robots/ugv2/" } },
+        },
       },
     };
     expect(mergeManagedLayoutFromUrl(managed)).toMatchObject({
       configById: {
-        "3D!xgc2": { followTf: "world", layers: { "xgc2-urdf-ugv2": { framePrefix: "xgc/robots/ugv2/" } } },
+        "3D!xgc2": {
+          followTf: "world",
+          layers: { "xgc2-urdf-ugv2": { framePrefix: "xgc/robots/ugv2/" } },
+        },
       },
     });
   });

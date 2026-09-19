@@ -15,11 +15,11 @@ import { useLayoutNavigation } from "@lichtblick/suite-base/hooks/useLayoutNavig
 import { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
 import { Namespace } from "@lichtblick/suite-base/types";
 import { downloadTextFile } from "@lichtblick/suite-base/util/download";
+import showOpenFilePicker from "@lichtblick/suite-base/util/showOpenFilePicker";
 import {
   mergeManagedLayoutFromUrl,
   sanitizeImportedLayoutData,
 } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
-import showOpenFilePicker from "@lichtblick/suite-base/util/showOpenFilePicker";
 
 import { useAnalytics } from "../context/AnalyticsContext";
 import { useLayoutManager } from "../context/LayoutManagerContext";
@@ -72,7 +72,7 @@ export function useLayoutTransfer(): UseLayoutTransfer {
 
       const parked = getCurrentLayoutState().selectedLayout?.data;
       const data = (
-        options?.managedAuthority
+        options?.managedAuthority === true
           ? mergeManagedLayoutFromUrl(parsedState, parked)
           : sanitizeImportedLayoutData(parsedState, parked)
       ) as LayoutData;

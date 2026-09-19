@@ -10,6 +10,7 @@
 import * as THREE from "three";
 
 import { createGeometry } from "./geometry";
+import type { ScenePose } from "./types";
 import {
   convexFacePlanes,
   convexHull2D,
@@ -19,7 +20,6 @@ import {
   setObstacleVisualSelected,
   trimSharedFaces,
 } from "./visuals";
-import type { ScenePose } from "./types";
 
 const AMBER: [number, number, number] = [1, 0.5, 0.1];
 
@@ -129,10 +129,10 @@ describe("obstacle visuals", () => {
     );
     const edges = createObstacleEdges(mesh.geometry, AMBER)!;
     mesh.userData.edges = edges;
-    setObstacleVisualSelected(mesh, true);
+    setObstacleVisualSelected(mesh, { selected: true });
     expect(mesh.material.userData.selected).toBe(true);
     expect(edges.material.opacity).toBe(1);
-    setObstacleVisualSelected(mesh, false);
+    setObstacleVisualSelected(mesh, { selected: false });
     expect(mesh.material.userData.selected).toBe(false);
     expect(edges.material.opacity).toBeCloseTo(0.9);
   });

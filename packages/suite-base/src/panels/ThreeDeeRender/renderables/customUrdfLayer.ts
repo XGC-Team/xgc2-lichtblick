@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 export type CustomUrdfReloadSnapshot = {
   urdf?: string;
   framePrefix?: string;
@@ -8,7 +11,7 @@ export type CustomUrdfReloadSnapshot = {
 export function customUrdfLayerNeedsReload(
   loaded: CustomUrdfReloadSnapshot,
   next: CustomUrdfReloadSnapshot,
-  forceReload = false,
+  { forceReload = false }: { forceReload?: boolean } = {},
 ): boolean {
   if (forceReload) {
     return true;

@@ -23,8 +23,14 @@ export function interactivePreviewEnabled(search: string): boolean {
  * output pixels. Interactive frames are only ever displayed, never captured,
  * so any device pixel ratio is acceptable there.
  */
-export function requireCapturePixelRatio(devicePixelRatio: number, interactive: boolean): void {
-  requireValue(interactive || devicePixelRatio === 1, "Offline capture requires devicePixelRatio=1");
+export function requireCapturePixelRatio(
+  devicePixelRatio: number,
+  { interactive }: { interactive: boolean },
+): void {
+  requireValue(
+    interactive || devicePixelRatio === 1,
+    "Offline capture requires devicePixelRatio=1",
+  );
 }
 
 /**
@@ -32,6 +38,6 @@ export function requireCapturePixelRatio(devicePixelRatio: number, interactive: 
  * integrity is never relaxed. An interactive scrub frame may fail or time out
  * without tainting; the host decides whether to retry or drop the frame.
  */
-export function taintsOnFrameError(interactive: boolean): boolean {
+export function taintsOnFrameError({ interactive }: { interactive: boolean }): boolean {
   return !interactive;
 }

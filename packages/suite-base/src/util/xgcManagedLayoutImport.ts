@@ -23,7 +23,10 @@ function firstConfigOfType(configs: SavedProps | undefined, type: string): Panel
   return undefined;
 }
 
-function mergeManagedRecord(incoming: unknown, authority: unknown): Record<string, unknown> | undefined {
+function mergeManagedRecord(
+  incoming: unknown,
+  authority: unknown,
+): Record<string, unknown> | undefined {
   if (!isRecord(authority)) {
     return isRecord(incoming) ? { ...incoming } : undefined;
   }
@@ -48,7 +51,10 @@ function restoreScene(incoming: unknown, authority: unknown): Record<string, unk
   return next;
 }
 
-function mergeUrdfLayers(incoming: unknown, authority: unknown): Record<string, unknown> | undefined {
+function mergeUrdfLayers(
+  incoming: unknown,
+  authority: unknown,
+): Record<string, unknown> | undefined {
   const next = isRecord(incoming) ? { ...incoming } : {};
   for (const key of Object.keys(next)) {
     if (key.startsWith(URDF_LAYER_PREFIX)) {
@@ -65,7 +71,10 @@ function mergeUrdfLayers(incoming: unknown, authority: unknown): Record<string, 
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
-function restoreImageMode(incoming: unknown, authority: unknown): Record<string, unknown> | undefined {
+function restoreImageMode(
+  incoming: unknown,
+  authority: unknown,
+): Record<string, unknown> | undefined {
   const next = isRecord(incoming) ? { ...incoming } : {};
   if (isRecord(authority)) {
     if (typeof authority.imageTopic === "string") {
@@ -91,7 +100,8 @@ function sanitizeThreeD(incoming: Record<string, unknown>, authority?: PanelConf
     if (typeof authority.followMode === "string" && authority.followMode.length > 0) {
       next.followMode = authority.followMode;
     }
-    if (authority.transforms !== undefined) {
+    // Preserve explicit null from the authority; only an absent value leaves the import intact.
+    if (typeof authority.transforms !== "undefined") {
       next.transforms = authority.transforms;
     }
     next.scene = restoreScene(incoming.scene, authority.scene);
@@ -165,7 +175,10 @@ export function sanitizeImportedLayoutData(incoming: unknown, authority?: Layout
   return { ...incoming, configById };
 }
 
-function overlayParkedCameraState(managed: Record<string, unknown>, parked?: LayoutData): Record<string, unknown> {
+function overlayParkedCameraState(
+  managed: Record<string, unknown>,
+  parked?: LayoutData,
+): Record<string, unknown> {
   const configs = managed.configById;
   if (!isRecord(configs)) {
     return managed;
@@ -193,5 +206,8 @@ export function mergeManagedLayoutFromUrl(managed: unknown, parked?: LayoutData)
   if (!isRecord(managed) || !isRecord(managed.configById)) {
     return managed;
   }
-  return sanitizeImportedLayoutData(overlayParkedCameraState(managed, parked), managed as LayoutData);
+  return sanitizeImportedLayoutData(
+    overlayParkedCameraState(managed, parked),
+    managed as LayoutData,
+  );
 }

@@ -112,7 +112,9 @@ function setup() {
       </EmbeddedWorkspaceControlsProvider>
     </RendererContext.Provider>,
   );
-  act(() => { extension.session!.accept(envelope); });
+  act(() => {
+    extension.session!.accept(envelope);
+  });
   return {
     extension,
     command,
@@ -261,7 +263,9 @@ describe("obstacle editor operator flow", () => {
   it("retains a live edit after a write failure and allows retry without another mutation", async () => {
     const { extension, command, dispose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
-    await waitFor(() => { expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled(); });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
+    });
     const current = extension.session!.getSnapshot().envelope!;
     const accepted = {
       ...current,
@@ -278,9 +282,9 @@ describe("obstacle editor operator flow", () => {
       error: "Live scene updated, but YAML was not saved: disk full",
     });
     fireEvent.click(screen.getByRole("button", { name: "Add obstacle" }));
-    await waitFor(() =>
-      { expect(screen.getByRole("button", { name: "Retry save YAML" })).toBeEnabled(); },
-    );
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Retry save YAML" })).toBeEnabled();
+    });
     expect(extension.session!.getSnapshot().envelope!.document.obstacles).toHaveLength(2);
     expect(screen.getByText("Live changes · YAML not saved")).toBeInTheDocument();
     command.mockResolvedValueOnce({
@@ -290,7 +294,9 @@ describe("obstacle editor operator flow", () => {
       savedRevision: 2,
     });
     fireEvent.click(screen.getByRole("button", { name: "Retry save YAML" }));
-    await waitFor(() => { expect(screen.getByText("Autosaved")).toBeInTheDocument(); });
+    await waitFor(() => {
+      expect(screen.getByText("Autosaved")).toBeInTheDocument();
+    });
     expect(command).toHaveBeenLastCalledWith(
       "/xgc/scene",
       expect.objectContaining({ operation: "save", expectedRevision: 2 }),
@@ -324,7 +330,9 @@ describe("obstacle editor operator flow", () => {
     });
     expect(screen.getByText("Gazebo collision update failed")).toBeInTheDocument();
     expect(
-      screen.getByText("The scene update is not synchronized everywhere. Check the errors or retry synchronization."),
+      screen.getByText(
+        "The scene update is not synchronized everywhere. Check the errors or retry synchronization.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Retry sync" })).toBeEnabled();

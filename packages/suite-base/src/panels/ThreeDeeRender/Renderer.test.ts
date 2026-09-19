@@ -169,11 +169,15 @@ describe("3D Renderer", () => {
     (console.warn as jest.Mock).mockClear();
   });
 
-  it.each(["3d", "image"] as const)("preserves world lighting in a rotated %s frame", (interfaceMode) => {
+  it.each([
+    "3d",
+    "image",
+  ] as const)("preserves world lighting in a rotated %s frame", (interfaceMode) => {
     const renderer = new Renderer({ ...defaultRendererProps, canvas, interfaceMode });
     // A rotated optical frame and a distant origin must preserve the surface/light angle.
     const rotation = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0), Math.PI / 2,
+      new THREE.Vector3(1, 0, 0),
+      Math.PI / 2,
     );
     renderer.addTransform("world", "optical", 0n, { x: 8, y: -3, z: 2 }, rotation);
     renderer.setFollowFrameId("optical");
@@ -770,11 +774,9 @@ describe("3D Renderer", () => {
     // Capture the camera layer mask at each render call; the camera object is
     // reused across passes and its layers are mutated between them.
     const renderPasses: { scene: unknown; layersMask: number }[] = [];
-    (renderer.gl.render as jest.Mock).mockImplementation(
-      (scene: unknown, camera: THREE.Camera) => {
-        renderPasses.push({ scene, layersMask: camera.layers.mask });
-      },
-    );
+    (renderer.gl.render as jest.Mock).mockImplementation((scene: unknown, camera: THREE.Camera) => {
+      renderPasses.push({ scene, layersMask: camera.layers.mask });
+    });
 
     // When: Rendering a frame
     renderer.animationFrame();

@@ -18,16 +18,6 @@ import { SceneEditorSession } from "./SceneEditorSession";
 import { createGeometry, scaleGeometry, SCENE_DRAFT_ID } from "./geometry";
 import { withObstaclePose } from "./motion";
 import {
-  convexFacePlanes,
-  createObstacleEdges,
-  createObstacleFill,
-  createObstacleFootprint,
-  RENDER_ORDER_FILL,
-  setObstacleVisualSelected,
-  trimSharedFaces,
-  type Rgb,
-} from "./visuals";
-import {
   isRecord,
   sceneColorOverride,
   sceneNamespace,
@@ -38,6 +28,16 @@ import {
   type SceneSelection,
   type Vec3,
 } from "./types";
+import {
+  convexFacePlanes,
+  createObstacleEdges,
+  createObstacleFill,
+  createObstacleFootprint,
+  RENDER_ORDER_FILL,
+  setObstacleVisualSelected,
+  trimSharedFaces,
+  type Rgb,
+} from "./visuals";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
 import { SceneExtension } from "../SceneExtension";
 import { makePose } from "../transforms";
@@ -93,7 +93,7 @@ function seamBlockers(
   }
   const inverse = poseMatrix(parts[index]!.pose).invert();
   return planeSets
-    .filter((_, j) => j !== index)
+    .filter((_planeSet, j) => j !== index)
     .map((set) => set.map((plane) => plane.clone().applyMatrix4(inverse)));
 }
 
@@ -243,11 +243,7 @@ export class ObstacleSceneExtension extends SceneExtension {
           mesh.userData.partId = part.id;
           mesh.renderOrder = RENDER_ORDER_FILL;
           applyPose(mesh, part.pose);
-          const edges = createObstacleEdges(
-            mesh.geometry,
-            rgba.slice(0, 3) as Rgb,
-            blockers,
-          );
+          const edges = createObstacleEdges(mesh.geometry, rgba.slice(0, 3) as Rgb, blockers);
           if (edges) {
             edges.name = `${part.id}:edges`;
             mesh.add(edges);
@@ -272,6 +268,7 @@ export class ObstacleSceneExtension extends SceneExtension {
         this.#groups.set(obstacle.id, group);
         this.#frame.add(group);
       }
+      this.#syncFootprintHeights();
     }
     this.#accepted = envelope;
     if (this.#drag && (this.session?.canEdit() !== true || !state.active)) {
@@ -284,6 +281,22 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#attach();
     this.renderer.queueAnimationFrame();
   };
+
+  /**
+   * Footprints pin to the document ground plane: the obstacle origin may sit
+   * at volume centre, and runtime poses move it further, so re-pin every
+   * rendered frame. Yaw-only obstacle rotations leave z untouched.
+   */
+  #syncFootprintHeights(): void {
+    for (const group of this.#frame.children) {
+      for (const child of group.children) {
+        const groundZ = child.userData.groundZ as number | undefined;
+        if (child.userData.footprint === true && groundZ != undefined) {
+          child.position.z = groundZ - group.position.z;
+        }
+      }
+    }
+  }
 
   #applyRuntimePoses(): void {
     const envelope = this.session?.getSnapshot().envelope;
@@ -332,9 +345,9 @@ export class ObstacleSceneExtension extends SceneExtension {
     const placement = state?.placement;
     if (
       !placement ||
-      state?.active !== true ||
-      state.live !== true ||
-      state.authorized !== true ||
+      !state.active ||
+      !state.live ||
+      !state.authorized ||
       state.envelope == undefined
     ) {
       return;
@@ -382,6 +395,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     });
     this.#draftGroup = group;
     this.#frame.add(group);
+    this.#syncFootprintHeights();
   }
 
   public canTransform(): boolean {
@@ -459,7 +473,7 @@ export class ObstacleSceneExtension extends SceneExtension {
           ? !selection
           : mesh.userData.obstacleId === selection?.obstacleId &&
             (!selection?.partId || mesh.userData.partId === selection.partId));
-      setObstacleVisualSelected(mesh, selected);
+      setObstacleVisualSelected(mesh, { selected });
     }
   }
 
@@ -513,7 +527,9 @@ export class ObstacleSceneExtension extends SceneExtension {
         changed: false,
       };
     } else {
-      const obstacle = envelope.document.obstacles.find((o) => o.id === state.selection?.obstacleId);
+      const obstacle = envelope.document.obstacles.find(
+        (o) => o.id === state.selection?.obstacleId,
+      );
       if (!obstacle) {
         return;
       }
@@ -682,6 +698,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     if (!envelope) {
       return;
     }
+    this.#syncFootprintHeights();
     const frame = this.renderer.normalizeFrameId(envelope.document.frame);
     const success = updatePose(
       this.#frame,

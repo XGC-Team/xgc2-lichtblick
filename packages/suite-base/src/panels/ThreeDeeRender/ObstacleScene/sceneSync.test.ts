@@ -6,7 +6,7 @@ import { parseSceneEnvelope, type SceneEnvelope } from "./types";
 
 function envelope(
   consumers: SceneEnvelope["consumers"],
-  synchronized = false,
+  { synchronized = false }: { synchronized?: boolean } = {},
 ): SceneEnvelope {
   return {
     epoch: "e",
@@ -126,7 +126,7 @@ describe("scene sync retry policy", () => {
               message: "Reset cannot certify this motion",
             },
           ],
-          true,
+          { synchronized: true },
         ),
       ),
     ).toBe(false);

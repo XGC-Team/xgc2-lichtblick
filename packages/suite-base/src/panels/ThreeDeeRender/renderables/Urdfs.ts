@@ -536,7 +536,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     if (action.action === "perform-node-action" && path.length === 2) {
       const instanceId = path[1]!;
       if (action.payload.id === "delete") {
-        this.#removeCustomUrdf(instanceId, true);
+        this.#removeCustomUrdf(instanceId, { updateConfig: true });
       } else if (action.payload.id === "duplicate") {
         const newInstanceId = uuidv4();
         const config = {
@@ -774,7 +774,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     return settings;
   }
 
-  #removeCustomUrdf(instanceId: string, updateConfig: boolean): void {
+  #removeCustomUrdf(instanceId: string, { updateConfig }: { updateConfig: boolean }): void {
     if (updateConfig) {
       this.renderer.updateConfig((draft) => {
         delete draft.layers[instanceId];
@@ -811,7 +811,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       }
       const entry = layers[instanceId];
       if (entry?.layerId !== LAYER_ID) {
-        this.#removeCustomUrdf(instanceId, false);
+        this.#removeCustomUrdf(instanceId, { updateConfig: false });
         continue;
       }
       const renderable = this.renderables.get(instanceId);
@@ -859,11 +859,12 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       !customUrdfLayerNeedsReload(
         {
           urdf: renderable.userData.urdf,
-          framePrefix: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).framePrefix,
+          framePrefix: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>)
+            .framePrefix,
           parameter: renderable.userData.parameter,
         },
         { urdf, framePrefix, parameter },
-        forceReload,
+        { forceReload },
       )
     ) {
       renderable.userData.settings = settings;
