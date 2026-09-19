@@ -23,6 +23,7 @@ export class OfflineEdits extends SceneExtension {
   readonly #sourceMarkers = new WeakMap<RenderableMarker, { source: Marker; applied: Marker }>();
   readonly #opacity = new WeakMap<THREE.Material, number>();
   readonly #wireframe = new WeakMap<THREE.Material, boolean>();
+  readonly #colors = new WeakMap<THREE.Material, THREE.Color>();
   public constructor(
     renderer: IRenderer,
     private readonly tracks: readonly Track[],
@@ -124,6 +125,18 @@ export class OfflineEdits extends SceneExtension {
           material.opacity = original * alpha;
           material.transparent = true;
           material.depthWrite = material.opacity >= 1;
+          if ("color" in material && material.color instanceof THREE.Color) {
+            let originalColor = this.#colors.get(material);
+            if (originalColor == undefined) {
+              originalColor = material.color.clone();
+              this.#colors.set(material, originalColor);
+            }
+            if (track.style.color == undefined) {
+              material.color.copy(originalColor);
+            } else {
+              material.color.set(track.style.color);
+            }
+          }
         }
       });
     }

@@ -4,11 +4,12 @@
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
-import { nanos, record, requireValue, type Asset } from "./state";
+import { assetPath, nanos, record, requireValue, type Asset } from "./validation";
 
 export type TrackBase = {
   id: string;
   label: string;
+  enabled?: boolean;
   span: { startNs: string; endNs: string };
   animation: {
     fadeInNs: string;
@@ -37,7 +38,7 @@ export type Track =
     })
   | (TrackBase & {
       kind: "robot-model";
-      source: { modelId: "mocap-rotor"; frameId: string };
+      source: { modelId: string; frameId: string; bundleSha256?: string };
       style: { color?: string; opacity: number; scale: number };
     });
 export type FrozenModel = {
@@ -46,10 +47,17 @@ export type FrozenModel = {
   frameId: string;
   framePrefix: string;
   asset: Asset;
+  bundleSha256?: string;
+  provenance?: "operator-selected-controlled";
+  jointPose?: "urdf-rest";
+  resources?: { uri: string; asset: Asset; mediaType: string }[];
 };
 
 /** Pure frame-time evaluation; repeated/held source images still advance edits. */
 export function trackOpacity(track: Track, time: bigint): number {
+  if (track.enabled === false) {
+    return 0;
+  }
   const start = nanos(track.span.startNs),
     end = nanos(track.span.endNs);
   if (time < start || time >= end) {
@@ -93,6 +101,10 @@ export function parseTracks(value: unknown): Track[] {
       "Invalid track span",
     );
     requireValue(
+      track.enabled == undefined || typeof track.enabled === "boolean",
+      "Invalid track visibility",
+    );
+    requireValue(
       record(track.animation) &&
         ["linear", "ease-in", "ease-out", "ease-in-out"].includes(String(track.animation.easing)),
       "Invalid track easing",
@@ -122,8 +134,14 @@ export function parseTracks(value: unknown): Track[] {
     if (track.kind === "robot-model") {
       requireValue(
         record(track.source) &&
-          track.source.modelId === "mocap-rotor" &&
-          typeof track.source.frameId === "string",
+          typeof track.source.modelId === "string" &&
+          /^[a-z0-9][a-z0-9-]{0,63}$/.test(track.source.modelId) &&
+          typeof track.source.frameId === "string" &&
+          track.source.frameId.length > 0 &&
+          (track.source.bundleSha256 == undefined
+            ? track.source.modelId === "mocap-rotor"
+            : typeof track.source.bundleSha256 === "string" &&
+              /^[a-f0-9]{64}$/.test(track.source.bundleSha256)),
         "Invalid robot model",
       );
     } else {
@@ -136,4 +154,108 @@ export function parseTracks(value: unknown): Track[] {
     }
   }
   return value as Track[];
+}
+
+/** URI suffixes also select native loaders, so they must agree with the frozen asset type. */
+export function validFrozenResourceType(uri: string, asset: Asset, mediaType: unknown): boolean {
+  switch (mediaType) {
+    case "model/vnd.collada+xml":
+      return /\.dae$/i.test(uri) && asset.path.endsWith(".dae");
+    case "image/png":
+      return /\.png$/i.test(uri) && asset.path.endsWith(".png");
+    case "image/jpeg":
+      // The worker retains source .jpeg URIs but stores JPEG bytes as content-addressed .jpg.
+      return /\.jpe?g$/i.test(uri) && asset.path.endsWith(".jpg");
+    default:
+      return false;
+  }
+}
+
+/** Every model and resource is bound to one frozen track, never a live package resolver. */
+export function parseFrozenModels(value: unknown, tracks: readonly Track[]): FrozenModel[] {
+  const models = value ?? [];
+  requireValue(Array.isArray(models) && models.length <= 256, "Invalid frozen models");
+  const ids = new Set<string>();
+  const resources = new Map<string, string>();
+  for (const model of models) {
+    requireValue(record(model), "Invalid frozen model");
+    const track = tracks.find((item) => item.kind === "robot-model" && item.id === model.trackId);
+    requireValue(
+      track?.kind === "robot-model" &&
+        model.modelId === track.source.modelId &&
+        model.frameId === track.source.frameId &&
+        model.framePrefix === `__xgc_video_${track.id}/` &&
+        !ids.has(track.id),
+      "Unbound frozen robot model",
+    );
+    ids.add(track.id);
+    assetPath(model.asset as Asset);
+    requireValue(
+      (model.asset as Asset).path.endsWith(".json") &&
+        (model.asset as Asset).size <= 4 * 1024 * 1024,
+      "Invalid frozen model description",
+    );
+    if (model.bundleSha256 == undefined) {
+      requireValue(
+        model.modelId === "mocap-rotor" &&
+          track.source.bundleSha256 == undefined &&
+          model.provenance == undefined &&
+          model.jointPose == undefined &&
+          model.resources == undefined,
+        "Missing frozen model bundle",
+      );
+      continue;
+    }
+    requireValue(
+      typeof model.bundleSha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(model.bundleSha256) &&
+        (track.source.bundleSha256 == undefined ||
+          track.source.bundleSha256 === model.bundleSha256) &&
+        model.provenance === "operator-selected-controlled" &&
+        model.jointPose === "urdf-rest" &&
+        Array.isArray(model.resources) &&
+        model.resources.length <= 64,
+      "Invalid frozen model bundle",
+    );
+    const prefix = `https://xgc2.invalid/models/${model.bundleSha256}/`;
+    const seen = new Set<string>();
+    let size = 0;
+    for (const resource of model.resources) {
+      requireValue(
+        record(resource) && typeof resource.uri === "string" && resource.uri.startsWith(prefix),
+        "Invalid model resource URI",
+      );
+      const relative = resource.uri.slice(prefix.length);
+      requireValue(
+        relative.length > 0 &&
+          relative
+            .split("/")
+            .every((part) => /^[a-zA-Z0-9_.-]+$/.test(part) && part !== "." && part !== "..") &&
+          !seen.has(resource.uri),
+        "Invalid model resource path",
+      );
+      seen.add(resource.uri);
+      const asset = resource.asset as Asset;
+      assetPath(asset);
+      requireValue(
+        validFrozenResourceType(resource.uri, asset, resource.mediaType) &&
+          asset.size <= 32 * 1024 * 1024,
+        "Invalid model resource type",
+      );
+      size += asset.size;
+      requireValue(size <= 64 * 1024 * 1024, "Model resource closure exceeds limit");
+      const identity = JSON.stringify([asset.path, asset.sha256, asset.size, resource.mediaType]);
+      requireValue(typeof identity === "string", "Invalid model resource identity");
+      requireValue(
+        !resources.has(resource.uri) || resources.get(resource.uri) === identity,
+        "Conflicting model resource",
+      );
+      resources.set(resource.uri, identity);
+    }
+  }
+  requireValue(
+    tracks.filter((track) => track.kind === "robot-model").every((track) => ids.has(track.id)),
+    "Missing frozen robot model",
+  );
+  return models as FrozenModel[];
 }

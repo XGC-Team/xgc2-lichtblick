@@ -370,6 +370,192 @@ test("track fades use output time, including held camera images and backward see
   );
 });
 
+function modelFixture() {
+  const f = fixture();
+  f.tracks = [
+    {
+      id: "scout",
+      label: "Scout",
+      kind: "robot-model",
+      source: { modelId: "scout-mini-visual", frameId: "world/scout/base_link", bundleSha256: sha },
+      span: { startNs: "0", endNs: "100000000" },
+      animation: { fadeInNs: "0", fadeOutNs: "0", easing: "linear" },
+      style: { scale: 1, opacity: 1 },
+    },
+  ];
+  f.models = [
+    {
+      trackId: "scout",
+      modelId: "scout-mini-visual",
+      frameId: "world/scout/base_link",
+      framePrefix: "__xgc_video_scout/",
+      asset: { path: `assets/${sha}.json`, sha256: sha, size: 100 },
+      bundleSha256: sha,
+      provenance: "operator-selected-controlled",
+      jointPose: "urdf-rest",
+      resources: [
+        {
+          uri: `https://xgc2.invalid/models/${sha}/meshes/wheel.dae`,
+          asset: { path: `assets/${sha}.dae`, sha256: sha, size: 100 },
+          mediaType: "model/vnd.collada+xml",
+        },
+      ],
+    },
+  ];
+  return f;
+}
+
+test("disabled tracks retain their override identity at every seek", () => {
+  const { parseTracks, activeTrack, trackOpacity } = require(path.join(directory, "cjs/scene.js"));
+  const track = { ...modelFixture().tracks[0], enabled: false };
+  const tracks = parseTracks([track]);
+  for (const time of [0n, 1n, 99999999n, 1n]) {
+    assert.equal(activeTrack(tracks, time), track);
+    assert.equal(trackOpacity(track, time), 0);
+  }
+  track.enabled = true;
+  assert.equal(trackOpacity(track, 1n), 1);
+  assert.throws(() => parseTracks([{ ...track, enabled: "false" }]), /visibility/);
+});
+
+test("frozen models bind exact track identity, resources and digest", () => {
+  const f = modelFixture();
+  assert.equal(s.parseSnapshot(f).models[0].resources[0].mediaType, "model/vnd.collada+xml");
+  for (const change of [
+    (m) => (m.trackId = "other"),
+    (m) => (m.frameId = "other"),
+    (m) => (m.framePrefix = "live/"),
+    (m) => (m.bundleSha256 = "b".repeat(64)),
+    (m) => (m.provenance = "recorded-bundle"),
+    (m) => (m.jointPose = "recorded"),
+    (m) => (m.resources[0].uri += "?url=file:///etc/passwd"),
+    (m) => (m.resources[0].uri = `https://xgc2.invalid/models/${sha}/../wheel.dae`),
+    (m) => (m.resources[0].uri = `https://xgc2.invalid/models/${sha}/%2e%2e/wheel.dae`),
+    (m) => (m.resources[0].mediaType = "text/javascript"),
+    (m) => m.resources.push({ ...m.resources[0] }),
+    (m) => (m.resources[0].asset.path = `assets/${sha}.js`),
+    (m) => (m.resources[0].asset.size = 32 * 1024 * 1024 + 1),
+  ]) {
+    const invalid = modelFixture();
+    change(invalid.models[0]);
+    assert.throws(() => s.parseSnapshot(invalid));
+  }
+  const missing = modelFixture();
+  missing.models = [];
+  assert.throws(() => s.parseSnapshot(missing), /Missing frozen/);
+  const duplicate = modelFixture();
+  duplicate.models.push(duplicate.models[0]);
+  assert.throws(() => s.parseSnapshot(duplicate), /Unbound/);
+});
+
+test("legacy primitive models keep the original undigested wire", () => {
+  const f = modelFixture();
+  const t = f.tracks[0],
+    m = f.models[0];
+  t.source.modelId = m.modelId = "mocap-rotor";
+  delete t.source.bundleSha256;
+  for (const key of ["bundleSha256", "provenance", "jointPose", "resources"]) {
+    delete m[key];
+  }
+  assert.equal(s.parseSnapshot(f).models[0], m);
+  assert.equal(Object.hasOwn(t.source, "bundleSha256"), false);
+});
+
+test("frozen resource URI extensions cannot select a different native loader", () => {
+  const f = modelFixture();
+  f.models[0].resources[0].uri = f.models[0].resources[0].uri.replace(/\.dae$/, ".gltf");
+  assert.throws(() => s.parseSnapshot(f), /resource type/);
+  const jpeg = modelFixture();
+  const resource = jpeg.models[0].resources[0];
+  resource.uri = resource.uri.replace(/\.dae$/, ".jpeg");
+  resource.mediaType = "image/jpeg";
+  resource.asset.path = `assets/${sha}.jpg`;
+  assert.equal(s.parseSnapshot(jpeg).models[0].resources[0], resource);
+});
+
+test("frozen DAE bytes reject GLB magic and glTF JSON before native dispatch", async () => {
+  const crypto = require("node:crypto");
+  const oldFetch = global.fetch,
+    oldLocation = global.location;
+  global.location = { origin: "http://station.invalid" };
+  try {
+    for (const bytes of [
+      Buffer.from([0x67, 0x6c, 0x54, 0x46, 2, 0, 0, 0]),
+      Buffer.from('{"asset":{"version":"2.0"},"buffers":[{"uri":"https://outside.invalid"}]}'),
+    ]) {
+      const f = modelFixture(),
+        resource = f.models[0].resources[0],
+        hash = crypto.createHash("sha256").update(bytes).digest("hex");
+      resource.asset = { path: `assets/${hash}.dae`, sha256: hash, size: bytes.length };
+      s.parseSnapshot(f);
+      global.fetch = async (url) => {
+        const response = new Response(bytes);
+        Object.defineProperty(response, "url", { value: url.href });
+        return response;
+      };
+      await assert.rejects(
+        s.fetchFrozenModelAsset(
+          f.models,
+          new URL("http://station.invalid/snapshot/"),
+          resource.uri,
+        ),
+        /model resource format/,
+      );
+    }
+  } finally {
+    global.fetch = oldFetch;
+    global.location = oldLocation;
+  }
+});
+
+test("model assets use only exact snapshot mapping and verified bytes", async () => {
+  const crypto = require("node:crypto");
+  const bytes = Buffer.from("<COLLADA/>");
+  const hash = crypto.createHash("sha256").update(bytes).digest("hex");
+  const f = modelFixture(),
+    resource = f.models[0].resources[0];
+  resource.asset = { path: `assets/${hash}.dae`, sha256: hash, size: bytes.length };
+  let calls = 0;
+  const oldFetch = global.fetch,
+    oldLocation = global.location;
+  global.location = { origin: "http://station.invalid" };
+  global.fetch = async (url) => {
+    calls++;
+    return {
+      ok: true,
+      url: url.href,
+      headers: new Headers(),
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new Uint8Array(bytes));
+          c.close();
+        },
+      }),
+    };
+  };
+  try {
+    const baseURL = new URL("http://station.invalid/snapshot/");
+    const result = await s.fetchFrozenModelAsset(f.models, baseURL, resource.uri);
+    assert.equal(result.mediaType, "model/vnd.collada+xml");
+    assert.deepEqual(Buffer.from(result.data), bytes);
+    await assert.rejects(
+      s.fetchFrozenModelAsset(f.models, baseURL, "package://scout_description/meshes/wheel.dae"),
+      /closure/,
+    );
+    await assert.rejects(
+      s.fetchFrozenModelAsset(f.models, baseURL, resource.uri + "?next=1"),
+      /closure/,
+    );
+    assert.equal(calls, 1);
+    resource.asset.sha256 = "b".repeat(64);
+    resource.asset.path = `assets/${resource.asset.sha256}.dae`;
+    await assert.rejects(s.fetchFrozenModelAsset(f.models, baseURL, resource.uri), /hash/);
+  } finally {
+    global.fetch = oldFetch;
+    global.location = oldLocation;
+  }
+});
+
 test("static TF availability remains record time with original stamps kept only as provenance", () => {
   const { validateTransformHistory } = require(path.join(directory, "cjs/history.js"));
   const row = (time, raw) => ({

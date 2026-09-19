@@ -172,7 +172,11 @@ type JointPosition = {
 };
 
 export class UrdfRenderable extends Renderable<UrdfUserData> {
+  public loadGeneration = 0;
+
   public override dispose(): void {
+    ++this.loadGeneration;
+    this.userData.fetching?.control.abort();
     this.removeChildren();
     this.userData.urdf = undefined;
     super.dispose();
@@ -244,7 +248,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       {
         type: "schema",
         schemaNames: JOINTSTATE_DATATYPES,
-        subscription: { handler: this.#handleJointState, filterQueue: onlyLastByTopicMessage },
+        subscription: {
+          handler: this.#handleJointState,
+          filterQueue: onlyLastByTopicMessage,
+        },
       },
 
       {
@@ -564,7 +571,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
         // Add the URDF renderable
         const renderable = this.renderables.get(instanceId);
-        this.#loadUrdf({ instanceId: newInstanceId, urdf: renderable?.userData.urdf });
+        this.#loadUrdf({
+          instanceId: newInstanceId,
+          urdf: renderable?.userData.urdf,
+        });
 
         // Update the settings tree
         this.updateSettingsTree();
@@ -720,7 +730,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #handleAddUrdf = (instanceId: string): void => {
     log.info(`Creating ${LAYER_ID} layer ${instanceId}`);
 
-    const config: LayerSettingsCustomUrdf = { ...DEFAULT_CUSTOM_SETTINGS, instanceId };
+    const config: LayerSettingsCustomUrdf = {
+      ...DEFAULT_CUSTOM_SETTINGS,
+      instanceId,
+    };
 
     // Add this instance to the config
     this.renderer.updateConfig((draft) => {
@@ -761,16 +774,26 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     }
 
     log.debug(`Fetching URDF from ${url}`);
-    renderable.userData.fetching = { url, control: new AbortController() };
+    const control = new AbortController();
+    renderable.userData.fetching = { url, control };
     this.#trackLoad(
       this.renderer
-        .fetchAsset(url, { signal: renderable.userData.fetching.control.signal })
+        .fetchAsset(url, { signal: control.signal })
         .then((urdf) => {
+          if (control.signal.aborted || this.renderables.get(instanceId) !== renderable) {
+            return;
+          }
           log.debug(`Fetched ${urdf.data.length} byte URDF from ${url}`);
           this.renderer.settings.errors.remove(["layers", instanceId], FETCH_URDF_ERR);
-          this.#loadUrdf({ instanceId, urdf: this.#textDecoder.decode(urdf.data) });
+          this.#loadUrdf({
+            instanceId,
+            urdf: this.#textDecoder.decode(urdf.data),
+          });
         })
         .catch((e: unknown) => {
+          if (control.signal.aborted || this.renderables.get(instanceId) !== renderable) {
+            return;
+          }
           const err = e as Error;
           const hasError = !err.message.startsWith("Failed to fetch");
           const errMessage = `Failed to load URDF from "${url}"${hasError ? `: ${err.message}` : ""}`;
@@ -847,7 +870,11 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           },
         )
       ) {
-        this.#loadUrdf({ instanceId, urdf: renderable.userData.urdf, forceReload: true });
+        this.#loadUrdf({
+          instanceId,
+          urdf: renderable.userData.urdf,
+          forceReload: true,
+        });
       }
     }
     for (const [instanceId, entry] of Object.entries(layers)) {
@@ -931,6 +958,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       this.renderables.set(instanceId, renderable);
     }
 
+    const loadGeneration = ++renderable.loadGeneration;
+    renderable.userData.fetching?.control.abort();
     renderable.userData.urdf = urdf;
     renderable.userData.sourceType = sourceType;
     renderable.userData.topic = topic;
@@ -992,6 +1021,12 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     this.#trackLoad(
       parseUrdf(urdf, async (uri) => await this.#getFileFetch(uri, baseUrl), framePrefix)
         .then((parsed) => {
+          if (
+            loadedRenderable.loadGeneration !== loadGeneration ||
+            this.renderables.get(instanceId) !== loadedRenderable
+          ) {
+            return;
+          }
           this.#loadRobot(loadedRenderable, parsed, baseUrl);
           this.renderer.settings.errors.remove(
             loadedRenderable.userData.settingsPath,
@@ -1002,6 +1037,12 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           this.renderer.queueAnimationFrame();
         })
         .catch((e: unknown) => {
+          if (
+            loadedRenderable.loadGeneration !== loadGeneration ||
+            this.renderables.get(instanceId) !== loadedRenderable
+          ) {
+            return;
+          }
           const err = e as Error;
           log.error(`Failed to parse URDF: ${err.message}`);
           this.renderer.settings.errors.add(
@@ -1047,6 +1088,9 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       });
       // Set the childRenderable settingsPath so errors route to the correct place
       childRenderable.userData.settingsPath = renderable.userData.settingsPath;
+      if (childRenderable instanceof RenderableMeshResource) {
+        this.#trackLoad(childRenderable.settleLoading());
+      }
       renderable.userData.renderables.set(childRenderable.name, childRenderable);
       renderable.add(childRenderable);
     };
@@ -1175,13 +1219,21 @@ function createRenderable(args: {
     }
     case "cylinder": {
       const cylinder = visual.geometry;
-      const scale = { x: cylinder.radius * 2, y: cylinder.radius * 2, z: cylinder.length };
+      const scale = {
+        x: cylinder.radius * 2,
+        y: cylinder.radius * 2,
+        z: cylinder.length,
+      };
       const marker = createMarker(frameId, MarkerType.CUBE, pose, scale, color);
       return new RenderableCylinder(name, marker, undefined, renderer);
     }
     case "sphere": {
       const sphere = visual.geometry;
-      const scale = { x: sphere.radius * 2, y: sphere.radius * 2, z: sphere.radius * 2 };
+      const scale = {
+        x: sphere.radius * 2,
+        y: sphere.radius * 2,
+        z: sphere.radius * 2,
+      };
       const marker = createMarker(frameId, MarkerType.CUBE, pose, scale, color);
       return new RenderableSphere(name, marker, undefined, renderer);
     }
@@ -1510,7 +1562,11 @@ function urdfChildren(
         value: kVelocity,
       };
     }
-    jointChildren[joint.name] = { label: joint.name, fields, defaultExpansionState: "collapsed" };
+    jointChildren[joint.name] = {
+      label: joint.name,
+      fields,
+      defaultExpansionState: "collapsed",
+    };
   }
 
   const children: SettingsTreeChildren = {

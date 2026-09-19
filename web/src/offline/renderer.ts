@@ -33,6 +33,7 @@ import {
 import { activeTrack, trackOpacity, type Track } from "./scene";
 import {
   assetPath,
+  fetchFrozenModelAsset,
   nanos,
   record,
   requireValue,
@@ -175,10 +176,9 @@ export class OfflineRenderer {
     }
     for (const model of snapshot.models ?? []) {
       requireValue(
-        model.modelId === "mocap-rotor" &&
-          snapshot.tracks?.some(
-            (track) => track.kind === "robot-model" && track.id === model.trackId,
-          ) === true,
+        snapshot.tracks?.some(
+          (track) => track.kind === "robot-model" && track.id === model.trackId,
+        ) === true,
         "Unbound frozen robot model",
       );
       const layer: LayerSettingsCustomUrdf = {
@@ -201,27 +201,7 @@ export class OfflineRenderer {
       interfaceMode: "image",
       customCameraModels: new Map(),
       testOptions: {},
-      fetchAsset: async (url) => {
-        const model = snapshot.models?.find(
-          (value) => url === `https://xgc2.invalid/${value.asset.sha256}.urdf`,
-        );
-        requireValue(model != undefined, "Asset is not in the frozen model closure");
-        const bytes = await verifiedFetch(
-          new URL(assetPath(model.asset), base),
-          model.asset.sha256,
-          model.asset.size,
-        );
-        const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
-        requireValue(
-          record(value) && value.modelId === model.modelId && typeof value.urdf === "string",
-          "Invalid frozen model asset",
-        );
-        return {
-          uri: url,
-          data: new TextEncoder().encode(value.urdf),
-          mediaType: "application/xml",
-        };
-      },
+      fetchAsset: async (url) => await fetchFrozenModelAsset(snapshot.models ?? [], base, url),
       sceneExtensionConfig: {
         reserved: {
           measurementTool: { init: (renderer: IRenderer) => new MeasurementTool(renderer) },

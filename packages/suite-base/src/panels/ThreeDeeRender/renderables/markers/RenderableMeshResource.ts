@@ -13,9 +13,8 @@ import { RenderableMarker } from "./RenderableMarker";
 import { makeStandardMaterial } from "./materials";
 import type { IRenderer } from "../../IRenderer";
 import { rgbToThreeColor } from "../../color";
-import { disposeMeshesRecursive } from "../../dispose";
 import { Marker } from "../../ros";
-import { removeLights, replaceMaterials } from "../models";
+import { removeLights } from "../models";
 
 const MESH_FETCH_FAILED = "MESH_FETCH_FAILED";
 
@@ -23,9 +22,21 @@ export class RenderableMeshResource extends RenderableMarker {
   #mesh: THREE.Group | THREE.Scene | undefined;
   #material: THREE.MeshStandardMaterial;
   #referenceUrl: string | undefined;
+  #meshMaterials = new Set<THREE.Material>();
 
   /** Track updates to avoid race conditions when asynchronously loading models */
   #updateId = 0;
+  #disposed = false;
+  #loading: Promise<void> = Promise.resolve();
+
+  /** Resolves after the current mesh has attached or its settings error is recorded. */
+  public async settleLoading(): Promise<void> {
+    let loading: Promise<void>;
+    do {
+      loading = this.#loading;
+      await loading;
+    } while (loading !== this.#loading);
+  }
 
   public constructor(
     topic: string,
@@ -42,10 +53,14 @@ export class RenderableMeshResource extends RenderableMarker {
   }
 
   public override dispose(): void {
-    if (this.#mesh) {
-      disposeMeshesRecursive(this.#mesh);
+    if (this.#disposed) {
+      return;
     }
+    this.#disposed = true;
+    ++this.#updateId;
+    this.#releaseMesh();
     this.#material.dispose();
+    super.dispose();
   }
 
   public override update(
@@ -54,6 +69,9 @@ export class RenderableMeshResource extends RenderableMarker {
     // eslint-disable-next-line @lichtblick/no-boolean-parameters
     forceLoad?: boolean,
   ): void {
+    if (this.#disposed) {
+      return;
+    }
     const prevMarker = this.userData.marker;
     super.update(newMarker, receiveTime);
     const marker = this.userData.marker;
@@ -73,22 +91,22 @@ export class RenderableMeshResource extends RenderableMarker {
 
       const opts = { useEmbeddedMaterials: marker.mesh_use_embedded_materials };
       const errors = this.renderer.settings.errors;
-      if (this.#mesh) {
-        this.remove(this.#mesh);
-        disposeMeshesRecursive(this.#mesh);
-        this.#mesh = undefined;
-      }
-      this.#loadModel(marker.mesh_resource, opts)
-        .then((mesh) => {
-          if (!mesh) {
+      this.#releaseMesh();
+      this.#loading = this.#loadModel(marker.mesh_resource, opts, curUpdateId)
+        .then((loaded) => {
+          if (!loaded) {
             return;
           }
+          const { mesh, materials } = loaded;
           if (this.#updateId !== curUpdateId) {
-            // another update has started
-            disposeMeshesRecursive(mesh);
+            // The cache owns geometry and textures; only these materials are ours.
+            materials.forEach((material) => {
+              material.dispose();
+            });
             return;
           }
           this.#mesh = mesh;
+          this.#meshMaterials = materials;
           this.add(mesh);
           this.#updateOutlineVisibility();
 
@@ -98,6 +116,9 @@ export class RenderableMeshResource extends RenderableMarker {
           this.renderer.queueAnimationFrame();
         })
         .catch((err: unknown) => {
+          if (this.#updateId !== curUpdateId) {
+            return;
+          }
           errors.add(
             this.userData.settingsPath,
             MESH_FETCH_FAILED,
@@ -108,6 +129,17 @@ export class RenderableMeshResource extends RenderableMarker {
     this.#updateOutlineVisibility();
 
     this.scale.set(marker.scale.x, marker.scale.y, marker.scale.z);
+  }
+
+  #releaseMesh(): void {
+    if (this.#mesh) {
+      this.remove(this.#mesh);
+      this.#mesh = undefined;
+    }
+    this.#meshMaterials.forEach((material) => {
+      material.dispose();
+    });
+    this.#meshMaterials.clear();
   }
 
   #updateOutlineVisibility(): void {
@@ -127,11 +159,15 @@ export class RenderableMeshResource extends RenderableMarker {
   async #loadModel(
     url: string,
     opts: { useEmbeddedMaterials: boolean },
-  ): Promise<THREE.Group | THREE.Scene | undefined> {
+    updateId: number,
+  ): Promise<{ mesh: THREE.Group | THREE.Scene; materials: Set<THREE.Material> } | undefined> {
     const cachedModel = await this.renderer.modelCache.load(
       url,
       { referenceUrl: this.#referenceUrl },
       (err) => {
+        if (this.#updateId !== updateId) {
+          return;
+        }
         this.renderer.settings.errors.add(
           this.userData.settingsPath,
           MESH_FETCH_FAILED,
@@ -139,6 +175,10 @@ export class RenderableMeshResource extends RenderableMarker {
         );
       },
     );
+
+    if (this.#updateId !== updateId) {
+      return undefined;
+    }
 
     if (!cachedModel) {
       if (!this.renderer.settings.errors.hasError(this.userData.settingsPath, MESH_FETCH_FAILED)) {
@@ -153,10 +193,33 @@ export class RenderableMeshResource extends RenderableMarker {
 
     const mesh = cachedModel.clone(true);
     removeLights(mesh);
-    if (!opts.useEmbeddedMaterials) {
-      replaceMaterials(mesh, this.#material);
-    }
+    const materials = new Map<THREE.Material, THREE.Material>();
+    const cloneMaterial = (original: THREE.Material) => {
+      let owned = materials.get(original);
+      if (!owned) {
+        owned = original.clone();
+        materials.set(original, owned);
+      }
+      return owned;
+    };
+    mesh.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      const childMesh = child as THREE.Mesh;
+      if (opts.useEmbeddedMaterials) {
+        childMesh.material = Array.isArray(childMesh.material)
+          ? childMesh.material.map(cloneMaterial)
+          : cloneMaterial(childMesh.material);
+      } else {
+        // Do not dispose the cache's embedded materials or texture maps.
+        childMesh.material = this.#material;
+        if (childMesh.geometry.attributes.normal == undefined) {
+          childMesh.geometry.computeVertexNormals();
+        }
+      }
+    });
 
-    return mesh;
+    return { mesh, materials: new Set(materials.values()) };
   }
 }

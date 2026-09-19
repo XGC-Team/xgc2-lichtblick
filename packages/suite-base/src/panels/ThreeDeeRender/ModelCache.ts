@@ -51,9 +51,11 @@ const OBJ_MIME_TYPES = ["model/obj", "text/prs.wavefront-obj"];
 export class ModelCache {
   #textDecoder = new TextDecoder();
   #models = new Map<string, Promise<LoadedModel | undefined>>();
+  #loadedModels = new Set<LoadedModel>();
   #fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];
   #colladaTextureObjectUrls = new Map<string, string>();
   #dracoLoader?: DRACOLoader;
+  #lifetime = new AbortController();
 
   public constructor(public readonly options: ModelCacheOptions) {
     this.#fetchAsset = options.fetchAsset;
@@ -64,6 +66,9 @@ export class ModelCache {
     opts: LoadModelOptions,
     reportError: ErrorCallback,
   ): Promise<LoadedModel | undefined> {
+    if (this.#lifetime.signal.aborted) {
+      return undefined;
+    }
     let promise = this.#models.get(url);
     if (promise) {
       return await promise;
@@ -74,6 +79,11 @@ export class ModelCache {
     // can still opt into outlines via showOutlines on non-mesh primitives.
     promise = this.#loadModel(url, opts, reportError)
       .then((model) => {
+        if (this.#lifetime.signal.aborted) {
+          disposeCachedModels([model]);
+          return undefined;
+        }
+        this.#loadedModels.add(model);
         model.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.castShadow = true;
@@ -83,7 +93,9 @@ export class ModelCache {
         return model;
       })
       .catch(async (err: unknown) => {
-        reportError(err as Error);
+        if (!this.#lifetime.signal.aborted) {
+          reportError(err as Error);
+        }
         return undefined;
       });
 
@@ -98,7 +110,11 @@ export class ModelCache {
   ): Promise<LoadedModel> {
     const GLB_MAGIC = 0x676c5446; // "glTF"
 
-    const asset = await this.#fetchAsset(url, { referenceUrl: options.referenceUrl });
+    const asset = await this.#fetchAsset(url, {
+      referenceUrl: options.referenceUrl,
+      signal: this.#lifetime.signal,
+    });
+    this.#assertActive();
 
     const buffer = asset.data;
     if (buffer.byteLength < 4) {
@@ -143,7 +159,7 @@ export class ModelCache {
     // Check if this is a COLLADA file based on content-type or file extension
     if (DAE_MIME_TYPES.includes(contentType) || /\.dae$/i.test(url)) {
       const text = this.#textDecoder.decode(buffer);
-      return await this.#loadCollada(url, text, this.options.ignoreColladaUpAxis, reportError);
+      return await this.#loadCollada(url, text, this.options.ignoreColladaUpAxis);
     }
 
     // Check if this is an OBJ file based on content-type or file extension
@@ -213,14 +229,7 @@ export class ModelCache {
     text: string,
     // eslint-disable-next-line @lichtblick/no-boolean-parameters
     ignoreUpAxis: boolean,
-    reportError: ErrorCallback,
   ): Promise<LoadedModel> {
-    const onError = (assetUrl: string) => {
-      const originalUrl = unrewriteUrl(assetUrl);
-      log.error(`Failed to load COLLADA asset "${originalUrl}" for "${url}"`);
-      reportError(new Error(`Failed to load COLLADA asset "${originalUrl}"`));
-    };
-
     // The three.js ColladaLoader handles <up_axis> by detecting Z_UP and simply
     // applying a scene rotation. Since Studio is already Z_UP, we do our own
     // <up_axis> handling and skip rotation entirely for the Z_UP case
@@ -242,29 +251,58 @@ export class ModelCache {
         continue;
       }
 
-      try {
-        const textureUrl = new URL(node.textContent, baseUrl(url)).toString();
-        if (this.#colladaTextureObjectUrls.has(textureUrl)) {
-          continue;
-        }
-        const textureAsset = await this.#fetchAsset(textureUrl);
+      const textureUrl = new URL(node.textContent, baseUrl(url)).toString();
+      if (this.#colladaTextureObjectUrls.has(textureUrl)) {
+        continue;
+      }
+      // Fetch failures are authoritative. Never let the loader retry outside
+      // the asset owner (including immutable offline snapshot confinement).
+      const textureAsset = await this.#fetchAsset(textureUrl, {
+        signal: this.#lifetime.signal,
+      });
+      this.#assertActive();
+      // Another model may have completed the same texture fetch meanwhile.
+      if (!this.#colladaTextureObjectUrls.has(textureUrl)) {
         const objectUrl = URL.createObjectURL(
-          new Blob([new Uint8Array(textureAsset.data)], { type: textureAsset.mediaType }),
+          new Blob([new Uint8Array(textureAsset.data)], {
+            type: textureAsset.mediaType,
+          }),
         );
         this.#colladaTextureObjectUrls.set(textureUrl, objectUrl);
-      } catch (e) {
-        log.error(e);
-        onError(node.textContent);
       }
     }
 
-    const manager = new THREE.LoadingManager(undefined, undefined, onError);
-    manager.setURLModifier((u) => this.#colladaTextureObjectUrls.get(u) ?? rewriteUrl(u));
+    let textureError: Error | undefined;
+    let loaded!: () => void;
+    const texturesReady = new Promise<void>((resolve) => {
+      loaded = resolve;
+    });
+    const manager = new THREE.LoadingManager(loaded, undefined, (assetUrl) => {
+      textureError ??= new Error(`Failed to load COLLADA asset "${assetUrl}" for "${url}"`);
+    });
+    manager.setURLModifier((u) => {
+      const textureUrl = new URL(u, baseUrl(url)).toString();
+      const objectUrl = this.#colladaTextureObjectUrls.get(textureUrl);
+      if (!objectUrl) {
+        throw new Error(`COLLADA asset was not fetched by its owner: "${textureUrl}"`);
+      }
+      return objectUrl;
+    });
     const daeLoader = new ColladaLoader(manager);
 
     manager.itemStart(url);
     const dae = daeLoader.parse(xmlText, baseUrl(url));
     manager.itemEnd(url);
+    try {
+      await texturesReady;
+      this.#assertActive();
+      if (textureError) {
+        throw textureError;
+      }
+    } catch (error) {
+      disposeCachedModels([dae.scene]);
+      throw error;
+    }
 
     // If the <up_axis> is Y_UP, rotate to the Studio convention of Z-up following
     // ROS [REP-0103](https://www.ros.org/reps/rep-0103.html)
@@ -310,9 +348,11 @@ export class ModelCache {
     if (!dracoLoader) {
       dracoLoader = new DRACOLoader(manager);
       // Hack in a replacement function to load assets from the webpack bundle
-      (dracoLoader as { _loadLibrary?: (url: string, responseType: string) => unknown })[
-        "_loadLibrary"
-      ] = async function (url: string, responseType: string) {
+      (
+        dracoLoader as {
+          _loadLibrary?: (url: string, responseType: string) => unknown;
+        }
+      )["_loadLibrary"] = async function (url: string, responseType: string) {
         if (url === "draco_wasm_wrapper.js" && responseType === "text") {
           return dracoWasmWrapperJs;
         } else if (url === "draco_decoder.wasm" && responseType === "arraybuffer") {
@@ -331,13 +371,64 @@ export class ModelCache {
   }
 
   public dispose(): void {
-    this.#colladaTextureObjectUrls.forEach((_key, objectUrl) => {
+    if (this.#lifetime.signal.aborted) {
+      return;
+    }
+    this.#lifetime.abort();
+    this.#models.clear();
+    disposeCachedModels(this.#loadedModels);
+    this.#loadedModels.clear();
+    this.#colladaTextureObjectUrls.forEach((objectUrl) => {
       URL.revokeObjectURL(objectUrl);
     });
+    this.#colladaTextureObjectUrls.clear();
     // DRACOLoader is only loader that needs to be disposed because it uses a webworker
     this.#dracoLoader?.dispose();
     this.#dracoLoader = undefined;
   }
+
+  #assertActive(): void {
+    if (this.#lifetime.signal.aborted) {
+      throw new Error("Model cache is disposed");
+    }
+  }
+}
+
+/** Cached geometries and texture maps are shared by leaf instances. */
+function disposeCachedModels(models: Iterable<LoadedModel>): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+  for (const model of models) {
+    model.traverse((child) => {
+      if (
+        child instanceof THREE.Mesh ||
+        child instanceof THREE.Line ||
+        child instanceof THREE.Points
+      ) {
+        const geometry = child.geometry as THREE.BufferGeometry;
+        const childMaterials = child.material as THREE.Material | THREE.Material[];
+        geometries.add(geometry);
+        for (const material of Array.isArray(childMaterials) ? childMaterials : [childMaterials]) {
+          materials.add(material);
+          for (const value of Object.values(material)) {
+            if (value instanceof THREE.Texture) {
+              textures.add(value);
+            }
+          }
+        }
+      }
+    });
+  }
+  geometries.forEach((geometry) => {
+    geometry.dispose();
+  });
+  materials.forEach((material) => {
+    material.dispose();
+  });
+  textures.forEach((texture) => {
+    texture.dispose();
+  });
 }
 
 export const EDGE_LINE_SEGMENTS_NAME = "edges";

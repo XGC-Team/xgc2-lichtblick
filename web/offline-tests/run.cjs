@@ -53,10 +53,18 @@ try {
   }
   process.exitCode =
     status ||
-    run(process.execPath, ["--test", path.join(__dirname, "contract.test.cjs")], {
-      ...process.env,
-      XGC2_OFFLINE_TEST_BUILD: temp,
-    });
+    run(
+      process.execPath,
+      [
+        "--test",
+        path.join(__dirname, "contract.test.cjs"),
+        path.join(__dirname, "model-edits.test.cjs"),
+      ],
+      {
+        ...process.env,
+        XGC2_OFFLINE_TEST_BUILD: temp,
+      },
+    );
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

@@ -7,7 +7,16 @@
 import { sha256 as hashSha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import { parseTracks, type Track, type FrozenModel } from "./scene";
+import {
+  parseTracks,
+  parseFrozenModels,
+  validFrozenResourceType,
+  type Track,
+  type FrozenModel,
+} from "./scene";
+import { assetPath, nanos, record, requireValue, type Asset } from "./validation";
+
+export { assetPath, nanos, record, requireValue, type Asset } from "./validation";
 
 export type FramePlan = {
   snapshotSha256: string;
@@ -18,7 +27,6 @@ export type FramePlan = {
   width: number;
   height: number;
 };
-export type Asset = { path: string; sha256: string; size: number };
 export type Time = { sec: number; nsec: number };
 export type CameraFrame = {
   sourceFrameId: string;
@@ -59,21 +67,6 @@ export type SnapshotEvent = {
     sizeInBytes: number;
   };
 };
-export function requireValue(value: unknown, message: string): asserts value {
-  if (value == undefined || value === false || value === 0 || value === "") {
-    throw new Error(message);
-  }
-}
-export function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value != undefined && !Array.isArray(value);
-}
-export function nanos(value: unknown): bigint {
-  requireValue(
-    typeof value === "string" && /^(0|[1-9]\d{0,29})$/.test(value),
-    "Invalid nanosecond timestamp",
-  );
-  return BigInt(value);
-}
 export function rosNanos(value: Time): bigint {
   requireValue(
     Number.isSafeInteger(value.sec) &&
@@ -84,18 +77,6 @@ export function rosNanos(value: Time): bigint {
     "Invalid ROS time",
   );
   return BigInt(value.sec) * 1_000_000_000n + BigInt(value.nsec);
-}
-export function assetPath(asset: Asset): string {
-  requireValue(
-    record(asset) &&
-      /^[a-f0-9]{64}$/.test(asset.sha256) &&
-      /^assets\/[a-f0-9]{64}\.(json|jpg|png)$/.test(asset.path) &&
-      asset.path.split("/")[1]?.startsWith(asset.sha256 + ".") === true &&
-      Number.isSafeInteger(asset.size) &&
-      asset.size > 0,
-    "Invalid asset reference",
-  );
-  return asset.path;
 }
 export async function digest(bytes: ArrayBuffer): Promise<string> {
   // WebCrypto is absent on HTTP LAN origins. Integrity is still mandatory there.
@@ -160,6 +141,7 @@ export function parseSnapshot(value: unknown): Snapshot {
   );
   const s = value as unknown as Snapshot;
   s.tracks = parseTracks(s.tracks);
+  s.models = parseFrozenModels(s.models, s.tracks);
   nanos(s.bagStartNs);
   nanos(s.recipe.interval.startNs);
   nanos(s.recipe.interval.endNs);
@@ -222,6 +204,44 @@ export function parseSnapshot(value: unknown): Snapshot {
   assetPath(s.events);
   requireValue(s.events.size <= 256 * 1024 * 1024, "Event history exceeds limit");
   return s;
+}
+
+export async function fetchFrozenModelAsset(
+  models: readonly FrozenModel[],
+  base: URL,
+  uri: string,
+): Promise<{ uri: string; data: Uint8Array; mediaType: string }> {
+  const model = models.find((item) => uri === `https://xgc2.invalid/${item.asset.sha256}.urdf`);
+  const resource = models.flatMap((item) => item.resources ?? []).find((item) => item.uri === uri);
+  const asset = model?.asset ?? resource?.asset;
+  requireValue(asset != undefined, "Asset is not in the frozen model closure");
+  const bytes = await verifiedFetch(new URL(assetPath(asset), base), asset.sha256, asset.size);
+  requireValue(bytes.byteLength === asset.size, "Frozen model asset size mismatch");
+  if (model != undefined) {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    requireValue(
+      record(value) &&
+        value.modelId === model.modelId &&
+        typeof value.urdf === "string" &&
+        (model.bundleSha256 == undefined || value.bundleSha256 === model.bundleSha256),
+      "Invalid frozen model asset",
+    );
+    return { uri, data: new TextEncoder().encode(value.urdf), mediaType: "application/xml" };
+  }
+  requireValue(resource != undefined, "Missing frozen model resource");
+  requireValue(
+    validFrozenResourceType(uri, asset, resource.mediaType),
+    "Invalid model resource type",
+  );
+  // Native ModelCache recognizes GLB magic before consulting the declared type.
+  // Keep controlled meshes on its Collada path, whose texture loads use this owner.
+  requireValue(
+    (bytes.byteLength < 4 || new DataView(bytes).getUint32(0, false) !== 0x676c5446) &&
+      (resource.mediaType !== "model/vnd.collada+xml" ||
+        new TextDecoder().decode(bytes).trimStart().startsWith("<")),
+    "Invalid model resource format",
+  );
+  return { uri, data: new Uint8Array(bytes), mediaType: resource.mediaType };
 }
 export function selectFrame(snapshot: Snapshot, plan: FramePlan, sha256: string): CameraFrame {
   const r = snapshot.recipe,
