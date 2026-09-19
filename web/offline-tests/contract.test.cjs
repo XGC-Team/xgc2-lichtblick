@@ -599,3 +599,72 @@ test("snapshot SHA-256 remains exact without secure-context WebCrypto", async (t
     );
   }
 });
+
+// Source evidence stays tied to the original AU; native Images still consume PNG.
+test("H264 prepared frames require exact bounded decode evidence and lossless pixels", () => {
+  const valid = fixture();
+  valid.recipe.source.messageType = "foxglove_msgs/CompressedVideo";
+  valid.cameraFrames[0].asset.path = `assets/${sha}.png`;
+  valid.cameraFrames[0].sourceEncoding = {
+    codec: "h264",
+    accessUnitSha256: sha,
+    accessUnitSize: 8192,
+    decodeIndex: 23,
+  };
+  assert.equal(
+    s.parseSnapshot(structuredClone(valid)).cameraFrames[0].cameraTimeNs,
+    String(base),
+  );
+  for (const patch of [
+    { codec: "hevc" },
+    { accessUnitSha256: "bad" },
+    { accessUnitSize: 0 },
+    { accessUnitSize: 8 * 1024 * 1024 + 1 },
+    { accessUnitSize: 1.5 },
+    { decodeIndex: -1 },
+    { decodeIndex: 100000 },
+    { decodeIndex: 1.5 },
+    { decodeIndex: Number.MAX_SAFE_INTEGER + 1 },
+    { arbitrary: true },
+  ]) {
+    const changed = structuredClone(valid);
+    Object.assign(changed.cameraFrames[0].sourceEncoding, patch);
+    assert.throws(() => s.parseSnapshot(changed), /decode evidence/);
+  }
+  for (const change of [
+    (v) => {
+      delete v.cameraFrames[0].sourceEncoding;
+    },
+    (v) => {
+      v.cameraFrames[0].format = "jpeg";
+    },
+    (v) => {
+      v.cameraFrames[0].asset.path = `assets/${sha}.jpg`;
+    },
+    (v) => {
+      v.recipe.source.messageType = "sensor_msgs/CompressedImage";
+    },
+    (v) => {
+      delete v.recipe.source.messageType;
+    },
+  ]) {
+    const changed = structuredClone(valid);
+    change(changed);
+    assert.throws(() => s.parseSnapshot(changed), /decode evidence/);
+  }
+  const repeated = structuredClone(valid);
+  const frame = repeated.cameraFrames[0];
+  repeated.cameraFrames.push({
+    ...frame,
+    sourceFrameId: "next",
+    logTimeNs: String(base + 1n),
+    cameraTimeNs: String(base + 1n),
+    header: { ...frame.header, stamp: { sec: 1700000000, nsec: 1 } },
+  });
+  assert.throws(() => s.parseSnapshot(repeated), /decode evidence/);
+  const legacy = fixture();
+  assert.equal(
+    s.parseSnapshot(legacy).cameraFrames[0].sourceEncoding,
+    undefined,
+  );
+});

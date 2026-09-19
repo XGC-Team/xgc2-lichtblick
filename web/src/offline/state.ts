@@ -38,13 +38,19 @@ export type CameraFrame = {
   format: "jpeg" | "png";
   header: { seq?: number; frame_id: string; stamp: Time };
   asset: Asset;
+  sourceEncoding?: {
+    codec: "h264";
+    accessUnitSha256: string;
+    accessUnitSize: number;
+    decodeIndex: number;
+  };
 };
 export type Snapshot = {
   schema: string;
   version: number;
   bagStartNs: string;
   recipe: {
-    source: { cameraTopic: string };
+    source: { cameraTopic: string; messageType?: string };
     interval: { startNs: string; endNs: string };
     output: { width: number; height: number; fps: number };
   };
@@ -169,6 +175,7 @@ export function parseSnapshot(value: unknown): Snapshot {
   let log = -1n,
     sample = -1n,
     rendered = -1n;
+  let decoded = -1;
   const ids = new Set<string>();
   for (const f of s.cameraFrames) {
     requireValue(
@@ -199,6 +206,37 @@ export function parseSnapshot(value: unknown): Snapshot {
         Boolean(f.header.frame_id),
       "Invalid camera frame",
     );
+    const encoding: unknown = f.sourceEncoding;
+    if (s.recipe.source.messageType === "foxglove_msgs/CompressedVideo") {
+      requireValue(
+        record(encoding) &&
+          Object.keys(encoding).every((key) =>
+            [
+              "codec",
+              "accessUnitSha256",
+              "accessUnitSize",
+              "decodeIndex",
+            ].includes(key),
+          ) &&
+          encoding.codec === "h264" &&
+          typeof encoding.accessUnitSha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(encoding.accessUnitSha256) &&
+          typeof encoding.accessUnitSize === "number" &&
+          Number.isSafeInteger(encoding.accessUnitSize) &&
+          encoding.accessUnitSize > 0 &&
+          encoding.accessUnitSize <= 8 * 1024 * 1024 &&
+          typeof encoding.decodeIndex === "number" &&
+          Number.isSafeInteger(encoding.decodeIndex) &&
+          encoding.decodeIndex > decoded &&
+          encoding.decodeIndex < 100000 &&
+          f.format === "png" &&
+          f.asset.path.endsWith(".png"),
+        "Invalid H264 decode evidence",
+      );
+      decoded = encoding.decodeIndex;
+    } else {
+      requireValue(typeof encoding === "undefined", "Unexpected camera decode evidence");
+    }
     assetPath(f.asset);
   }
   assetPath(s.events);
