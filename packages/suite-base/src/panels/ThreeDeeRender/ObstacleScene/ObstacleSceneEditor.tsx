@@ -31,6 +31,8 @@ import {
   createObstacle,
   createPlacementObstacle,
   DEFAULT_ADD_POSITION,
+  geometryScaleConstraint,
+  scaleObstacleUniformly,
   SCENE_PRESETS,
   snapObstacleToGround,
   type ScenePreset,
@@ -406,19 +408,24 @@ function SceneInspector({
   const zh = i18n.language.startsWith("zh");
   const { classes } = useStyles();
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const transform = useSyncExternalStore(
+    extension.subscribeTransform,
+    extension.getTransformSnapshot,
+  );
   const { envelope, selection } = state;
   const [preset, setPreset] = useState<ScenePreset>("Box");
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
-  const [mode, setMode] = useState<"translate" | "rotate" | "scale">("translate");
-  const [local, setLocal] = useState(false);
+  const { mode, local } = transform;
   useEffect(() => {
     if (state.placement) {
       return;
     }
     session.setPlacement(createPlacementObstacle(preset));
   }, [session, state.placement, preset]);
-  const obstacle = envelope?.document.obstacles.find((o) => o.id === selection?.obstacleId);
+  const acceptedObstacle = envelope?.document.obstacles.find((o) => o.id === selection?.obstacleId);
+  const obstacle =
+    transform.preview?.id === acceptedObstacle?.id ? transform.preview : acceptedObstacle;
   const placement = state.placement;
   const part = obstacle?.parts.find((p) => p.id === selection?.partId);
   const dimensionPart = part ?? (obstacle?.parts.length === 1 ? obstacle.parts[0] : undefined);
@@ -431,7 +438,7 @@ function SceneInspector({
         .map((v) => (Number(v) * 180) / Math.PI) as Vec3)
     : undefined;
   const writable = session.canEdit();
-  const transformable = extension.canTransform();
+  const transformable = extension.canTransform() && !transform.dragging;
   const consumers = envelope?.consumers ?? [];
   const failed = consumers.filter((consumer) => !consumer.applied);
   const capability = consumers.filter((consumer) => consumer.capability === "unsupported");
@@ -774,9 +781,11 @@ function SceneInspector({
                     size="small"
                     key={value}
                     variant={mode === value ? "contained" : "outlined"}
+                    aria-pressed={mode === value}
+                    data-xgc-role="obstacle-scene-transform-mode"
+                    data-xgc-id={value}
                     disabled={!transformable || (value === "scale" && !extension.canScale())}
                     onClick={() => {
-                      setMode(value);
                       extension.setMode(value);
                     }}
                   >
@@ -790,9 +799,9 @@ function SceneInspector({
                 control={
                   <Checkbox
                     size="small"
-                    checked={local}
+                    checked={mode === "scale" || local}
+                    disabled={mode === "scale" || transform.dragging}
                     onChange={(_event, checked) => {
-                      setLocal(checked);
                       extension.setLocalSpace({ local: checked });
                     }}
                   />
@@ -809,8 +818,8 @@ function SceneInspector({
                   label={
                     part
                       ? zh
-                        ? "部件位置（米）"
-                        : "Part position (m)"
+                        ? "部件局部位置（米）"
+                        : "Part local position (m)"
                       : zh
                         ? "初始位置（米）"
                         : "Initial position (m)"
@@ -824,7 +833,15 @@ function SceneInspector({
               )}
               {pose && rotation && (
                 <VectorFields
-                  label={zh ? "旋转 XYZ（度）" : "Rotation XYZ (deg)"}
+                  label={
+                    part
+                      ? zh
+                        ? "部件局部旋转 XYZ（度）"
+                        : "Part local rotation XYZ (deg)"
+                      : zh
+                        ? "初始旋转 XYZ（度）"
+                        : "Initial rotation XYZ (deg)"
+                  }
                   value={rotation}
                   disabled={!transformable}
                   onCommit={(angles) => {
@@ -841,6 +858,28 @@ function SceneInspector({
                     });
                   }}
                 />
+              )}
+              {obstacle.parts.length > 1 && !part && (
+                <>
+                  <NumericField
+                    key={`${obstacle.id}:${envelope?.epoch}:${envelope?.revision}`}
+                    label={zh ? "整体等比缩放倍数" : "Whole obstacle scale factor"}
+                    value={transform.preview?.id === obstacle.id ? (transform.scaleFactor ?? 1) : 1}
+                    disabled={!transformable}
+                    onCommit={(factor) => {
+                      try {
+                        update(scaleObstacleUniformly(obstacle, factor));
+                      } catch (error) {
+                        session.reportError(error);
+                      }
+                    }}
+                  />
+                  <Typography variant="caption">
+                    {zh
+                      ? "以当前尺寸为基准，围绕整体原点等比调整；部件位置随之缩放。"
+                      : "Relative to the current size, uniformly about the whole obstacle origin, including part spacing."}
+                  </Typography>
+                </>
               )}
               {dimensionPart && (
                 <GeometryFields
@@ -865,6 +904,19 @@ function SceneInspector({
                   }}
                 />
               )}
+              {mode === "scale" &&
+                dimensionPart &&
+                geometryScaleConstraint(dimensionPart.geometry) !== "xyz" && (
+                  <Typography variant="caption">
+                    {geometryScaleConstraint(dimensionPart.geometry) === "radial"
+                      ? zh
+                        ? "X/Y 手柄调整半径，Z 调整高度，中心手柄等比缩放。"
+                        : "X/Y handles resize the radius; Z resizes height. The centre handle scales uniformly."
+                      : zh
+                        ? "拖动中心手柄等比缩放，或输入尺寸。"
+                        : "Drag the centre handle to scale uniformly, or enter dimensions."}
+                  </Typography>
+                )}
               <div className={classes.row}>
                 <Button
                   size="small"

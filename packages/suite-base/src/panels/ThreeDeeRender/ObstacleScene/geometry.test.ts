@@ -14,6 +14,7 @@ import {
   DEFAULT_ADD_POSITION,
   obstacleLowestWorldZ,
   scaleGeometry,
+  scaleObstacleUniformly,
   SCENE_DRAFT_ID,
   SCENE_PRESETS,
   snapObstacleToGround,
@@ -48,6 +49,52 @@ function fixture(): SceneEnvelope {
 }
 
 describe("rich scene geometry", () => {
+  it.each([
+    "Arch",
+    "Dumbbell",
+  ] as const)("resizes a rotated %s without changing identity, motion or part rotations", (preset) => {
+    const original = createObstacle(preset, "compound");
+    original.pose.orientation = new THREE.Quaternion()
+      .setFromEuler(new THREE.Euler(0.2, 0.3, 0.4))
+      .toArray() as typeof original.pose.orientation;
+    original.parts[0]!.pose.orientation = new THREE.Quaternion()
+      .setFromEuler(new THREE.Euler(0.1, 0.4, 0.6))
+      .toArray() as typeof original.pose.orientation;
+    original.motion = {
+      type: "circle",
+      center: [5, 6, 0],
+      radius: 3,
+      phase: 0,
+      angular_speed: 0.1,
+    };
+    const before = JSON.stringify(original);
+    const resized = scaleObstacleUniformly(original, 2);
+    expect(JSON.stringify(original)).toBe(before);
+    expect(resized.id).toBe(original.id);
+    expect(resized.pose).toEqual(original.pose);
+    expect(resized.motion).toEqual(original.motion);
+    expect(resized.parts).toHaveLength(original.parts.length);
+    resized.parts.forEach((part, index) => {
+      const prior = original.parts[index]!;
+      expect(part.id).toBe(prior.id);
+      expect(part.pose.orientation).toEqual(prior.pose.orientation);
+      expect(part.pose.position).toEqual(prior.pose.position.map((n) => n * 2));
+      expect(part.geometry).toEqual(scaleGeometry(prior.geometry, [2, 2, 2]));
+    });
+    expect(scaleObstacleUniformly(resized, 0.5)).toEqual(original);
+  });
+
+  it.each([
+    0,
+    -1,
+    NaN,
+    Infinity,
+  ])("rejects an invalid whole-obstacle factor %s before producing geometry", (factor) => {
+    expect(() => scaleObstacleUniformly(createObstacle("Arch", "arch"), factor)).toThrow(
+      "positive finite",
+    );
+  });
+
   it("uses the runtime namespace grammar and bound", () => {
     expect(sceneNamespace("/_lab/scene_1")).toBe("/_lab/scene_1");
     expect(sceneNamespace("/" + "a".repeat(160))).toBeUndefined();

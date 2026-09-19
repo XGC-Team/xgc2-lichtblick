@@ -8,12 +8,15 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import * as THREE from "three";
-import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import {
+  TransformControls,
+  type TransformControlsGizmo,
+} from "three/examples/jsm/controls/TransformControls.js";
 
 import { embeddedSceneBridge } from "@lichtblick/suite-base/components/EmbeddedSceneBridge";
 
 import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
-import { createObstacle } from "./geometry";
+import { createObstacle, type ScenePreset } from "./geometry";
 import { type SceneEnvelope } from "./types";
 import type { IRenderer } from "../IRenderer";
 
@@ -35,7 +38,9 @@ function envelope(): SceneEnvelope {
   };
 }
 
-async function setup() {
+async function setup(options: { preset?: ScenePreset; whole?: boolean } = {}) {
+  const initial = envelope();
+  initial.document.obstacles = [createObstacle(options.preset ?? "Arch", "arch-1")];
   const canvas = document.createElement("canvas");
   document.body.appendChild(canvas);
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -59,14 +64,17 @@ async function setup() {
     .mockReturnValue({ namespace: "/xgc/scene", editable: true });
   const command = jest
     .spyOn(embeddedSceneBridge, "command")
-    .mockResolvedValue({ success: true, ...envelope() });
+    .mockResolvedValue({ success: true, ...initial });
   const extension = new ObstacleSceneExtension(renderer as unknown as IRenderer);
   extension.session!.setLive({ live: true });
-  extension.session!.accept(envelope());
+  extension.session!.accept(initial);
   await Promise.resolve();
   await Promise.resolve();
   extension.session!.setActive({ active: true });
-  extension.session!.select({ obstacleId: "arch-1", partId: "lintel" });
+  extension.session!.select({
+    obstacleId: "arch-1",
+    ...(options.whole === true ? {} : { partId: "lintel" }),
+  });
   const controls = extension.children.find((child) => child instanceof TransformControls)!;
   return {
     extension,
@@ -74,6 +82,7 @@ async function setup() {
     command,
     renderer,
     canvas,
+    initial,
     dispose: () => {
       extension.dispose();
       canvas.remove();
@@ -82,6 +91,220 @@ async function setup() {
 }
 
 describe("3D obstacle authoring", () => {
+  it("keeps ground footprints at the floor while resizing a raised compound and after cancellation", async () => {
+    const { extension, controls, initial, dispose } = await setup({ whole: true });
+    const raised = createObstacle("Arch", "arch-1");
+    raised.pose.position = [0, 0, 0.6];
+    extension.session!.accept({
+      ...initial,
+      revision: 2,
+      document: { ...initial.document, obstacles: [raised] },
+    });
+    extension.setMode("scale");
+    const target = controls.object!;
+    const footprints = target.children.filter((child) => child.userData.footprint === true);
+    expect(footprints.length).toBeGreaterThan(0);
+    controls.dispatchEvent({ type: "mouseDown" });
+    target.scale.setScalar(2);
+    controls.dispatchEvent({ type: "objectChange" });
+    for (const footprint of footprints) {
+      expect(footprint.getWorldPosition(new THREE.Vector3()).z).toBeCloseTo(
+        footprint.userData.groundZ as number,
+      );
+    }
+    extension.cancelPreview();
+    for (const footprint of footprints) {
+      expect(footprint.getWorldPosition(new THREE.Vector3()).z).toBeCloseTo(
+        footprint.userData.groundZ as number,
+      );
+    }
+    dispose();
+  });
+
+  it.each([
+    "Sphere",
+    "Capsule",
+    "Arch",
+  ] as const)("refuses a nonuniform %s scale instead of committing a different shape", async (preset) => {
+    const { extension, controls, command, initial, dispose } = await setup({ preset, whole: true });
+    extension.setMode("scale");
+    controls.dispatchEvent({ type: "mouseDown" });
+    controls.object!.scale.set(2, 3, 2);
+    controls.dispatchEvent({ type: "objectChange" });
+    controls.dispatchEvent({ type: "mouseUp" });
+    expect(command).not.toHaveBeenCalled();
+    expect(extension.session!.getSnapshot().envelope).toEqual(initial);
+    expect(extension.getTransformSnapshot().preview).toBeUndefined();
+    expect(controls.object!.scale.toArray()).toEqual([1, 1, 1]);
+    expect(extension.session!.getSnapshot().error).toBeDefined();
+    dispose();
+  });
+
+  it("restores accepted geometry and clears the numeric preview when a scale update is rejected", async () => {
+    const { extension, controls, command, initial, dispose } = await setup({ whole: true });
+    command.mockResolvedValue({ ...initial, success: false, error: "Consumer rejected this edit" });
+    extension.setMode("scale");
+    const target = controls.object!;
+    controls.dispatchEvent({ type: "mouseDown" });
+    target.scale.setScalar(2);
+    controls.dispatchEvent({ type: "objectChange" });
+    controls.dispatchEvent({ type: "mouseUp" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(extension.session!.getSnapshot().envelope!.document).toEqual(initial.document);
+    expect(extension.session!.getSnapshot().needsRefresh).toBe(true);
+    expect(extension.getTransformSnapshot().preview).toBeUndefined();
+    expect(target.scale.toArray()).toEqual([1, 1, 1]);
+    dispose();
+  });
+
+  it.each([
+    ["Box", ["X", "XY", "XYZ", "XZ", "Y", "YZ", "Z"]],
+    ["Icosahedron", ["X", "XY", "XYZ", "XZ", "Y", "YZ", "Z"]],
+    ["Sphere", ["XYZ"]],
+    ["Capsule", ["XYZ"]],
+    ["Cylinder", ["X", "XYZ", "Y", "Z"]],
+    ["Arch", ["XYZ"]],
+  ] as const)("ordinary %s selection exposes only representable scale handles", async (preset, handles) => {
+    const { extension, controls, dispose } = await setup({ preset, whole: true });
+    expect(extension.canScale()).toBe(true);
+    extension.setMode("scale");
+    expect(controls.mode).toBe("scale");
+    expect(controls.object?.name).toBe(preset === "Arch" ? "arch-1" : "body");
+    const gizmo = controls.children.find(
+      (child) => child.type === "TransformControlsGizmo",
+    ) as TransformControlsGizmo;
+    for (const group of [gizmo.gizmo.scale, gizmo.picker.scale]) {
+      expect([...new Set(group.children.map((child) => child.name))].sort()).toEqual(handles);
+    }
+    dispose();
+  });
+
+  it("bakes an entire compound into one acknowledged update while retaining its pending preview", async () => {
+    const { extension, controls, command, initial, dispose } = await setup({ whole: true });
+    let accept!: (value: { success: boolean } & SceneEnvelope) => void;
+    command.mockImplementation(
+      async () =>
+        await new Promise((resolve) => {
+          accept = resolve;
+        }),
+    );
+    extension.setMode("scale");
+    const target = controls.object!;
+    controls.dispatchEvent({ type: "mouseDown" });
+    target.scale.setScalar(2);
+    controls.dispatchEvent({ type: "objectChange" });
+    const candidate = extension.getTransformSnapshot().preview!;
+    expect(candidate.parts[0]!.pose.position).toEqual([-2, 0, 2]);
+    expect(candidate.parts[0]!.geometry).toEqual({ type: "box", size: [0.8, 1.2, 4] });
+    expect(extension.session!.getSnapshot().envelope).toEqual(initial);
+    expect(command).not.toHaveBeenCalled();
+    controls.dispatchEvent({ type: "mouseUp" });
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(command).toHaveBeenCalledWith(
+      "/xgc/scene",
+      expect.objectContaining({
+        operation: "update",
+        obstacle: candidate,
+        expectedEpoch: "epoch",
+        expectedRevision: 1,
+      }),
+    );
+    expect(target.scale.toArray()).toEqual([2, 2, 2]);
+    expect(extension.getTransformSnapshot().preview).toEqual(candidate);
+    accept({
+      ...initial,
+      success: true,
+      revision: 2,
+      savedRevision: 2,
+      document: { ...initial.document, obstacles: [candidate] },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(extension.session!.getSnapshot().envelope!.document.obstacles[0]).toEqual(candidate);
+    expect(extension.getTransformSnapshot().preview).toBeUndefined();
+    expect(controls.object?.scale.toArray()).toEqual([1, 1, 1]);
+    dispose();
+  });
+
+  it.each([
+    "X",
+    "Y",
+    "Z",
+  ] as const)("keeps a cylinder circular when dragging its %s handle", async (axis) => {
+    const { extension, controls, command, dispose } = await setup({
+      preset: "Cylinder",
+      whole: true,
+    });
+    extension.setMode("scale");
+    controls.axis = axis;
+    controls.dispatchEvent({ type: "mouseDown" });
+    controls.object!.scale.set(axis === "X" ? 2 : 1, axis === "Y" ? 2 : 1, axis === "Z" ? 3 : 1);
+    controls.dispatchEvent({ type: "objectChange" });
+    const shape = extension.getTransformSnapshot().preview!.parts[0]!.geometry;
+    expect(shape).toEqual({
+      type: "cylinder",
+      radius: axis === "Z" ? 0.4 : 0.8,
+      height: axis === "Z" ? 3 : 1,
+    });
+    controls.dispatchEvent({ type: "mouseUp" });
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(command.mock.calls[0]![1]).toEqual(
+      expect.objectContaining({
+        obstacle: expect.objectContaining({
+          pose: expect.objectContaining({ position: [0, 0, 0] }),
+          parts: [
+            expect.objectContaining({
+              geometry: shape,
+              pose: expect.objectContaining({ position: [0, 0, 0.5] }),
+            }),
+          ],
+        }),
+      }),
+    );
+    dispose();
+  });
+
+  it("retains local axes across mode changes and reports automatic mode changes to the editor", async () => {
+    const { extension, controls, dispose } = await setup({ whole: true });
+    extension.setLocalSpace({ local: true });
+    extension.setMode("rotate");
+    expect(controls.space).toBe("local");
+    extension.setMode("scale");
+    extension.setMode("translate");
+    expect(controls.space).toBe("local");
+    extension.setMode("scale");
+    extension.session!.select(undefined);
+    expect(extension.getTransformSnapshot().mode).toBe("translate");
+    expect(extension.getTransformSnapshot().local).toBe(true);
+    dispose();
+  });
+
+  it.each([
+    "cancel",
+    "new revision",
+    "change selection",
+  ] as const)("drops a scale preview on %s without submitting", async (reason) => {
+    const { extension, controls, command, initial, dispose } = await setup({ whole: true });
+    extension.setMode("scale");
+    controls.dispatchEvent({ type: "mouseDown" });
+    controls.object!.scale.setScalar(2);
+    controls.dispatchEvent({ type: "objectChange" });
+    if (reason === "cancel") {
+      extension.cancelPreview();
+    } else if (reason === "new revision") {
+      extension.session!.accept({ ...initial, revision: 2 });
+    } else {
+      extension.session!.select({ obstacleId: "arch-1", partId: "lintel" });
+    }
+    controls.dispatchEvent({ type: "mouseUp" });
+    expect(command).not.toHaveBeenCalled();
+    expect(extension.getTransformSnapshot().preview).toBeUndefined();
+    expect(extension.getTransformSnapshot().dragging).toBe(false);
+    dispose();
+  });
+
   it("renders typed compounds with stable part identity and registers the frame without an algorithm", async () => {
     const { extension, controls, renderer, dispose } = await setup();
     expect(renderer.addCoordinateFrame).toHaveBeenCalledWith("world");

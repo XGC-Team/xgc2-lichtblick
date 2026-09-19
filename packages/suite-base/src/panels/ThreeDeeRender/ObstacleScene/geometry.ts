@@ -233,3 +233,37 @@ export function scaleGeometry(shape: SceneGeometry, scale: Vec3): SceneGeometry 
       return { ...shape, radius: shape.radius * x, height: shape.height * z };
   }
 }
+
+export type SceneScaleConstraint = "xyz" | "radial" | "uniform";
+
+/** The gizmo and numeric editor use the same exact primitive semantics. */
+export function geometryScaleConstraint(shape: SceneGeometry): SceneScaleConstraint {
+  switch (shape.type) {
+    case "box":
+    case "convex":
+      return "xyz";
+    case "cylinder":
+      return "radial";
+    case "sphere":
+    case "capsule":
+      return "uniform";
+  }
+}
+
+/** Bake an equal-axis resize about the authored root, keeping each collision part separate. */
+export function scaleObstacleUniformly(obstacle: SceneObstacle, factor: number): SceneObstacle {
+  if (!Number.isFinite(factor) || factor <= 0) {
+    throw new Error("Scale must be a positive finite number.");
+  }
+  return {
+    ...obstacle,
+    parts: obstacle.parts.map((scenePart) => ({
+      ...scenePart,
+      pose: {
+        ...scenePart.pose,
+        position: scenePart.pose.position.map((n) => n * factor) as Vec3,
+      },
+      geometry: scaleGeometry(scenePart.geometry, [factor, factor, factor]),
+    })),
+  };
+}

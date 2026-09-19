@@ -15,7 +15,14 @@ import {
 import type { MessageEvent } from "@lichtblick/suite";
 
 import { SceneEditorSession } from "./SceneEditorSession";
-import { createGeometry, scaleGeometry, SCENE_DRAFT_ID } from "./geometry";
+import {
+  createGeometry,
+  geometryScaleConstraint,
+  scaleGeometry,
+  scaleObstacleUniformly,
+  SCENE_DRAFT_ID,
+  type SceneScaleConstraint,
+} from "./geometry";
 import { withObstaclePose } from "./motion";
 import {
   isRecord,
@@ -50,6 +57,18 @@ type Drag = {
   epoch: string;
   revision: number;
   changed: boolean;
+  target: THREE.Object3D;
+  partId?: string;
+  mode: TransformState["mode"];
+};
+
+type TransformState = {
+  mode: "translate" | "rotate" | "scale";
+  local: boolean;
+  dragging: boolean;
+  /** Transient candidate only; the session remains the sole accepted document. */
+  preview?: SceneObstacle;
+  scaleFactor?: number;
 };
 
 function applyPose(object: THREE.Object3D, pose: ScenePose): void {
@@ -112,7 +131,10 @@ export class ObstacleSceneExtension extends SceneExtension {
   #committing: { obstacleId: string } | undefined;
   #suppressClick = false;
   #lastState: { epoch: string; revision: number; poses: Map<string, ScenePose> } | undefined;
-  #mode: "translate" | "rotate" | "scale" = "translate";
+  #transform: TransformState = { mode: "translate", local: false, dragging: false };
+  #transformListeners = new Set<() => void>();
+  #scaleConstraint: SceneScaleConstraint = "xyz";
+  #scaleHandles: { group: THREE.Object3D; children: THREE.Object3D[] }[];
   #draftGroup: THREE.Group | undefined;
   #colorOverride: [number, number, number, number] | undefined;
 
@@ -123,6 +145,12 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#colorOverride = sceneColorOverride(renderer.config.scene.obstacleScene?.color);
     this.add(this.#frame);
     this.#controls = new TransformControls(renderer.cameraHandler.getActiveCamera(), this.#canvas);
+    const gizmo = this.#controls.children.find(
+      (child) => child.type === "TransformControlsGizmo",
+    ) as TransformControlsGizmo;
+    this.#scaleHandles = [gizmo.gizmo.scale, gizmo.picker.scale, gizmo.helper.scale].map(
+      (group) => ({ group, children: [...group.children] }),
+    );
     this.#controls.setSize(0.85);
     this.#controls.enabled = false;
     this.add(this.#controls);
@@ -215,6 +243,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     if (!envelope) {
       this.cancelPreview();
       this.#committing = undefined;
+      this.#setTransform({ preview: undefined, scaleFactor: undefined });
       this.#clearGeometry();
       this.#accepted = undefined;
       return;
@@ -222,6 +251,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     if (envelope.epoch !== this.#accepted?.epoch || envelope.revision !== this.#accepted.revision) {
       this.cancelPreview();
       this.#committing = undefined;
+      this.#setTransform({ preview: undefined, scaleFactor: undefined });
       this.#clearGeometry();
       this.renderer.addCoordinateFrame(envelope.document.frame);
       for (const obstacle of envelope.document.obstacles) {
@@ -271,8 +301,19 @@ export class ObstacleSceneExtension extends SceneExtension {
       this.#syncFootprintHeights();
     }
     this.#accepted = envelope;
-    if (this.#drag && (this.session?.canEdit() !== true || !state.active)) {
+    if (
+      this.#drag &&
+      (this.session?.canEdit() !== true ||
+        !state.active ||
+        this.#drag.selection.obstacleId !== (state.selection?.obstacleId ?? SCENE_DRAFT_ID) ||
+        this.#drag.selection.partId !== state.selection?.partId)
+    ) {
       this.cancelPreview();
+    }
+    if (this.#committing && (!state.live || !state.authorized || state.needsRefresh)) {
+      this.#committing = undefined;
+      this.#setTransform({ preview: undefined, scaleFactor: undefined });
+      this.#restoreAccepted();
     }
     this.#applyRuntimePoses();
     if (!this.#isDraftDrag()) {
@@ -292,7 +333,7 @@ export class ObstacleSceneExtension extends SceneExtension {
       for (const child of group.children) {
         const groundZ = child.userData.groundZ as number | undefined;
         if (child.userData.footprint === true && groundZ != undefined) {
-          child.position.z = groundZ - group.position.z;
+          child.position.z = (groundZ - group.position.z) / group.scale.z;
         }
       }
     }
@@ -419,22 +460,42 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   public canScale(): boolean {
     const state = this.session?.getSnapshot();
-    const part = state?.envelope?.document.obstacles
-      .find((o) => o.id === state.selection?.obstacleId)
-      ?.parts.find((p) => p.id === state.selection?.partId);
-    return part?.geometry.type === "box" || part?.geometry.type === "convex";
+    return (
+      state?.envelope?.document.obstacles.some((o) => o.id === state.selection?.obstacleId) === true
+    );
+  }
+
+  public getTransformSnapshot = (): TransformState => this.#transform;
+  public subscribeTransform = (listener: () => void): (() => void) => {
+    this.#transformListeners.add(listener);
+    return () => this.#transformListeners.delete(listener);
+  };
+
+  #setTransform(patch: Partial<TransformState>): void {
+    if (
+      Object.entries(patch).every(
+        ([key, value]) => this.#transform[key as keyof TransformState] === value,
+      )
+    ) {
+      return;
+    }
+    this.#transform = { ...this.#transform, ...patch };
+    this.#transformListeners.forEach((listener) => {
+      listener();
+    });
   }
 
   public setMode(mode: "translate" | "rotate" | "scale"): void {
     this.cancelPreview();
-    this.#mode = mode === "scale" && !this.canScale() ? "translate" : mode;
-    this.#controls.setMode(this.#mode);
-    this.#controls.setSpace(this.#mode === "scale" ? "local" : "world");
+    this.#setTransform({ mode: mode === "scale" && !this.canScale() ? "translate" : mode });
+    this.#attach();
     this.renderer.queueAnimationFrame();
   }
 
   public setLocalSpace({ local }: { local: boolean }): void {
-    this.#controls.setSpace(this.#mode === "scale" || local ? "local" : "world");
+    this.cancelPreview();
+    this.#setTransform({ local });
+    this.#controls.setSpace(this.#transform.mode === "scale" || local ? "local" : "world");
     this.renderer.queueAnimationFrame();
   }
 
@@ -446,19 +507,60 @@ export class ObstacleSceneExtension extends SceneExtension {
       return this.#draftGroup;
     }
     const group = this.#groups.get(selection.obstacleId);
-    return selection.partId
-      ? group?.children.find((child) => child.name === selection.partId)
-      : group;
+    const obstacle = this.session
+      ?.getSnapshot()
+      .envelope?.document.obstacles.find((o) => o.id === selection.obstacleId);
+    const partId =
+      selection.partId ??
+      (this.#transform.mode === "scale" && obstacle?.parts.length === 1
+        ? obstacle.parts[0]!.id
+        : undefined);
+    return partId ? group?.children.find((child) => child.name === partId) : group;
+  }
+
+  #syncScaleHandles(): void {
+    const state = this.session?.getSnapshot();
+    const obstacle = state?.envelope?.document.obstacles.find(
+      (o) => o.id === state.selection?.obstacleId,
+    );
+    const part =
+      obstacle?.parts.find((p) => p.id === state?.selection?.partId) ??
+      (obstacle?.parts.length === 1 ? obstacle.parts[0] : undefined);
+    const constraint = part ? geometryScaleConstraint(part.geometry) : "uniform";
+    if (constraint === this.#scaleConstraint) {
+      return;
+    }
+    this.#scaleConstraint = constraint;
+    // Remove disallowed native handles from both drawing and picking. showX/Y/Z
+    // would also hide the centre XYZ handle, which is the uniform scale control.
+    for (const { group, children } of this.#scaleHandles) {
+      group.clear();
+      const allowed = children.filter(
+        (child) =>
+          constraint === "xyz" ||
+          child.name === "XYZ" ||
+          (constraint === "radial" && ["X", "Y", "Z"].includes(child.name)),
+      );
+      if (allowed.length > 0) {
+        group.add(...allowed);
+      }
+    }
+    this.#controls.axis = null;
   }
 
   #attach(): void {
     const state = this.session?.getSnapshot();
     const selection = state?.selection;
-    const target = this.#target(selection);
     this.#controls.enabled = state?.active === true && this.canTransform();
-    if (this.#mode === "scale" && !this.canScale()) {
-      this.setMode("translate");
+    if (this.#transform.mode === "scale" && !this.canScale()) {
+      this.#setTransform({ mode: "translate" });
     }
+    this.#controls.setMode(this.#transform.mode);
+    this.#controls.setSpace(
+      this.#transform.mode === "scale" || this.#transform.local ? "local" : "world",
+    );
+    this.#syncScaleHandles();
+    const target = this.#target(selection);
     if (target && this.#controls.enabled) {
       if (this.#controls.object !== target) {
         this.#controls.attach(target);
@@ -497,7 +599,9 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#controls.updateMatrixWorld(true);
     if (
       gizmo &&
-      raycaster.intersectObject(gizmo.picker[this.#mode], true).some((hit) => hit.object.visible)
+      raycaster
+        .intersectObject(gizmo.picker[this.#transform.mode], true)
+        .some((hit) => hit.object.visible)
     ) {
       this.renderer.cameraHandler.setInteractionEnabled?.({ enabled: false });
       // The preceding property edit may own keyboard focus; Escape must cancel this canvas drag.
@@ -511,7 +615,8 @@ export class ObstacleSceneExtension extends SceneExtension {
   #beginDrag = (): void => {
     const state = this.session?.getSnapshot();
     const envelope = state?.envelope;
-    if (!envelope || !this.canTransform()) {
+    const target = this.#target(state?.selection);
+    if (!envelope || !target || !this.canTransform()) {
       return;
     }
     if (!state.selection) {
@@ -525,6 +630,8 @@ export class ObstacleSceneExtension extends SceneExtension {
         epoch: envelope.epoch,
         revision: envelope.revision,
         changed: false,
+        target,
+        mode: this.#transform.mode,
       };
     } else {
       const obstacle = envelope.document.obstacles.find(
@@ -539,9 +646,17 @@ export class ObstacleSceneExtension extends SceneExtension {
         epoch: envelope.epoch,
         revision: envelope.revision,
         changed: false,
+        target,
+        mode: this.#transform.mode,
+        partId:
+          state.selection.partId ??
+          (this.#transform.mode === "scale" && obstacle.parts.length === 1
+            ? obstacle.parts[0]!.id
+            : undefined),
       };
     }
     this.#suppressClick = true;
+    this.#setTransform({ dragging: true, preview: this.#drag.obstacle });
     this.renderer.cameraHandler.setInteractionEnabled?.({ enabled: false });
   };
 
@@ -551,21 +666,76 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   #previewChanged = (): void => {
     if (this.#drag) {
-      this.#drag.changed = true;
+      try {
+        const { target, mode } = this.#drag;
+        if (mode === "scale" && this.#scaleConstraint === "radial") {
+          if (this.#controls.axis === "X") {
+            target.scale.y = target.scale.x;
+          } else if (this.#controls.axis === "Y") {
+            target.scale.x = target.scale.y;
+          }
+        }
+        const preview = this.#dragCandidate(this.#drag);
+        this.#drag.changed = true;
+        this.#syncFootprintHeights();
+        this.#setTransform({ preview, scaleFactor: mode === "scale" ? target.scale.x : undefined });
+      } catch (error) {
+        this.cancelPreview();
+        this.session?.reportError(error);
+      }
     }
     this.renderer.queueAnimationFrame();
   };
 
+  #dragCandidate(drag: Drag): SceneObstacle {
+    const { obstacle, target, partId, mode } = drag;
+    const pose: ScenePose = {
+      position: target.position.toArray(),
+      orientation: target.quaternion.clone().normalize().toArray() as ScenePose["orientation"],
+    };
+    if (partId) {
+      return {
+        ...obstacle,
+        parts: obstacle.parts.map((part) =>
+          part.id === partId
+            ? {
+                ...part,
+                pose,
+                geometry:
+                  mode === "scale"
+                    ? scaleGeometry(part.geometry, target.scale.toArray())
+                    : part.geometry,
+              }
+            : part,
+        ),
+      };
+    }
+    if (mode === "scale") {
+      if (
+        Math.abs(target.scale.x - target.scale.y) > 1e-5 ||
+        Math.abs(target.scale.x - target.scale.z) > 1e-5
+      ) {
+        throw new Error(
+          "Scale the whole obstacle equally on every axis; edit individual parts for other dimensions.",
+        );
+      }
+      return scaleObstacleUniformly(obstacle, target.scale.x);
+    }
+    return withObstaclePose(obstacle, pose);
+  }
+
   #endDrag = (): void => {
     const drag = this.#drag;
-    const target = this.#target(drag?.selection);
     this.#drag = undefined;
+    this.#setTransform({ dragging: false });
     this.renderer.cameraHandler.setInteractionEnabled?.({ enabled: true });
-    if (!drag || !target || !drag.changed) {
+    if (drag?.changed !== true) {
+      this.#setTransform({ preview: undefined, scaleFactor: undefined });
       return;
     }
     const current = this.session?.getSnapshot().envelope;
     if (current?.epoch !== drag.epoch || current.revision !== drag.revision) {
+      this.#setTransform({ preview: undefined, scaleFactor: undefined });
       this.#restoreAccepted();
       this.session?.reportError(
         "The scene changed while dragging. Select the obstacle and try again.",
@@ -573,31 +743,23 @@ export class ObstacleSceneExtension extends SceneExtension {
       return;
     }
     try {
-      let obstacle = drag.obstacle;
-      const part = obstacle.parts.find((p) => p.id === drag.selection.partId);
-      const pose: ScenePose = {
-        position: target.position.toArray(),
-        orientation: target.quaternion.clone().normalize().toArray() as ScenePose["orientation"],
-      };
+      const obstacle = this.#dragCandidate(drag);
       if (drag.selection.obstacleId === SCENE_DRAFT_ID) {
-        this.session?.setPlacement(withObstaclePose(obstacle, pose));
+        this.#setTransform({ preview: undefined, scaleFactor: undefined });
+        this.session?.setPlacement(obstacle);
         return;
-      }
-      if (part) {
-        part.pose = pose;
-        part.geometry = scaleGeometry(part.geometry, target.scale.toArray());
-      } else {
-        obstacle = withObstaclePose(obstacle, pose);
       }
       const committing = { obstacleId: obstacle.id };
       this.#committing = committing;
       void this.session?.command({ operation: "update", obstacle }).finally(() => {
         if (this.#committing === committing) {
           this.#committing = undefined;
+          this.#setTransform({ preview: undefined, scaleFactor: undefined });
           this.#restoreAccepted();
         }
       });
     } catch (error) {
+      this.#setTransform({ preview: undefined, scaleFactor: undefined });
       this.#restoreAccepted();
       this.session?.reportError(error);
     }
@@ -623,6 +785,7 @@ export class ObstacleSceneExtension extends SceneExtension {
       applyPose(this.#draftGroup, placement.pose);
     }
     this.#applyRuntimePoses();
+    this.#syncFootprintHeights();
     this.renderer.queueAnimationFrame();
   }
 
@@ -631,6 +794,7 @@ export class ObstacleSceneExtension extends SceneExtension {
       return;
     }
     this.#drag = undefined;
+    this.#setTransform({ dragging: false, preview: undefined, scaleFactor: undefined });
     this.#controls.reset();
     this.#controls.dragging = false;
     this.#restoreAccepted();
@@ -735,6 +899,11 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.cancelPreview();
     this.#unsubscribe?.();
     this.session?.dispose();
+    this.#transformListeners.clear();
+    for (const { group, children } of this.#scaleHandles) {
+      group.clear();
+      group.add(...children);
+    }
     this.#controls.dispose();
     this.#clearGeometry();
     this.#canvas.removeEventListener("pointerdown", this.#capturePointerDown, true);
