@@ -44,9 +44,11 @@ function renderProvider() {
 
 describe("EmbeddedWorkspaceControlsProvider", () => {
   it("starts embedded tools hidden and still allows explicit toggles", () => {
-    render(<EmbeddedWorkspaceControlsProvider defaultThreeDToolsVisible={false}>
-      <ControlsHarness />
-    </EmbeddedWorkspaceControlsProvider>);
+    render(
+      <EmbeddedWorkspaceControlsProvider defaultThreeDToolsVisible={false}>
+        <ControlsHarness />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
     expect(screen.getByTestId("three-d-tools")).toHaveTextContent("false");
     expect(screen.getByTestId("visibility")).toHaveTextContent("false");
     fireEvent.click(screen.getByRole("button", { name: "Toggle 3D tools" }));

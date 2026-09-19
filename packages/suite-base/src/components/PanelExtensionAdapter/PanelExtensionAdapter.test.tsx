@@ -33,37 +33,37 @@ import PanelExtensionAdapter from "./PanelExtensionAdapter";
 import { BuiltinPanelExtensionContext } from "./types";
 
 describe("PanelExtensionAdapter", () => {
-  it.each([false, true])(
-    "identifies live read-only streams without publish permission (playback %s)",
-    async (playback) => {
-      const ready = signal();
-      let observed: BuiltinPanelExtensionContext | undefined;
-      render(
-        <ThemeProvider isDark>
-          <MockPanelContextProvider>
-            <PanelSetup
-              fixture={{
-                capabilities: playback ? [PLAYER_CAPABILITIES.playbackControl] : [],
-                profile: "ros1",
+  it.each([
+    false,
+    true,
+  ])("identifies live read-only streams without publish permission (playback %s)", async (playback) => {
+    const ready = signal();
+    let observed: BuiltinPanelExtensionContext | undefined;
+    render(
+      <ThemeProvider isDark>
+        <MockPanelContextProvider>
+          <PanelSetup
+            fixture={{
+              capabilities: playback ? [PLAYER_CAPABILITIES.playbackControl] : [],
+              profile: "ros1",
+            }}
+          >
+            <PanelExtensionAdapter
+              config={{}}
+              saveConfig={() => {}}
+              initPanel={(context: BuiltinPanelExtensionContext) => {
+                observed = context;
+                ready.resolve();
               }}
-            >
-              <PanelExtensionAdapter
-                config={{}}
-                saveConfig={() => {}}
-                initPanel={(context: BuiltinPanelExtensionContext) => {
-                  observed = context;
-                  ready.resolve();
-                }}
-              />
-            </PanelSetup>
-          </MockPanelContextProvider>
-        </ThemeProvider>,
-      );
-      await ready;
-      expect(typeof observed?.publish).toBe("undefined");
-      expect(observed?.dataSourceIsLive).toBe(!playback);
-    },
-  );
+            />
+          </PanelSetup>
+        </MockPanelContextProvider>
+      </ThemeProvider>,
+    );
+    await ready;
+    expect(typeof observed?.publish).toBe("undefined");
+    expect(observed?.dataSourceIsLive).toBe(!playback);
+  });
 
   it("should call initPanel", async () => {
     expect.assertions(1);

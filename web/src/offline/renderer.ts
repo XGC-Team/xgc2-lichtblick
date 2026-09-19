@@ -20,7 +20,11 @@ import { resolveLiveTfHistory } from "@lichtblick/suite-base/panels/ThreeDeeRend
 
 import { readFramePixels } from "./capture";
 import { OFFLINE_TF_HISTORY_SECONDS, validateTransformHistory } from "./history";
-import { interactivePreviewEnabled, requireCapturePixelRatio, taintsOnFrameError } from "./interactive";
+import {
+  interactivePreviewEnabled,
+  requireCapturePixelRatio,
+  taintsOnFrameError,
+} from "./interactive";
 import {
   assetPath,
   nanos,
@@ -101,7 +105,7 @@ export class OfflineRenderer {
     );
     validateTransformHistory(history, resolveLiveTfHistory(location.search));
     const interactive = interactivePreviewEnabled(location.search);
-    requireCapturePixelRatio(window.devicePixelRatio, interactive);
+    requireCapturePixelRatio(window.devicePixelRatio, { interactive });
     requireValue(record(snapshot.rendererConfig), "Missing renderer config");
     const config = snapshot.rendererConfig as unknown as RendererConfig;
     requireValue(
@@ -306,7 +310,9 @@ export class OfflineRenderer {
     } catch (error) {
       // Strict capture taints on any failure. An interactive scrub frame may
       // fail without tainting; the host can retry it or drop it.
-      this.#tainted = this.#tainted || taintsOnFrameError(this.#interactive);
+      if (taintsOnFrameError({ interactive: this.#interactive })) {
+        this.#tainted = true;
+      }
       throw error;
     }
   }

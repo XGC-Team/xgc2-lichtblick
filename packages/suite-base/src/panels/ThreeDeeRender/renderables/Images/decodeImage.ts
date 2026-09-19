@@ -49,7 +49,9 @@ export function isJpegBytes(data: Uint8Array): boolean {
 }
 
 function isPngBytes(data: Uint8Array): boolean {
-  return data.length >= 4 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47;
+  return (
+    data.length >= 4 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47
+  );
 }
 
 async function readBlobPrefix(blob: Blob, n: number): Promise<Uint8Array> {
@@ -126,12 +128,12 @@ export function preferHtmlRasterDecode(): boolean {
   if (typeof navigator === "undefined") {
     return false;
   }
-  const ua = navigator.userAgent ?? "";
-  const touchPoints = Number(navigator.maxTouchPoints ?? 0);
+  const ua = navigator.userAgent;
+  const touchPoints = Number(navigator.maxTouchPoints);
   const iOSDevice =
     /iPad|iPhone|iPod/.test(ua) ||
     (navigator.platform === "MacIntel" && Number.isFinite(touchPoints) && touchPoints > 1);
-  const mobileWebKit = /AppleWebKit/.test(ua) && /Mobile/.test(ua);
+  const mobileWebKit = ua.includes("AppleWebKit") && ua.includes("Mobile");
   return iOSDevice || mobileWebKit;
 }
 
@@ -233,8 +235,8 @@ async function imageDataFromHtmlImage(
 ): Promise<ImageData> {
   const image = await loadHtmlImage(blob);
   try {
-    const sourceWidth = image.naturalWidth || image.width;
-    const sourceHeight = image.naturalHeight || image.height;
+    const sourceWidth = image.naturalWidth > 0 ? image.naturalWidth : image.width;
+    const sourceHeight = image.naturalHeight > 0 ? image.naturalHeight : image.height;
     if (!(sourceWidth > 0 && sourceHeight > 0)) {
       throw new Error("Decoded image has no dimensions");
     }
@@ -306,20 +308,14 @@ export async function createImageBitmapMaybeResized(
         targetWidth != undefined
           ? await createImageBitmap(source, { resizeWidth: targetWidth })
           : await createImageBitmap(source);
-      if (bitmap != undefined && (targetWidth == undefined || !(bitmap.width > targetWidth))) {
+      if (targetWidth == undefined || !(bitmap.width > targetWidth)) {
         return bitmap;
       }
     } catch {
       bitmap = undefined;
     }
 
-    if (bitmap == undefined) {
-      bitmap = await createImageBitmap(source);
-    }
-
-    if (bitmap == undefined) {
-      throw new Error("Unable to decode image bitmap");
-    }
+    bitmap ??= await createImageBitmap(source);
     if (targetWidth == undefined || !(bitmap.width > targetWidth)) {
       return bitmap;
     }
@@ -335,14 +331,9 @@ export async function createImageBitmapMaybeResized(
     } catch {
       bitmap = undefined;
     }
-    if (bitmap == undefined) {
-      bitmap = await createImageBitmap(source);
-    }
+    bitmap ??= await createImageBitmap(source);
   }
 
-  if (bitmap == undefined) {
-    throw new Error("Unable to decode image bitmap");
-  }
   if (targetWidth == undefined || !(bitmap.width > targetWidth)) {
     return bitmap;
   }

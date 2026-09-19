@@ -93,9 +93,6 @@ export function fieldLineWidth(
   };
 }
 
-export function fieldGradient(
-  label: string,
-  value: TwoColors,
-): SettingsTreeField {
+export function fieldGradient(label: string, value: TwoColors): SettingsTreeField {
   return { label, input: "gradient", value };
 }

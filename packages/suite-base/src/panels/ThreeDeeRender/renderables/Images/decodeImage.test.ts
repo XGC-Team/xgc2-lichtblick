@@ -69,25 +69,24 @@ describe("decodeCompressedImageToBitmap", () => {
     "bgr8; jpeg compressed bgr8",
     "rgb8; jpeg compressed rgb8",
   ])("normalizes %s to image/jpeg before createImageBitmap", async (format) => {
-      const original = globalThis.createImageBitmap;
-      const create = jest.fn().mockResolvedValue(new ImageBitmap());
-      globalThis.createImageBitmap = create as typeof createImageBitmap;
-      try {
-        await decodeCompressedImageToBitmap({
-          data: new Uint8Array([1, 2, 3]),
-          format,
-          timestamp: RosTimeBuilder.time(),
-          frame_id: "frame_1",
-        });
-        const blob = create.mock.calls[0]![0] as Blob;
-        expect(blob).toBeInstanceOf(Blob);
-        expect(blob.type).toBe("image/jpeg");
-        expect(compressedImageBlobType(format)).toBe("image/jpeg");
-      } finally {
-        globalThis.createImageBitmap = original;
-      }
-    },
-  );
+    const original = globalThis.createImageBitmap;
+    const create = jest.fn().mockResolvedValue(new ImageBitmap());
+    globalThis.createImageBitmap = create as typeof createImageBitmap;
+    try {
+      await decodeCompressedImageToBitmap({
+        data: new Uint8Array([1, 2, 3]),
+        format,
+        timestamp: RosTimeBuilder.time(),
+        frame_id: "frame_1",
+      });
+      const blob = create.mock.calls[0]![0] as Blob;
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.type).toBe("image/jpeg");
+      expect(compressedImageBlobType(format)).toBe("image/jpeg");
+    } finally {
+      globalThis.createImageBitmap = original;
+    }
+  });
 
   it("falls back when createImageBitmap rejects resizeWidth", async () => {
     const original = globalThis.createImageBitmap;
@@ -110,7 +109,7 @@ describe("decodeCompressedImageToBitmap", () => {
 
       expect(create).toHaveBeenCalledTimes(2);
       expect(create.mock.calls[0]![1]).toEqual({ resizeWidth: 1920 });
-      expect(create.mock.calls[1]!).toHaveLength(1);
+      expect(create.mock.calls[1]).toHaveLength(1);
       expect(bitmap).toBe(full);
     } finally {
       globalThis.createImageBitmap = original;
@@ -144,31 +143,24 @@ describe("decodeCompressedImageToBitmap", () => {
   });
 
   function installFakeJpegImage(): () => void {
-    const originalImage = globalThis.Image;
-    class FakeImage {
-      public width = 3840;
-      public height = 2160;
-      public naturalWidth = 3840;
-      public naturalHeight = 2160;
-      public onload: (() => void) | null = null;
-      public onerror: (() => void) | null = null;
-      #src = "";
-      public get src(): string {
-        return this.#src;
-      }
-      public set src(value: string) {
-        this.#src = value;
-        queueMicrotask(() => this.onload?.());
-      }
-    }
-    function ImageStub() {
-      return new FakeImage();
-    }
-    globalThis.Image = ImageStub as unknown as typeof Image;
-    window.Image = ImageStub as unknown as typeof Image;
+    const width = jest
+      .spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+      .mockReturnValue(3840);
+    const height = jest
+      .spyOn(HTMLImageElement.prototype, "naturalHeight", "get")
+      .mockReturnValue(2160);
+    const source = jest
+      .spyOn(HTMLImageElement.prototype, "src", "set")
+      .mockImplementation(function (this: HTMLImageElement, value: string) {
+        this.setAttribute("src", value);
+        queueMicrotask(() => {
+          this.dispatchEvent(new Event("load"));
+        });
+      });
     return () => {
-      globalThis.Image = originalImage;
-      window.Image = originalImage;
+      source.mockRestore();
+      height.mockRestore();
+      width.mockRestore();
     };
   }
 
@@ -215,9 +207,11 @@ describe("decodeCompressedImageToBitmap", () => {
       drawImage: jest.fn(),
       getImageData: () => pixels,
     } as unknown as CanvasRenderingContext2D);
-    const agent = jest.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-    );
+    const agent = jest
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+      );
 
     try {
       expect(preferHtmlRasterDecode()).toBe(true);

@@ -21436,11 +21436,15 @@ __metadata:
   resolution: "web@workspace:web"
   dependencies:
     "@lichtblick/log": "workspace:*"
+    "@lichtblick/suite": "workspace:*"
+    "@lichtblick/suite-base": "workspace:*"
     "@lichtblick/suite-web": "workspace:*"
     "@lichtblick/tsconfig": "npm:1.1.2"
     "@types/serve-handler": "npm:^6"
+    i18next: "npm:26.3.1"
     playwright: "npm:1.60.0"
     serve-handler: "npm:6.1.7"
+    typescript: "npm:6.0.3"
     webpack: "npm:5.108.3"
     webpack-dev-server: "npm:5.2.5"
   languageName: unknown

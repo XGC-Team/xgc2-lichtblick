@@ -98,17 +98,11 @@ export type SceneCommandResult = Partial<SceneEnvelope> & {
 export type SceneSelection = { obstacleId: string; partId?: string };
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" && value != undefined && !Array.isArray(value)
-  );
+  return typeof value === "object" && value != undefined && !Array.isArray(value);
 }
 
 function finiteTuple(value: unknown, length: number): value is number[] {
-  return (
-    Array.isArray(value) &&
-    value.length === length &&
-    value.every((v) => Number.isFinite(v))
-  );
+  return Array.isArray(value) && value.length === length && value.every((v) => Number.isFinite(v));
 }
 
 function poseValid(value: unknown): value is ScenePose {
@@ -155,8 +149,7 @@ export function geometryValid(value: unknown): value is SceneGeometry {
   if (!isRecord(value)) {
     return false;
   }
-  const positive = (v: unknown) =>
-    typeof v === "number" && Number.isFinite(v) && v > 0;
+  const positive = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
   switch (value.type) {
     case "box":
       return finiteTuple(value.size, 3) && value.size.every(positive);
@@ -174,9 +167,7 @@ export function geometryValid(value: unknown): value is SceneGeometry {
         Array.isArray(triangles) &&
         triangles.length >= 12 &&
         triangles.length % 3 === 0 &&
-        triangles.every(
-          (v) => Number.isSafeInteger(v) && v >= 0 && v < vertices.length,
-        )
+        triangles.every((v) => Number.isSafeInteger(v) && v >= 0 && v < vertices.length)
       );
     }
     default:
@@ -193,8 +184,7 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
     !Number.isSafeInteger(value.revision) ||
     (value.revision as number) < 0 ||
     !Number.isSafeInteger(value.savedRevision) ||
-    (value.synchronized != undefined &&
-      typeof value.synchronized !== "boolean") ||
+    (value.synchronized != undefined && typeof value.synchronized !== "boolean") ||
     typeof value.dirty !== "boolean" ||
     typeof value.playing !== "boolean" ||
     (value.syncRetryable != undefined && typeof value.syncRetryable !== "boolean") ||
@@ -207,9 +197,7 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
     !Array.isArray(value.document.obstacles) ||
     !Array.isArray(value.consumers)
   ) {
-    throw new Error(
-      "Invalid scene document. Check the scene workflow and shared message version.",
-    );
+    throw new Error("Invalid scene document. Check the scene workflow and shared message version.");
   }
   const ids = new Set<string>();
   for (const obstacle of value.document.obstacles) {
@@ -224,9 +212,7 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
       obstacle.parts.length === 0 ||
       !motionValid(obstacle.motion)
     ) {
-      throw new Error(
-        "Invalid obstacle identity, pose or motion in the scene document.",
-      );
+      throw new Error("Invalid obstacle identity, pose or motion in the scene document.");
     }
     ids.add(obstacle.id);
     const partIds = new Set<string>();
@@ -276,12 +262,8 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
     dirty: envelope.dirty,
     playing: envelope.playing,
     sceneTime: envelope.sceneTime,
-    ...(envelope.synchronized != undefined
-      ? { synchronized: envelope.synchronized }
-      : {}),
-    ...(envelope.syncRetryable != undefined
-      ? { syncRetryable: envelope.syncRetryable }
-      : {}),
+    ...(envelope.synchronized != undefined ? { synchronized: envelope.synchronized } : {}),
+    ...(envelope.syncRetryable != undefined ? { syncRetryable: envelope.syncRetryable } : {}),
     document: envelope.document,
     consumers: envelope.consumers.map((consumer) => ({
       consumer: consumer.consumer,

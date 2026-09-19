@@ -44,9 +44,9 @@ describe("imageModeDecodeWidth", () => {
   it("caps 4K to the coarse-pointer budget", () => {
     expect(imageModeDecodeWidth(3840, IMAGE_MODE_COARSE_DECODE_WIDTH)).toBe(1280);
     expect(imageModePreviewBudget({ pointerCoarse: true })).toBe(IMAGE_MODE_COARSE_DECODE_WIDTH);
-    expect(imageModePreviewBudget({ pointerCoarse: false, anyPointerCoarse: false, maxTouchPoints: 0 })).toBe(
-      IMAGE_MODE_MAX_DECODE_WIDTH,
-    );
+    expect(
+      imageModePreviewBudget({ pointerCoarse: false, anyPointerCoarse: false, maxTouchPoints: 0 }),
+    ).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
   });
 
   it("treats iOS-style fine pointer with touch as a phone budget", () => {

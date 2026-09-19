@@ -28,15 +28,14 @@ function mediaMatches(query: string): boolean {
     return false;
   }
   try {
-    return matchMedia(query).matches === true;
+    return matchMedia(query).matches;
   } catch {
     return false;
   }
 }
 
 function defaultPreviewHints(): ImageModePreviewHints {
-  const maxTouchPoints =
-    typeof navigator === "undefined" ? 0 : Number(navigator.maxTouchPoints ?? 0);
+  const maxTouchPoints = typeof navigator === "undefined" ? 0 : Number(navigator.maxTouchPoints);
   return {
     pointerCoarse: mediaMatches("(pointer: coarse)"),
     anyPointerCoarse: mediaMatches("(any-pointer: coarse)"),
@@ -49,11 +48,7 @@ export function imageModePreviewBudget(
   hints: ImageModePreviewHints = defaultPreviewHints(),
 ): number {
   const touchPoints = hints.maxTouchPoints ?? 0;
-  if (
-    hints.pointerCoarse === true ||
-    hints.anyPointerCoarse === true ||
-    touchPoints > 0
-  ) {
+  if (hints.pointerCoarse === true || hints.anyPointerCoarse === true || touchPoints > 0) {
     return IMAGE_MODE_COARSE_DECODE_WIDTH;
   }
   return IMAGE_MODE_MAX_DECODE_WIDTH;

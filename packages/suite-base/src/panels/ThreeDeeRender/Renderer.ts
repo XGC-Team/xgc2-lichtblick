@@ -1851,10 +1851,7 @@ function queueMessage(
   }
 }
 
-function hoverSelectionsEqual(
-  a: PickedRenderable[] | undefined,
-  b: PickedRenderable[],
-): boolean {
+function hoverSelectionsEqual(a: PickedRenderable[] | undefined, b: PickedRenderable[]): boolean {
   if (a?.length !== b.length) {
     return false;
   }

@@ -44,6 +44,8 @@ describe("ImageModeCamera depth and calibration", () => {
     const projected = point.clone().applyMatrix4(camera.projectionMatrix);
     expect(((projected.x + 1) * 640) / 2).toBeCloseTo(370, 8);
     expect(((1 - projected.y) * 480) / 2).toBeCloseTo(215, 8);
-    expect(projected.applyMatrix4(camera.projectionMatrixInverse).distanceTo(point)).toBeLessThan(1e-10);
+    expect(projected.applyMatrix4(camera.projectionMatrixInverse).distanceTo(point)).toBeLessThan(
+      1e-10,
+    );
   });
 });

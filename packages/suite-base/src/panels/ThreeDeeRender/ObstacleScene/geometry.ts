@@ -7,6 +7,7 @@
 
 import * as THREE from "three";
 
+import { withObstaclePose } from "./motion";
 import {
   initialPose,
   OBSTACLE_VISUAL_COLOR,
@@ -16,7 +17,6 @@ import {
   type ScenePose,
   type Vec3,
 } from "./types";
-import { withObstaclePose } from "./motion";
 
 export const SCENE_PRESETS = [
   "Box",
@@ -160,11 +160,11 @@ export function obstacleLowestWorldZ(obstacle: SceneObstacle): number {
   const root = new THREE.Group();
   applyObjectPose(root, obstacle.pose);
   const geometries: THREE.BufferGeometry[] = [];
-  for (const part of obstacle.parts) {
-    const geometry = createGeometry(part.geometry);
+  for (const scenePart of obstacle.parts) {
+    const geometry = createGeometry(scenePart.geometry);
     geometries.push(geometry);
     const mesh = new THREE.Mesh(geometry);
-    applyObjectPose(mesh, part.pose);
+    applyObjectPose(mesh, scenePart.pose);
     root.add(mesh);
   }
   root.updateMatrixWorld(true);

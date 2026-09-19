@@ -13,13 +13,7 @@ import { DynamicBufferGeometry } from "@lichtblick/suite-base/panels/ThreeDeeRen
 
 import { RenderablePrimitive } from "./RenderablePrimitive";
 import type { IRenderer } from "../../IRenderer";
-import {
-  makeRgb,
-  makeRgba,
-  rgbToThreeColor,
-  SRGBToLinearRGBLUT,
-  stringToRgba,
-} from "../../color";
+import { makeRgb, makeRgba, rgbToThreeColor, SRGBToLinearRGBLUT, stringToRgba } from "../../color";
 import { LayerSettingsEntity } from "../../settings";
 
 const tempRgba = makeRgba();
@@ -30,10 +24,7 @@ const missingColor = { r: 0, g: 1.0, b: 0, a: 1.0 };
 const COLOR_LENGTH_ERROR_ID = "INVALID_COLOR_LENGTH";
 const INVALID_POINT_ERROR_ID = "INVALID_POINT";
 
-type TriangleMesh = THREE.Mesh<
-  DynamicBufferGeometry,
-  THREE.MeshStandardMaterial
->;
+type TriangleMesh = THREE.Mesh<DynamicBufferGeometry, THREE.MeshStandardMaterial>;
 export class RenderableTriangles extends RenderablePrimitive {
   #triangleMeshes: TriangleMesh[] = [];
   public constructor(renderer: IRenderer) {
@@ -120,12 +111,7 @@ export class RenderableTriangles extends RenderablePrimitive {
             );
           }
 
-          const rgbLinear = SRGBToLinearRGBLUT(
-            tempRgb,
-            color.r,
-            color.g,
-            color.b,
-          );
+          const rgbLinear = SRGBToLinearRGBLUT(tempRgb, color.r, color.g, color.b);
 
           const colorStride = colors.itemSize;
           const colorOffset = i * colorStride;
@@ -133,10 +119,8 @@ export class RenderableTriangles extends RenderablePrimitive {
           const EPS = 2 / 255;
           const diff =
             Math.abs(colors.array[colorOffset]! / 255 - rgbLinear.r) > EPS ||
-            Math.abs(colors.array[colorOffset + 1]! / 255 - rgbLinear.g) >
-              EPS ||
-            Math.abs(colors.array[colorOffset + 2]! / 255 - rgbLinear.b) >
-              EPS ||
+            Math.abs(colors.array[colorOffset + 1]! / 255 - rgbLinear.g) > EPS ||
+            Math.abs(colors.array[colorOffset + 2]! / 255 - rgbLinear.b) > EPS ||
             Math.abs(colors.array[colorOffset + 3]! / 255 - color.a) > EPS;
 
           if (diff) {
@@ -253,19 +237,13 @@ export class RenderableTriangles extends RenderablePrimitive {
     super.update(topic, entity, settings, receiveTime);
     if (entity) {
       const lifetimeNs = toNanoSec(entity.lifetime);
-      this.userData.expiresAt =
-        lifetimeNs === 0n ? undefined : receiveTime + lifetimeNs;
+      this.userData.expiresAt = lifetimeNs === 0n ? undefined : receiveTime + lifetimeNs;
       this.#updateTriangleMeshes(entity.triangles);
     }
   }
 
   public updateSettings(settings: LayerSettingsEntity): void {
-    this.update(
-      this.userData.topic,
-      this.userData.entity,
-      settings,
-      this.userData.receiveTime,
-    );
+    this.update(this.userData.topic, this.userData.entity, settings, this.userData.receiveTime);
   }
 }
 
@@ -282,7 +260,5 @@ function makeTriangleMesh(): TriangleMesh {
 }
 
 function isPointValid(pt: Point3): boolean {
-  return (
-    Number.isFinite(pt.x) && Number.isFinite(pt.y) && Number.isFinite(pt.z)
-  );
+  return Number.isFinite(pt.x) && Number.isFinite(pt.y) && Number.isFinite(pt.z);
 }

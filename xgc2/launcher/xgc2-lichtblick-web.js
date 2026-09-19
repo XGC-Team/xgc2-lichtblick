@@ -522,7 +522,20 @@ function securityHeaders(frameAncestors) {
 }
 
 function serveIndex(res, transformedIndex, responseSecurityHeaders) {
-  const body = Buffer.from(transformedIndex);
+  let body;
+  try {
+    body = Buffer.from(resolveTransformedIndex(transformedIndex));
+  } catch (error) {
+    logWarn(`index.html is temporarily unavailable: ${error.message}`);
+    res.writeHead(503, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": "1",
+      ...responseSecurityHeaders,
+    });
+    res.end("Lichtblick is temporarily unavailable. Please retry.");
+    return;
+  }
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": body.length,
@@ -542,7 +555,7 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
     }
   }
   if (stripped === "/" || stripped === "" || stripped === "/index.html") {
-    serveIndex(res, resolveTransformedIndex(transformedIndex), responseSecurityHeaders);
+    serveIndex(res, transformedIndex, responseSecurityHeaders);
     return;
   }
 
@@ -557,7 +570,7 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
       // SPA fallback: serve index.html for paths without an extension
       // (client-side router).
       if (!path.extname(target)) {
-        serveIndex(res, resolveTransformedIndex(transformedIndex), responseSecurityHeaders);
+        serveIndex(res, transformedIndex, responseSecurityHeaders);
         return;
       }
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });

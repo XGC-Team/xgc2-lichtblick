@@ -176,9 +176,7 @@ export function trimSharedFaces(
   const inside = (point: THREE.Vector3, planes: THREE.Plane[]) =>
     planes.every((plane) => plane.distanceToPoint(point) <= SEAM_EPS);
   const covered = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) =>
-    blockers.some(
-      (planes) => inside(a, planes) && inside(b, planes) && inside(c, planes),
-    );
+    blockers.some((planes) => inside(a, planes) && inside(b, planes) && inside(c, planes));
   const index = geometry.getIndex();
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
@@ -260,7 +258,10 @@ type Vec2 = [number, number];
 /** Andrew monotone chain over projected XY points; collinear intermediates are dropped. */
 export function convexHull2D(points: Vec2[]): Vec2[] {
   const sorted: Vec2[] = [];
-  for (const p of [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])) {
+  for (const p of [...points].sort((a, b) => {
+    const horizontal = a[0] - b[0];
+    return horizontal !== 0 && !Number.isNaN(horizontal) ? horizontal : a[1] - b[1];
+  })) {
     const last = sorted[sorted.length - 1];
     if (!last || Math.abs(p[0] - last[0]) > 1e-9 || Math.abs(p[1] - last[1]) > 1e-9) {
       sorted.push(p);
@@ -354,7 +355,7 @@ export function createObstacleFootprint(
 /** Selection glow for the editor. Safe before the first GL compile. */
 export function setObstacleVisualSelected(
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>,
-  selected: boolean,
+  { selected }: { selected: boolean },
 ): void {
   mesh.material.userData.selected = selected;
   const shader = mesh.material.userData.shader as ShaderLike | undefined;

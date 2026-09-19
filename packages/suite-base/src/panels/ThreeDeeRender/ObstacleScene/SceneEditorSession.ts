@@ -175,7 +175,9 @@ export class SceneEditorSession {
       (action.operation === "add" || action.operation === "update") &&
       action.obstacle.id === SCENE_DRAFT_ID
     ) {
-      this.reportError("Placement draft is local-only. Confirm Add obstacle to put it in the scene.");
+      this.reportError(
+        "Placement draft is local-only. Confirm Add obstacle to put it in the scene.",
+      );
       return false;
     }
     const generation = this.#generation;

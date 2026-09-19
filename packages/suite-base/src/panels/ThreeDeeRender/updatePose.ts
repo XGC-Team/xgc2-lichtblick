@@ -274,7 +274,13 @@ export function updatePose(
       ? pathSignature(srcFrame, rootFrame, scratchSrcOffsets, scratchSrcFrames, scratchSrcVersions)
       : undefined;
     const dstSig = renderFrame
-      ? pathSignature(renderFrame, rootFrame, scratchDstOffsets, scratchDstFrames, scratchDstVersions)
+      ? pathSignature(
+          renderFrame,
+          rootFrame,
+          scratchDstOffsets,
+          scratchDstFrames,
+          scratchDstVersions,
+        )
       : undefined;
     // The source time only drives the src->root path and the destination time
     // only the root->render path, so each is evaluated independently. A
@@ -319,7 +325,16 @@ export function updatePose(
       return memo.applied;
     }
 
-    const applied = computePose(renderable, transformTree, renderFrameId, fixedFrameId, srcFrameId, dstTime, srcTime, pose);
+    const applied = computePose(
+      renderable,
+      transformTree,
+      renderFrameId,
+      fixedFrameId,
+      srcFrameId,
+      dstTime,
+      srcTime,
+      pose,
+    );
     const pathLength = scratchSrcFrames.length + scratchDstFrames.length;
     poseMemos.set(renderable, {
       tree: transformTree,
@@ -331,10 +346,8 @@ export function updatePose(
       srcFrameId,
       srcTime: srcTimeKey,
       dstTime: dstTimeKey,
-      pathFrames:
-        pathLength === 0 ? NO_FRAMES : [...scratchSrcFrames, ...scratchDstFrames],
-      pathVersions:
-        pathLength === 0 ? NO_VERSIONS : [...scratchSrcVersions, ...scratchDstVersions],
+      pathFrames: pathLength === 0 ? NO_FRAMES : [...scratchSrcFrames, ...scratchDstFrames],
+      pathVersions: pathLength === 0 ? NO_VERSIONS : [...scratchSrcVersions, ...scratchDstVersions],
       offsetRefs:
         scratchSrcOffsets.length + scratchDstOffsets.length === 0
           ? NO_OFFSETS
@@ -352,7 +365,16 @@ export function updatePose(
     return applied;
   }
 
-  return computePose(renderable, transformTree, renderFrameId, fixedFrameId, srcFrameId, dstTime, srcTime, pose);
+  return computePose(
+    renderable,
+    transformTree,
+    renderFrameId,
+    fixedFrameId,
+    srcFrameId,
+    dstTime,
+    srcTime,
+    pose,
+  );
 }
 
 function computePose(
