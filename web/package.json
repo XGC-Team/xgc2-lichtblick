@@ -14,5 +14,8 @@
     "typescript": "6.0.3",
     "webpack": "5.108.3",
     "webpack-dev-server": "5.2.5"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.2.0"
   }
 }

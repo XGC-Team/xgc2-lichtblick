@@ -16,15 +16,21 @@ import { Markers } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderable
 import { MeasurementTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/MeasurementTool";
 import { PoseArrays } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PoseArrays";
 import { PublishClickTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PublishClickTool";
+import {
+  Urdfs,
+  type LayerSettingsCustomUrdf,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Urdfs";
 import { resolveLiveTfHistory } from "@lichtblick/suite-base/panels/ThreeDeeRender/transforms/TransformTree";
 
 import { readFramePixels } from "./capture";
+import { OfflineEdits, type NativeScene } from "./edits";
 import { OFFLINE_TF_HISTORY_SECONDS, validateTransformHistory } from "./history";
 import {
   interactivePreviewEnabled,
   requireCapturePixelRatio,
   taintsOnFrameError,
 } from "./interactive";
+import { activeTrack, trackOpacity, type Track } from "./scene";
 import {
   assetPath,
   nanos,
@@ -49,7 +55,10 @@ class OfflineImageMode extends ImageMode {
       "Image message did not create a renderable",
     );
     const stamp = "header" in image ? image.header.stamp : image.timestamp;
-    requireValue(rosNanos(stamp) === nanos(frame.cameraTimeNs), "Native image timestamp mismatch");
+    requireValue(
+      rosNanos(stamp) === nanos(frame.renderTimeNs ?? frame.cameraTimeNs),
+      "Native image timestamp mismatch",
+    );
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error("Original image decoding timed out"));
@@ -96,6 +105,9 @@ export class OfflineRenderer {
   #previousTime = -1n;
   #lastImageId: string | undefined;
   #tainted = false;
+  readonly #native: NativeScene = {};
+  #edits: OfflineEdits | undefined;
+  readonly #paths = new Map<string, SnapshotEvent>();
 
   public constructor(snapshot: Snapshot, history: SnapshotEvent[], sha256: string, base: URL) {
     requireValue(
@@ -161,6 +173,27 @@ export class OfflineRenderer {
       requireValue(output != undefined, "Missing capture canvas context");
       this.#output = output;
     }
+    for (const model of snapshot.models ?? []) {
+      requireValue(
+        model.modelId === "mocap-rotor" &&
+          snapshot.tracks?.some(
+            (track) => track.kind === "robot-model" && track.id === model.trackId,
+          ) === true,
+        "Unbound frozen robot model",
+      );
+      const layer: LayerSettingsCustomUrdf = {
+        layerId: "foxglove.Urdf",
+        instanceId: model.trackId,
+        label: model.trackId,
+        visible: true,
+        frameLocked: true,
+        sourceType: "url",
+        url: `https://xgc2.invalid/${model.asset.sha256}.urdf`,
+        framePrefix: model.framePrefix,
+        displayMode: "visual",
+      };
+      config.layers[model.trackId] = layer;
+    }
     let imageMode: OfflineImageMode | undefined;
     this.#renderer = new Renderer({
       canvas,
@@ -168,8 +201,26 @@ export class OfflineRenderer {
       interfaceMode: "image",
       customCameraModels: new Map(),
       testOptions: {},
-      fetchAsset: async () => {
-        throw new Error("External/URDF/mesh assets are forbidden by offline V1");
+      fetchAsset: async (url) => {
+        const model = snapshot.models?.find(
+          (value) => url === `https://xgc2.invalid/${value.asset.sha256}.urdf`,
+        );
+        requireValue(model != undefined, "Asset is not in the frozen model closure");
+        const bytes = await verifiedFetch(
+          new URL(assetPath(model.asset), base),
+          model.asset.sha256,
+          model.asset.size,
+        );
+        const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+        requireValue(
+          record(value) && value.modelId === model.modelId && typeof value.urdf === "string",
+          "Invalid frozen model asset",
+        );
+        return {
+          uri: url,
+          data: new TextEncoder().encode(value.urdf),
+          mediaType: "application/xml",
+        };
       },
       sceneExtensionConfig: {
         reserved: {
@@ -183,8 +234,19 @@ export class OfflineRenderer {
           },
         },
         extensionsById: {
-          [Markers.extensionId]: { init: (renderer: IRenderer) => new Markers(renderer) },
-          [PoseArrays.extensionId]: { init: (renderer: IRenderer) => new PoseArrays(renderer) },
+          [Markers.extensionId]: {
+            init: (renderer: IRenderer) => (this.#native.markers = new Markers(renderer)),
+          },
+          [PoseArrays.extensionId]: {
+            init: (renderer: IRenderer) => (this.#native.paths = new PoseArrays(renderer)),
+          },
+          [Urdfs.extensionId]: {
+            init: (renderer: IRenderer) => (this.#native.urdfs = new Urdfs(renderer)),
+          },
+          "xgc2.OfflineEdits": {
+            init: (renderer: IRenderer) =>
+              (this.#edits = new OfflineEdits(renderer, snapshot.tracks ?? [], this.#native)),
+          },
         },
       },
     });
@@ -202,6 +264,9 @@ export class OfflineRenderer {
 
   #dispatch(row: SnapshotEvent): void {
     const renderer = this.#renderer;
+    if (row.event.schemaName === "nav_msgs/Path") {
+      this.#paths.set(row.event.topic, row);
+    }
     renderer.setCurrentTime(nanos(row.timeNs));
     const event: MessageEvent = row.event;
     // Keep native coordinate-frame discovery, but bypass ONLY live queue coalescing.
@@ -222,13 +287,18 @@ export class OfflineRenderer {
     requireValue(!this.#tainted, "Recreate failed offline renderer before retry");
     try {
       const image = selectFrame(this.#snapshot, plan, this.#sha256);
-      const time = nanos(image.cameraTimeNs);
+      const time = nanos(image.renderTimeNs ?? image.cameraTimeNs);
+      const editTime = nanos(plan.targetTimeNs);
+      if (this.#edits != undefined) {
+        this.#edits.time = editTime;
+      }
       if (time < this.#previousTime) {
         this.#renderer.clear({ clearTransforms: true, resetAllFramesCursor: true });
         this.#dataCursor = 0;
         this.#tfCursor = 0;
         this.#staticCursor = 0;
         this.#lastImageId = undefined;
+        this.#paths.clear();
       }
       // Static messages are indexed by their availability; dynamic TF permits an
       // explicit bounded lookahead for interpolation, never for algorithm data.
@@ -257,6 +327,40 @@ export class OfflineRenderer {
         this.#dispatch(row);
         this.#dataCursor++;
       }
+      for (const [topic, row] of this.#paths) {
+        const candidates = (this.#snapshot.tracks ?? []).filter(
+          (track): track is Extract<Track, { kind: "path" }> =>
+            track.kind === "path" && track.selector.topic === topic,
+        );
+        if (candidates.length === 0) {
+          continue;
+        }
+        const track = activeTrack(candidates, editTime);
+        this.#renderer.updateConfig((draft) => {
+          const settings = draft.topics[topic] ?? (draft.topics[topic] = {});
+          settings.visible = track != undefined && trackOpacity(track, editTime) > 0;
+          if (track != undefined) {
+            const alpha = Math.round(trackOpacity(track, editTime) * 255)
+              .toString(16)
+              .padStart(2, "0");
+            Object.assign(settings, {
+              type: "line",
+              lineWidth: track.style.widthMeters,
+              gradient: [track.style.color + alpha, track.style.color + alpha],
+            });
+          }
+        });
+        const node = this.#native.paths?.settingsNodes().find((entry) => entry.path[1] === topic);
+        node?.node.handler?.({
+          action: "update",
+          payload: {
+            path: ["topics", topic, "visible"],
+            input: "boolean",
+            value: track != undefined && trackOpacity(track, editTime) > 0,
+          },
+        });
+        this.#dispatch(row);
+      }
       this.#renderer.setCurrentTime(time);
       if (this.#lastImageId !== image.sourceFrameId) {
         const bytes = await verifiedFetch(
@@ -266,20 +370,46 @@ export class OfflineRenderer {
         );
         requireValue(bytes.byteLength === image.asset.size, "Camera asset size mismatch");
         this.#dispatch({
-          timeNs: image.cameraTimeNs,
+          timeNs: String(time),
           role: "data",
           event: {
             topic: this.#snapshot.recipe.source.cameraTopic,
             schemaName: "sensor_msgs/CompressedImage",
-            receiveTime: image.header.stamp,
+            receiveTime: {
+              sec: Number(time / 1_000_000_000n),
+              nsec: Number(time % 1_000_000_000n),
+            },
             sizeInBytes: bytes.byteLength,
-            message: { header: image.header, format: image.format, data: new Uint8Array(bytes) },
+            message: {
+              header: {
+                ...image.header,
+                stamp: { sec: Number(time / 1_000_000_000n), nsec: Number(time % 1_000_000_000n) },
+              },
+              format: image.format,
+              data: new Uint8Array(bytes),
+            },
           },
         });
         await this.#imageMode.decodeOriginal(image);
       }
       await this.#renderer.settleVideoDecodes();
       await document.fonts.ready;
+      for (const model of this.#snapshot.models ?? []) {
+        const track = this.#snapshot.tracks?.find((value) => value.id === model.trackId);
+        const native = this.#native.urdfs?.renderables.get(model.trackId);
+        requireValue(
+          track != undefined && native != undefined && native.userData.renderables.size > 0,
+          "Frozen model did not finish loading",
+        );
+        native.userData.settings.visible = trackOpacity(track, editTime) > 0;
+        this.#renderer.addTransform(
+          model.frameId,
+          model.framePrefix + "base_link",
+          0n,
+          { x: 0, y: 0, z: 0 },
+          { x: 0, y: 0, z: 0, w: 1 },
+        );
+      }
       this.#renderer.setCurrentTime(time);
       this.#renderer.animationFrame();
       const found = errors(this.#renderer.settings.errors.errors);

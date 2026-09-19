@@ -26,6 +26,8 @@ function run(cmd, args, env = process.env) {
   return result.status ?? 1;
 }
 try {
+  // Compiled fixtures live outside the workspace but use its declared dependencies.
+  fs.symlinkSync(path.resolve(root, "../node_modules"), path.join(temp, "node_modules"), "dir");
   let status = 0;
   for (const [directory, module] of [
     ["cjs", "commonjs"],

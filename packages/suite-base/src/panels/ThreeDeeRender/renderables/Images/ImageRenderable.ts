@@ -35,6 +35,7 @@ import { RosValue } from "@lichtblick/suite-base/players/types";
 
 import { BoundedVideoFrameQueue } from "./BoundedVideoFrameQueue";
 import { AnyImage, CompressedVideo } from "./ImageTypes";
+import { MediaSourceVideoPlayer } from "./MediaSourceVideoPlayer";
 import {
   createImageBitmapMaybeResized,
   decodeCompressedImageToBitmap,
@@ -181,7 +182,7 @@ function isCompleteVideoRecoveryPoint(frame: CompressedVideo, codec: VideoCodec)
 
 export class ImageRenderable extends Renderable<ImageUserData> {
   // A lazily instantiated player for compressed video
-  public videoPlayer: VideoPlayer | undefined;
+  public videoPlayer: VideoPlayer | MediaSourceVideoPlayer | undefined;
 
   // Make sure that everything is build the first time we render
   // set when camera info or image changes
@@ -507,6 +508,10 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#videoFrameHistory.length = 0;
     this.#videoFrameHistoryBytes = 0;
     this.videoPlayer?.resetForSeek();
+    if (this.videoPlayer instanceof MediaSourceVideoPlayer && nextCodec !== VideoCodec.H264) {
+      this.videoPlayer.close();
+      this.videoPlayer = undefined;
+    }
   }
 
   /**
@@ -923,10 +928,13 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         }
 
         if (!this.videoPlayer) {
-          if (!VideoPlayer.IsSupported()) {
+          if (VideoPlayer.IsSupported()) {
+            this.videoPlayer = new VideoPlayer();
+          } else if (this.#codec === VideoCodec.H264 && MediaSourceVideoPlayer.IsSupported()) {
+            this.videoPlayer = new MediaSourceVideoPlayer();
+          } else {
             throw new Error("WebCodecs VideoDecoder is not available in this browser");
           }
-          this.videoPlayer = new VideoPlayer();
           this.videoPlayer.on("error", (err) => {
             this.handleVideoPlayerError(err);
           });

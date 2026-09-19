@@ -194,6 +194,19 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #jointStates = new Map<string, JointPosition>();
   #textDecoder = new TextDecoder();
   #urdfsByTopic = new Map<string, string>();
+  #pendingLoads = new Set<Promise<void>>();
+
+  #trackLoad(promise: Promise<void>): void {
+    this.#pendingLoads.add(promise);
+    void promise.finally(() => this.#pendingLoads.delete(promise));
+  }
+
+  public override async settleVideoDecodes(): Promise<void> {
+    // Fetch can enqueue parsing; drain the actual promises, never a timer.
+    while (this.#pendingLoads.size > 0) {
+      await Promise.all(this.#pendingLoads);
+    }
+  }
 
   public constructor(renderer: IRenderer, name: string = Urdfs.extensionId) {
     super(name, renderer);
@@ -749,19 +762,21 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
     log.debug(`Fetching URDF from ${url}`);
     renderable.userData.fetching = { url, control: new AbortController() };
-    this.renderer
-      .fetchAsset(url, { signal: renderable.userData.fetching.control.signal })
-      .then((urdf) => {
-        log.debug(`Fetched ${urdf.data.length} byte URDF from ${url}`);
-        this.renderer.settings.errors.remove(["layers", instanceId], FETCH_URDF_ERR);
-        this.#loadUrdf({ instanceId, urdf: this.#textDecoder.decode(urdf.data) });
-      })
-      .catch((e: unknown) => {
-        const err = e as Error;
-        const hasError = !err.message.startsWith("Failed to fetch");
-        const errMessage = `Failed to load URDF from "${url}"${hasError ? `: ${err.message}` : ""}`;
-        this.renderer.settings.errors.add(["layers", instanceId], FETCH_URDF_ERR, errMessage);
-      });
+    this.#trackLoad(
+      this.renderer
+        .fetchAsset(url, { signal: renderable.userData.fetching.control.signal })
+        .then((urdf) => {
+          log.debug(`Fetched ${urdf.data.length} byte URDF from ${url}`);
+          this.renderer.settings.errors.remove(["layers", instanceId], FETCH_URDF_ERR);
+          this.#loadUrdf({ instanceId, urdf: this.#textDecoder.decode(urdf.data) });
+        })
+        .catch((e: unknown) => {
+          const err = e as Error;
+          const hasError = !err.message.startsWith("Failed to fetch");
+          const errMessage = `Failed to load URDF from "${url}"${hasError ? `: ${err.message}` : ""}`;
+          this.renderer.settings.errors.add(["layers", instanceId], FETCH_URDF_ERR, errMessage);
+        }),
+    );
   }
 
   #getCurrentSettings(instanceId: string) {
@@ -974,26 +989,28 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
     // Parse the URDF
     const loadedRenderable = renderable;
-    parseUrdf(urdf, async (uri) => await this.#getFileFetch(uri, baseUrl), framePrefix)
-      .then((parsed) => {
-        this.#loadRobot(loadedRenderable, parsed, baseUrl);
-        this.renderer.settings.errors.remove(
-          loadedRenderable.userData.settingsPath,
-          PARSE_URDF_ERR,
-        );
-        // the frame from the settings update is called before the robot is loaded
-        // need to queue another animation frame after robot has been loaded
-        this.renderer.queueAnimationFrame();
-      })
-      .catch((e: unknown) => {
-        const err = e as Error;
-        log.error(`Failed to parse URDF: ${err.message}`);
-        this.renderer.settings.errors.add(
-          settingsPath,
-          PARSE_URDF_ERR,
-          `Failed to parse URDF: ${err.message}`,
-        );
-      });
+    this.#trackLoad(
+      parseUrdf(urdf, async (uri) => await this.#getFileFetch(uri, baseUrl), framePrefix)
+        .then((parsed) => {
+          this.#loadRobot(loadedRenderable, parsed, baseUrl);
+          this.renderer.settings.errors.remove(
+            loadedRenderable.userData.settingsPath,
+            PARSE_URDF_ERR,
+          );
+          // the frame from the settings update is called before the robot is loaded
+          // need to queue another animation frame after robot has been loaded
+          this.renderer.queueAnimationFrame();
+        })
+        .catch((e: unknown) => {
+          const err = e as Error;
+          log.error(`Failed to parse URDF: ${err.message}`);
+          this.renderer.settings.errors.add(
+            settingsPath,
+            PARSE_URDF_ERR,
+            `Failed to parse URDF: ${err.message}`,
+          );
+        }),
+    );
   }
 
   #debouncedLoadUrdf = _.debounce(this.#loadUrdf.bind(this), 500);

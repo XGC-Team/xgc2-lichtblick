@@ -34,6 +34,7 @@ import {
 import { toNanoSec } from "@lichtblick/rostime";
 
 import { CompressedImageTypes, CompressedVideo } from "./ImageTypes";
+import type { MediaSourceVideoPlayer } from "./MediaSourceVideoPlayer";
 import { PreparedVideoFrame, PreparedVideoFrameStatus, PrepareVideoFrameContext } from "./types";
 import { Image as RosImage } from "../../ros";
 import { ColorModeSettings, getColorConverter } from "../colorMode";
@@ -434,7 +435,7 @@ export function prepareVideoFrame(
 export async function decodeCompressedVideoToBitmap(
   frameMsg: Pick<CompressedVideo, "timestamp">,
   preparedFrame: PreparedVideoFrame,
-  videoPlayer: VideoPlayer,
+  videoPlayer: VideoPlayer | MediaSourceVideoPlayer,
   firstMessageTime: bigint,
   resizeWidth?: number,
   options?: { retainPreviousBitmap?: boolean },
@@ -576,7 +577,7 @@ export function decodeRawImage(
 // Performance sensitive, skip the extra await when returning a blank image
 // eslint-disable-next-line @typescript-eslint/promise-function-async
 export function emptyVideoFrame(
-  videoPlayer?: VideoPlayer,
+  videoPlayer?: VideoPlayer | MediaSourceVideoPlayer,
   resizeWidth?: number,
 ): Promise<ImageBitmap> {
   const width = resizeWidth ?? 32;

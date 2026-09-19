@@ -4,6 +4,11 @@
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 
+import { sha256 as hashSha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+
+import { parseTracks, type Track, type FrozenModel } from "./scene";
+
 export type FramePlan = {
   snapshotSha256: string;
   frameIndex: number;
@@ -19,6 +24,7 @@ export type CameraFrame = {
   sourceFrameId: string;
   logTimeNs: string;
   cameraTimeNs: string;
+  renderTimeNs?: string;
   width: number;
   height: number;
   format: "jpeg" | "png";
@@ -39,6 +45,8 @@ export type Snapshot = {
   cameraFrames: CameraFrame[];
   events: Asset;
   rendererConfig: unknown;
+  tracks?: Track[];
+  models?: FrozenModel[];
 };
 export type SnapshotEvent = {
   timeNs: string;
@@ -90,8 +98,13 @@ export function assetPath(asset: Asset): string {
   return asset.path;
 }
 export async function digest(bytes: ArrayBuffer): Promise<string> {
-  const result = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(result), (n) => n.toString(16).padStart(2, "0")).join("");
+  // WebCrypto is absent on HTTP LAN origins. Integrity is still mandatory there.
+  const subtle = (globalThis as { crypto?: Partial<Crypto> }).crypto?.subtle;
+  const result =
+    subtle != undefined
+      ? new Uint8Array(await subtle.digest("SHA-256", bytes))
+      : hashSha256(new Uint8Array(bytes));
+  return bytesToHex(result);
 }
 export async function verifiedFetch(
   url: URL,
@@ -102,7 +115,12 @@ export async function verifiedFetch(
     url.origin === location.origin && !url.username && !url.password,
     "Cross-origin snapshot denied",
   );
-  const response = await fetch(url, { credentials: "omit", cache: "no-store" });
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    mode: "same-origin",
+    redirect: "error",
+    cache: "no-store",
+  });
   requireValue(response.ok && response.url === url.href, "Snapshot fetch failed or redirected");
   const length = response.headers.get("Content-Length");
   requireValue(length == undefined || Number(length) <= maximum, "Asset exceeds byte limit");
@@ -141,6 +159,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     "Unsupported snapshot",
   );
   const s = value as unknown as Snapshot;
+  s.tracks = parseTracks(s.tracks);
   nanos(s.bagStartNs);
   nanos(s.recipe.interval.startNs);
   nanos(s.recipe.interval.endNs);
@@ -166,7 +185,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     "Invalid source index",
   );
   let log = -1n,
-    sample = -1n;
+    sample = -1n,
+    rendered = -1n;
   const ids = new Set<string>();
   for (const f of s.cameraFrames) {
     requireValue(
@@ -177,6 +197,15 @@ export function parseSnapshot(value: unknown): Snapshot {
         nanos(f.cameraTimeNs) > 0n,
       "Camera index is not strictly increasing",
     );
+    const renderTime = nanos(f.renderTimeNs ?? f.logTimeNs);
+    const recordTime = nanos(f.logTimeNs);
+    requireValue(
+      renderTime > rendered &&
+        (renderTime > recordTime ? renderTime - recordTime : recordTime - renderTime) <=
+          1_000_000_000n,
+      "Invalid mapped camera timestamp",
+    );
+    rendered = renderTime;
     ids.add(f.sourceFrameId);
     log = nanos(f.logTimeNs);
     sample = nanos(f.cameraTimeNs);
@@ -214,7 +243,11 @@ export function selectFrame(snapshot: Snapshot, plan: FramePlan, sha256: string)
     high = snapshot.cameraFrames.length;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
-    if (nanos(snapshot.cameraFrames[middle]!.logTimeNs) <= absolute) {
+    if (
+      nanos(
+        snapshot.cameraFrames[middle]!.renderTimeNs ?? snapshot.cameraFrames[middle]!.logTimeNs,
+      ) <= absolute
+    ) {
       low = middle + 1;
     } else {
       high = middle;
@@ -222,7 +255,9 @@ export function selectFrame(snapshot: Snapshot, plan: FramePlan, sha256: string)
   }
   const frame = snapshot.cameraFrames[low - 1];
   requireValue(
-    frame != undefined && absolute - nanos(frame.logTimeNs) <= nanos(snapshot.policy.maxFrameAgeNs),
+    frame != undefined &&
+      absolute - nanos(frame.renderTimeNs ?? frame.logTimeNs) <=
+        nanos(snapshot.policy.maxFrameAgeNs),
     "Camera gap",
   );
   requireValue(

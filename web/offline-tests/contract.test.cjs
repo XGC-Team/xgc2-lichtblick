@@ -333,3 +333,83 @@ test("interactive scrub failure does not taint; strict capture still taints", ()
   assert.equal(i.taintsOnFrameError({ interactive: true }), false);
   assert.equal(i.taintsOnFrameError({ interactive: false }), true);
 });
+
+test("mapped camera clock selects source while frame ACK preserves raw stamp", () => {
+  const f = fixture();
+  f.cameraFrames[0].cameraTimeNs = "5000000000";
+  f.cameraFrames[0].header.stamp = { sec: 5, nsec: 0 };
+  f.cameraFrames[0].logTimeNs = String(base + 50_000_000n);
+  f.cameraFrames[0].renderTimeNs = String(base);
+  const parsed = s.parseSnapshot(f);
+  const p = { ...plan(0), cameraTimeNs: "5000000000" };
+  assert.equal(s.selectFrame(parsed, p, sha).sourceFrameId, "0");
+  assert.equal(s.selectFrame(parsed, p, sha).cameraTimeNs, "5000000000");
+});
+test("track fades use output time, including held camera images and backward seeks", () => {
+  const { trackOpacity, parseTracks } = require(path.join(directory, "cjs/scene.js"));
+  const track = {
+    id: "a",
+    label: "A",
+    kind: "markers",
+    selector: { kind: "topic", topic: "/obstacle" },
+    span: { startNs: "1000000000", endNs: "4000000000" },
+    animation: { fadeInNs: "1000000000", fadeOutNs: "1000000000", easing: "linear" },
+    style: { opacity: 0.8, scale: 1, presentation: "recorded" },
+  };
+  parseTracks([track]);
+  const at = (t) => trackOpacity(track, BigInt(t));
+  assert.equal(at("1000000000"), 0);
+  assert.equal(at("1500000000"), 0.4);
+  assert.equal(at("2500000000"), 0.8);
+  assert.equal(at("3500000000"), 0.4);
+  assert.equal(at("4000000000"), 0);
+  assert.equal(at("1500000000"), 0.4);
+  assert.throws(
+    () => parseTracks([{ ...track, animation: { ...track.animation, fadeOutNs: "4000000000" } }]),
+    /fade/,
+  );
+});
+
+test("static TF availability remains record time with original stamps kept only as provenance", () => {
+  const { validateTransformHistory } = require(path.join(directory, "cjs/history.js"));
+  const row = (time, raw) => ({
+    role: "tf-static",
+    timeNs: String(base + time),
+    provenance: { recordTimeNs: String(base + time), sampleTimeNs: String(raw) },
+    event: {
+      topic: "/tf_static",
+      schemaName: "tf2_msgs/TFMessage",
+      receiveTime: { sec: 1700000000, nsec: Number(time) },
+      message: {
+        transforms: [
+          { header: { frame_id: "world", stamp: { sec: 0, nsec: 0 } }, child_frame_id: "map" },
+        ],
+      },
+    },
+  });
+  const rows = [row(0n, 0n), row(20_000_000n, base)];
+  validateTransformHistory(rows, { maxStorageTime: 600_000_000_000n, maxCapacityPerFrame: 1000 });
+  // A backward seek rebuilds only the static revisions already available then.
+  const available = (time) =>
+    rows.filter((r) => BigInt(r.timeNs) <= base + time).map((r) => r.provenance.sampleTimeNs);
+  assert.deepEqual(available(30_000_000n), ["0", String(base)]);
+  assert.deepEqual(available(10_000_000n), ["0"]);
+});
+
+test("snapshot SHA-256 remains exact without secure-context WebCrypto", async (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  t.after(() => {
+    if (original) {
+      Object.defineProperty(globalThis, "crypto", original);
+    } else {
+      delete globalThis.crypto;
+    }
+  });
+  for (const crypto of [undefined, {}]) {
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: crypto });
+    assert.equal(
+      await s.digest(new TextEncoder().encode("abc").buffer),
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
+  }
+});

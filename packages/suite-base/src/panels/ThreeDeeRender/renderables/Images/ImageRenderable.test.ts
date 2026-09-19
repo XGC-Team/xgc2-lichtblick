@@ -17,6 +17,7 @@ import {
   ImageUserData,
 } from "./ImageRenderable";
 import { CompressedVideo } from "./ImageTypes";
+import { MediaSourceVideoPlayer } from "./MediaSourceVideoPlayer";
 
 const mockAdd = jest.fn();
 const mockAddToTopic = jest.fn();
@@ -1215,4 +1216,42 @@ describe("ImageRenderable error handling", () => {
 
     self.createImageBitmap = originalCreateImageBitmap;
   });
+});
+
+it("uses the native MSE decoder for HTTP H264 while retaining the image renderable texture", async () => {
+  jest.clearAllMocks();
+  const bitmap = new ImageBitmap();
+  jest.spyOn(self, "createImageBitmap").mockResolvedValue(bitmap);
+  const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+  jest.spyOn(VideoPlayer, "IsSupported").mockReturnValue(false);
+  jest.spyOn(MediaSourceVideoPlayer, "IsSupported").mockReturnValue(true);
+  jest.spyOn(MediaSourceVideoPlayer.prototype, "isInitialized").mockReturnValue(true);
+  jest.spyOn(MediaSourceVideoPlayer.prototype, "init").mockResolvedValue(undefined);
+  const decode = jest
+    .spyOn(MediaSourceVideoPlayer.prototype, "decode")
+    .mockResolvedValue(createDecodedVideoFrame(0));
+  const image: CompressedVideo = {
+    format: "h264",
+    timestamp: { sec: 42, nsec: 17 },
+    frame_id: "camera",
+    data: Uint8Array.from(
+      Buffer.from(
+        "000000016742c033da00f0010fa10000030001000003003c8f1832a00000000168ce0fc800000001658884",
+        "hex",
+      ),
+    ),
+  };
+  try {
+    renderable.setImage(image, 1280);
+    renderable.flushPendingDecodes();
+    await renderable.settleVideoDecodes();
+    expect(renderable.videoPlayer).toBeInstanceOf(MediaSourceVideoPlayer);
+    expect(decode).toHaveBeenCalledWith(image.data, 0, "key");
+    expect(renderable.getDecodedImage()).toBe(bitmap);
+    expect(mockAddToTopic).not.toHaveBeenCalled();
+    expect(renderable.userData.texture).toBeInstanceOf(THREE.CanvasTexture);
+  } finally {
+    renderable.dispose();
+    jest.restoreAllMocks();
+  }
 });
