@@ -611,10 +611,7 @@ test("H264 prepared frames require exact bounded decode evidence and lossless pi
     accessUnitSize: 8192,
     decodeIndex: 23,
   };
-  assert.equal(
-    s.parseSnapshot(structuredClone(valid)).cameraFrames[0].cameraTimeNs,
-    String(base),
-  );
+  assert.equal(s.parseSnapshot(structuredClone(valid)).cameraFrames[0].cameraTimeNs, String(base));
   for (const patch of [
     { codec: "hevc" },
     { accessUnitSha256: "bad" },
@@ -663,8 +660,5 @@ test("H264 prepared frames require exact bounded decode evidence and lossless pi
   });
   assert.throws(() => s.parseSnapshot(repeated), /decode evidence/);
   const legacy = fixture();
-  assert.equal(
-    s.parseSnapshot(legacy).cameraFrames[0].sourceEncoding,
-    undefined,
-  );
+  assert.equal(s.parseSnapshot(legacy).cameraFrames[0].sourceEncoding, undefined);
 });

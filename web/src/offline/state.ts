@@ -211,12 +211,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       requireValue(
         record(encoding) &&
           Object.keys(encoding).every((key) =>
-            [
-              "codec",
-              "accessUnitSha256",
-              "accessUnitSize",
-              "decodeIndex",
-            ].includes(key),
+            ["codec", "accessUnitSha256", "accessUnitSize", "decodeIndex"].includes(key),
           ) &&
           encoding.codec === "h264" &&
           typeof encoding.accessUnitSha256 === "string" &&
