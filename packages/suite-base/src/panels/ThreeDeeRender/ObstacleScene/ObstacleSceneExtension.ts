@@ -60,6 +60,7 @@ type Drag = {
   target: THREE.Object3D;
   partId?: string;
   mode: TransformState["mode"];
+  uniformPointerStart?: THREE.Vector2;
 };
 
 type TransformState = {
@@ -128,6 +129,7 @@ export class ObstacleSceneExtension extends SceneExtension {
   #unsubscribe: (() => void) | undefined;
   #accepted: SceneEnvelope | undefined;
   #drag: Drag | undefined;
+  #pointer = new THREE.Vector2();
   #committing: { obstacleId: string } | undefined;
   #suppressClick = false;
   #lastState: { epoch: string; revision: number; poses: Map<string, ScenePose> } | undefined;
@@ -159,6 +161,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#controls.addEventListener("objectChange", this.#previewChanged);
     this.#controls.addEventListener("mouseUp", this.#endDrag);
     this.#canvas.addEventListener("pointerdown", this.#capturePointerDown, true);
+    this.#canvas.addEventListener("pointermove", this.#capturePointerMove, true);
     this.#canvas.addEventListener("pointercancel", this.#cancelPointer);
     this.#canvas.addEventListener("pointerup", this.#releasePointer, true);
     this.#canvas.addEventListener("click", this.#pick, true);
@@ -580,6 +583,7 @@ export class ObstacleSceneExtension extends SceneExtension {
   }
 
   #capturePointerDown = (event: PointerEvent): void => {
+    this.#pointer.set(event.clientX, event.clientY);
     this.#suppressClick = false;
     if (!this.#controls.enabled || event.button !== 0) {
       return;
@@ -610,6 +614,10 @@ export class ObstacleSceneExtension extends SceneExtension {
       event.preventDefault();
       this.#suppressClick = true;
     }
+  };
+
+  #capturePointerMove = (event: PointerEvent): void => {
+    this.#pointer.set(event.clientX, event.clientY);
   };
 
   #beginDrag = (): void => {
@@ -656,6 +664,9 @@ export class ObstacleSceneExtension extends SceneExtension {
       };
     }
     this.#suppressClick = true;
+    if (this.#drag.mode === "scale" && this.#controls.axis === "XYZ") {
+      this.#drag.uniformPointerStart = this.#pointer.clone();
+    }
     this.#setTransform({ dragging: true, preview: this.#drag.obstacle });
     this.renderer.cameraHandler.setInteractionEnabled?.({ enabled: false });
   };
@@ -668,6 +679,15 @@ export class ObstacleSceneExtension extends SceneExtension {
     if (this.#drag) {
       try {
         const { target, mode } = this.#drag;
+        if (this.#drag.uniformPointerStart) {
+          // Native XYZ scaling divides by the initial distance from the origin.
+          // The centre handle can be grabbed at that origin, making tiny drags
+          // explode to hundreds of times the size. Use a positive screen-space
+          // ratio for that handle; axis/plane handles retain native geometry.
+          const delta = this.#pointer.clone().sub(this.#drag.uniformPointerStart);
+          const factor = Math.exp(THREE.MathUtils.clamp((delta.x - delta.y) / 160, -4.6, 4.6));
+          target.scale.setScalar(factor);
+        }
         if (mode === "scale" && this.#scaleConstraint === "radial") {
           if (this.#controls.axis === "X") {
             target.scale.y = target.scale.x;
@@ -907,6 +927,7 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#controls.dispose();
     this.#clearGeometry();
     this.#canvas.removeEventListener("pointerdown", this.#capturePointerDown, true);
+    this.#canvas.removeEventListener("pointermove", this.#capturePointerMove, true);
     this.#canvas.removeEventListener("pointercancel", this.#cancelPointer);
     this.#canvas.removeEventListener("pointerup", this.#releasePointer, true);
     this.#canvas.removeEventListener("click", this.#pick, true);
