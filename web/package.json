@@ -7,10 +7,13 @@
     "@lichtblick/suite-base": "workspace:*",
     "@lichtblick/suite-web": "workspace:*",
     "@lichtblick/tsconfig": "1.1.2",
+    "@playwright/test": "1.60.0",
     "@types/serve-handler": "^6",
+    "esbuild": "0.28.1",
     "i18next": "26.3.1",
     "playwright": "1.60.0",
     "serve-handler": "6.1.7",
+    "three": "patch:three@0.156.1#../patches/three.patch",
     "typescript": "6.0.3",
     "webpack": "5.108.3",
     "webpack-dev-server": "5.2.5"
