@@ -35,6 +35,7 @@ import { toNanoSec } from "@lichtblick/rostime";
 
 import { CompressedImageTypes, CompressedVideo } from "./ImageTypes";
 import type { MediaSourceVideoPlayer } from "./MediaSourceVideoPlayer";
+import { isVideoFrame } from "./VideoFrameTexture";
 import { PreparedVideoFrame, PreparedVideoFrameStatus, PrepareVideoFrameContext } from "./types";
 import { Image as RosImage } from "../../ros";
 import { ColorModeSettings, getColorConverter } from "../colorMode";
@@ -381,10 +382,16 @@ export function getVideoDecoderConfig(frameMsg: CompressedVideo): VideoDecoderCo
   return undefined;
 }
 
+/**
+ * @param knownH264Type Frame type already derived from this frame's bytes by
+ *   `H264.IsKeyframe`; H.264 callers that classified the frame on arrival pass it
+ *   so the payload is not scanned twice.
+ */
 export function prepareVideoFrame(
   frameMsg: CompressedVideo,
   context?: PrepareVideoFrameContext,
   resolvedCodec?: VideoCodec,
+  knownH264Type?: PreparedVideoFrame["type"],
 ): PreparedVideoFrame {
   switch (resolvedCodec ?? canonicalVideoCodec(frameMsg.format)) {
     case VideoCodec.H265: {
@@ -420,7 +427,7 @@ export function prepareVideoFrame(
     case VideoCodec.H264:
     default: {
       const frameData = frameMsg.data;
-      const type = H264Parser.IsKeyframe(frameData) ? "key" : "delta";
+      const type = knownH264Type ?? (H264Parser.IsKeyframe(frameData) ? "key" : "delta");
       return {
         data: frameData,
         // Only keyframes carry an SPS; delta frames have nothing to parse.
@@ -432,14 +439,35 @@ export function prepareVideoFrame(
   }
 }
 
-export async function decodeCompressedVideoToBitmap(
+export function decodeCompressedVideoToBitmap(
   frameMsg: Pick<CompressedVideo, "timestamp">,
   preparedFrame: PreparedVideoFrame,
   videoPlayer: VideoPlayer | MediaSourceVideoPlayer,
   firstMessageTime: bigint,
   resizeWidth?: number,
   options?: { retainPreviousBitmap?: boolean },
-): Promise<ImageBitmap> {
+): Promise<ImageBitmap>;
+export function decodeCompressedVideoToBitmap(
+  frameMsg: Pick<CompressedVideo, "timestamp">,
+  preparedFrame: PreparedVideoFrame,
+  videoPlayer: VideoPlayer | MediaSourceVideoPlayer,
+  firstMessageTime: bigint,
+  resizeWidth: number | undefined,
+  options: { retainPreviousBitmap?: boolean; presentVideoFrame: true },
+): Promise<ImageBitmap | VideoFrame>;
+/**
+ * With `presentVideoFrame`, a decoded frame that already fits `resizeWidth` is returned itself and
+ * ownership passes to the caller, which uploads it as a texture and closes it; no ImageBitmap copy
+ * is made. Wider frames are still resized into a bitmap, so the width cap is unchanged.
+ */
+export async function decodeCompressedVideoToBitmap(
+  frameMsg: Pick<CompressedVideo, "timestamp">,
+  preparedFrame: PreparedVideoFrame,
+  videoPlayer: VideoPlayer | MediaSourceVideoPlayer,
+  firstMessageTime: bigint,
+  resizeWidth?: number,
+  options?: { retainPreviousBitmap?: boolean; presentVideoFrame?: boolean },
+): Promise<ImageBitmap | VideoFrame> {
   if (!videoPlayer.isInitialized()) {
     return await emptyVideoFrame(videoPlayer, resizeWidth);
   }
@@ -452,6 +480,8 @@ export async function decodeCompressedVideoToBitmap(
     timestampMicros,
     preparedFrame.type,
   );
+  // The decoded frame, while this function still owns it.
+  let ownedFrame = videoFrame;
   try {
     const frameToRender = videoFrame ?? videoPlayer.lastVideoFrame;
     if (!frameToRender) {
@@ -460,6 +490,18 @@ export async function decodeCompressedVideoToBitmap(
     // Skip re-encoding the same frame when the decoder produced nothing new.
     if (!videoFrame && videoPlayer.lastImageBitmap) {
       return videoPlayer.lastImageBitmap;
+    }
+    if (
+      options?.presentVideoFrame === true &&
+      isVideoFrame(frameToRender) &&
+      (resizeWidth == undefined || frameToRender.displayWidth <= resizeWidth)
+    ) {
+      // The cached last frame belongs to the player; present an owned reference to it.
+      const presented = videoFrame ?? frameToRender.clone();
+      ownedFrame = undefined;
+      // The previous bitmap, if any, is older than this frame and must not be re-presented.
+      videoPlayer.lastImageBitmap = undefined;
+      return presented;
     }
     const imageBitmap = await createImageBitmapMaybeResized(frameToRender, resizeWidth);
     // A renderable may still own the previous bitmap as its current texture.
@@ -471,7 +513,7 @@ export async function decodeCompressedVideoToBitmap(
     videoPlayer.lastImageBitmap = imageBitmap;
     return imageBitmap;
   } finally {
-    videoFrame?.close();
+    ownedFrame?.close();
   }
 }
 

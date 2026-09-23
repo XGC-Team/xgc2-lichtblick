@@ -33,7 +33,7 @@ import {
 } from "./Images/imageNormalizers";
 import { getTopicMatchPrefix, sortPrefixMatchesToFront } from "./Images/topicPrefixMatching";
 import { cameraInfosEqual, normalizeCameraInfo } from "./projections";
-import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
+import type { AnyRendererSubscription, CanvasVisibility, IRenderer } from "../IRenderer";
 import { PartialMessageEvent, SceneExtension, onlyLastByTopicMessage } from "../SceneExtension";
 import { SettingsTreeEntry } from "../SettingsManager";
 import {
@@ -95,13 +95,21 @@ export class Images extends SceneExtension<ImageRenderable> {
     super(name, renderer);
     this.customCameraModels = renderer.customCameraModels;
     this.renderer.on("topicsChanged", this.#handleTopicsChanged);
+    this.renderer.on("canvasVisibilityChanged", this.#handleCanvasVisibilityChanged);
     this.#handleTopicsChanged();
   }
 
   public override dispose(): void {
     this.renderer.off("topicsChanged", this.#handleTopicsChanged);
+    this.renderer.off("canvasVisibilityChanged", this.#handleCanvasVisibilityChanged);
     super.dispose();
   }
+
+  #handleCanvasVisibilityChanged = (visibility: CanvasVisibility): void => {
+    for (const renderable of this.renderables.values()) {
+      renderable.setCanvasVisibility(visibility);
+    }
+  };
 
   public override startFrame(
     currentTime: bigint,
@@ -496,6 +504,7 @@ export class Images extends SceneExtension<ImageRenderable> {
       mesh: undefined,
     });
 
+    renderable.setCanvasVisibility(this.renderer.canvasVisibility());
     this.add(renderable);
     this.renderables.set(imageTopic, renderable);
     return renderable;

@@ -23,15 +23,29 @@ export type ImageModePreviewHints = {
   maxTouchPoints?: number;
 };
 
+// The budget is read for every image message. A MediaQueryList keeps `matches` current as input
+// devices change, so parse and register each query once instead of once per video frame.
+let queriedMatchMedia: typeof matchMedia | undefined;
+const mediaQueryLists = new Map<string, MediaQueryList | undefined>();
+
 function mediaMatches(query: string): boolean {
   if (typeof matchMedia !== "function") {
     return false;
   }
-  try {
-    return matchMedia(query).matches;
-  } catch {
-    return false;
+  if (queriedMatchMedia !== matchMedia) {
+    queriedMatchMedia = matchMedia;
+    mediaQueryLists.clear();
   }
+  if (!mediaQueryLists.has(query)) {
+    let list: MediaQueryList | undefined;
+    try {
+      list = matchMedia(query);
+    } catch {
+      list = undefined;
+    }
+    mediaQueryLists.set(query, list);
+  }
+  return mediaQueryLists.get(query)?.matches === true;
 }
 
 function defaultPreviewHints(): ImageModePreviewHints {

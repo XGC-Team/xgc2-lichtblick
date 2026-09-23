@@ -6,7 +6,7 @@
 import * as THREE from "three";
 
 import { PinholeCameraModel } from "@lichtblick/den/image";
-import { H265SliceType, VideoPlayer } from "@lichtblick/den/video";
+import { H264, H265SliceType, VideoPlayer } from "@lichtblick/den/video";
 import { IRenderer } from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
 import H265FrameBuilder from "@lichtblick/suite-base/testing/builders/H265FrameBuilder";
 import { BasicBuilder } from "@lichtblick/test-builders";
@@ -1250,6 +1250,121 @@ it("uses the native MSE decoder for HTTP H264 while retaining the image renderab
     expect(renderable.getDecodedImage()).toBe(bitmap);
     expect(mockAddToTopic).not.toHaveBeenCalled();
     expect(renderable.userData.texture).toBeInstanceOf(THREE.CanvasTexture);
+  } finally {
+    renderable.dispose();
+    jest.restoreAllMocks();
+  }
+});
+
+it("scans each live H.264 payload for its keyframe once", async () => {
+  jest.clearAllMocks();
+  jest.spyOn(self, "createImageBitmap").mockResolvedValue(new ImageBitmap());
+  const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+  jest.spyOn(renderable, "update").mockImplementation(() => undefined);
+  const decode = jest.fn(
+    async (_data: Uint8Array, timestampMicros: number, _type: "key" | "delta") =>
+      createDecodedVideoFrame(timestampMicros),
+  );
+  renderable.videoPlayer = {
+    isInitialized: jest.fn().mockReturnValue(true),
+    init: jest.fn().mockResolvedValue(undefined),
+    decode,
+    codedSize: jest.fn(),
+    decoderConfig: jest.fn(),
+    resetForSeek: jest.fn(),
+    close: jest.fn(),
+    lastImageBitmap: undefined,
+    lastVideoFrame: undefined,
+  } as unknown as ImageRenderable["videoPlayer"];
+  const isKeyframe = jest.spyOn(H264, "IsKeyframe");
+  const keyframe = Uint8Array.from(
+    Buffer.from(
+      "000000016742c033da00f0010fa10000030001000003003c8f1832a00000000168ce0fc800000001658884",
+      "hex",
+    ),
+  );
+  const delta = Uint8Array.from([0, 0, 0, 1, 0x41, 0x9a, 0x02, 0x03]);
+  const frames = [keyframe, delta, delta, delta];
+  try {
+    frames.forEach((data, index) => {
+      renderable.setImage({
+        format: "h264",
+        timestamp: { sec: 1, nsec: index * 33_333_333 },
+        frame_id: "camera",
+        data,
+      });
+    });
+    renderable.flushPendingDecodes();
+    await renderable.settleVideoDecodes();
+    expect(decode.mock.calls.map((call) => call[2])).toEqual(["key", "delta", "delta", "delta"]);
+    // The recovery-point classification in setImage is reused by prepareVideoFrame.
+    expect(isKeyframe).toHaveBeenCalledTimes(frames.length);
+  } finally {
+    renderable.dispose();
+    jest.restoreAllMocks();
+  }
+});
+
+it("shares one black frame and one texture upload while video waits for a keyframe", async () => {
+  jest.clearAllMocks();
+  const created: ImageBitmap[] = [];
+  jest.spyOn(self, "createImageBitmap").mockImplementation(async (source) => {
+    const { width, height, codedWidth, codedHeight } = source as Partial<ImageData & VideoFrame>;
+    const bitmap = Object.assign(new ImageBitmap(), {
+      width: width ?? codedWidth,
+      height: height ?? codedHeight,
+      close: jest.fn(),
+    });
+    created.push(bitmap);
+    return bitmap;
+  });
+  const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+  renderable.videoPlayer = {
+    isInitialized: jest.fn().mockReturnValue(true),
+    init: jest.fn().mockResolvedValue(undefined),
+    decode: jest.fn(async (_data: Uint8Array, timestampMicros: number) =>
+      createDecodedVideoFrame(timestampMicros),
+    ),
+    codedSize: jest.fn().mockReturnValue({ width: 64, height: 36 }),
+    decoderConfig: jest.fn(),
+    resetForSeek: jest.fn(),
+    close: jest.fn(),
+    lastImageBitmap: undefined,
+    lastVideoFrame: undefined,
+  } as unknown as ImageRenderable["videoPlayer"];
+  const delta = Uint8Array.from([0, 0, 0, 1, 0x41, 0x9a, 0x02, 0x03]);
+  const keyframe = Uint8Array.from(
+    Buffer.from(
+      "000000016742c033da00f0010fa10000030001000003003c8f1832a00000000168ce0fc800000001658884",
+      "hex",
+    ),
+  );
+  const present = async (data: Uint8Array, index: number) => {
+    renderable.setImage({
+      format: "h264",
+      timestamp: { sec: 1, nsec: index * 33_333_333 },
+      frame_id: "camera",
+      data,
+    });
+    renderable.flushPendingDecodes();
+    await renderable.settleVideoDecodes();
+  };
+  try {
+    // A stream joined mid-GOP: every delta before the first IDR shows the same black frame.
+    for (let index = 0; index < 5; index++) {
+      await present(delta, index);
+    }
+    expect(created).toHaveLength(1);
+    const waitFrame = created[0]! as ImageBitmap & { close: jest.Mock };
+    expect(renderable.getDecodedImage()).toBe(waitFrame);
+    expect(renderable.userData.texture?.image).toBe(waitFrame);
+    // Created with needsUpdate once; re-presenting the attached bitmap adds no upload.
+    expect(renderable.userData.texture?.version).toBe(1);
+
+    await present(keyframe, 5);
+    expect(created).toHaveLength(2);
+    expect(renderable.getDecodedImage()).toBe(created[1]);
+    expect(waitFrame.close).toHaveBeenCalled();
   } finally {
     renderable.dispose();
     jest.restoreAllMocks();

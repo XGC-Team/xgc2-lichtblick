@@ -61,6 +61,36 @@ describe("imageModeDecodeWidth", () => {
   it("never exceeds the WebGL1 texture cap", () => {
     expect(imageModeDecodeWidth(3840, 4096)).toBe(2048);
   });
+
+  it("evaluates each pointer media query once and follows its live state", () => {
+    const lists = new Map<string, { matches: boolean }>();
+    const matchMediaMock = jest.fn((query: string) => {
+      const list = lists.get(query) ?? { matches: false };
+      lists.set(query, list);
+      return list as MediaQueryList;
+    });
+    const original = Object.getOwnPropertyDescriptor(globalThis, "matchMedia");
+    Object.defineProperty(globalThis, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: matchMediaMock,
+    });
+    try {
+      for (let frame = 0; frame < 30; frame++) {
+        expect(imageModePreviewBudget()).toBe(IMAGE_MODE_MAX_DECODE_WIDTH);
+      }
+      expect(matchMediaMock).toHaveBeenCalledTimes(2);
+      lists.get("(any-pointer: coarse)")!.matches = true;
+      expect(imageModePreviewBudget()).toBe(IMAGE_MODE_COARSE_DECODE_WIDTH);
+      expect(matchMediaMock).toHaveBeenCalledTimes(2);
+    } finally {
+      if (original) {
+        Object.defineProperty(globalThis, "matchMedia", original);
+      } else {
+        delete (globalThis as { matchMedia?: unknown }).matchMedia;
+      }
+    }
+  });
 });
 
 describe("clampBrightness", () => {

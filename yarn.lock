@@ -3648,7 +3648,7 @@ __metadata:
     string-replace-loader: "npm:3.1.0"
     style-loader: "npm:4.0.0"
     text-metrics: "npm:3.0.0"
-    three: "patch:three@0.156.1#../../patches/three.patch"
+    three: "patch:three@0.156.1#~/patches/three.patch"
     tinycolor2: "npm:1.6.0"
     ts-essentials: "npm:9.4.0"
     ts-key-enum: "npm:3.0.13"
@@ -20263,16 +20263,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"three@patch:three@0.156.1#../../patches/three.patch::locator=%40lichtblick%2Fsuite-base%40workspace%3Apackages%2Fsuite-base":
+"three@patch:three@0.156.1#~/patches/three.patch":
   version: 0.156.1
-  resolution: "three@patch:three@npm%3A0.156.1#../../patches/three.patch::version=0.156.1&hash=752558&locator=%40lichtblick%2Fsuite-base%40workspace%3Apackages%2Fsuite-base"
-  checksum: 10/d8a0a02dcf0a61b8eb0d804deab4578a24ed3b03f1a6749d0775b44c541050ac48b1abeb405af4fb38593f09a84df62879077cbf6ad72a46e7a9c23a3a47266e
-  languageName: node
-  linkType: hard
-
-"three@patch:three@0.156.1#../patches/three.patch::locator=web%40workspace%3Aweb":
-  version: 0.156.1
-  resolution: "three@patch:three@npm%3A0.156.1#../patches/three.patch::version=0.156.1&hash=752558&locator=web%40workspace%3Aweb"
+  resolution: "three@patch:three@npm%3A0.156.1#~/patches/three.patch::version=0.156.1&hash=752558"
   checksum: 10/d8a0a02dcf0a61b8eb0d804deab4578a24ed3b03f1a6749d0775b44c541050ac48b1abeb405af4fb38593f09a84df62879077cbf6ad72a46e7a9c23a3a47266e
   languageName: node
   linkType: hard
@@ -21456,7 +21449,7 @@ __metadata:
     i18next: "npm:26.3.1"
     playwright: "npm:1.60.0"
     serve-handler: "npm:6.1.7"
-    three: "patch:three@0.156.1#../patches/three.patch"
+    three: "patch:three@0.156.1#~/patches/three.patch"
     typescript: "npm:6.0.3"
     webpack: "npm:5.108.3"
     webpack-dev-server: "npm:5.2.5"

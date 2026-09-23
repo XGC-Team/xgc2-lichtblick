@@ -80,9 +80,14 @@ export type RendererEvents = {
   resetAllFramesCursor: (renderer: IRenderer) => void;
   hudItemsChanged: (renderer: IRenderer) => void;
   clearPreloadBuffer: (renderer: IRenderer) => void;
+  /** The canvas went off or back on screen, e.g. the host parked or restored this viewer. */
+  canvasVisibilityChanged: (visibility: CanvasVisibility, renderer: IRenderer) => void;
 };
 
 export type FollowMode = "follow-pose" | "follow-position" | "follow-none";
+
+/** Whether a renderer's canvas is on screen. */
+export type CanvasVisibility = "visible" | "hidden";
 
 export type ImageAnnotationSettings = {
   visible: boolean;
@@ -233,10 +238,6 @@ export class InstancedLineMaterial extends THREE.LineBasicMaterial {
   }
 }
 
-export type AddMessageEventOptions = {
-  inBatch: boolean;
-};
-
 export interface IRenderer extends EventEmitter<RendererEvents> {
   readonly interfaceMode: InterfaceMode;
   readonly gl: THREE.WebGLRenderer;
@@ -372,10 +373,14 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setSelectedRenderable(selection: PickedRenderable | undefined): void;
 
-  addMessageEvent(
-    messageEvent: Readonly<MessageEvent>,
-    options?: Partial<AddMessageEventOptions>,
-  ): void;
+  /** Register the message's coordinate frames and queue it for its subscriptions. */
+  addMessageEvent(messageEvent: Readonly<MessageEvent>): void;
+
+  /**
+   * Register the coordinate frames a message references without queueing it. For callers that
+   * deliver messages to subscription handlers themselves (the offline renderer).
+   */
+  addMessageCoordinateFrames(message: unknown): void;
 
   /**  Set desired render/display frame, will render using fallback if id is undefined or frame does not exist */
   setFollowFrameId(frameId: string | undefined): void;
@@ -405,6 +410,14 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
   // Callback handlers
   animationFrame: () => void;
   queueAnimationFrame: () => void;
+
+  /**
+   * Whether the canvas is on screen. While it is not (a parked embed with `content-visibility:
+   * hidden`, a collapsed panel), frames keep message state current but skip pose updates, video
+   * decodes and draws; the first visible frame catches up.
+   */
+  canvasVisibility(): CanvasVisibility;
+  setCanvasVisibility(visibility: CanvasVisibility): void;
 
   /**
    * Resolves once all scene extensions have finished any in-flight asynchronous video decoding.

@@ -47,13 +47,13 @@ import { palette, fontMonospace } from "@lichtblick/theme";
 import { LabelMaterial, LabelPool } from "@lichtblick/three-text";
 
 import {
+  CanvasVisibility,
   IRenderer,
   InstancedLineMaterial,
   RendererConfig,
   RendererEvents,
   RendererSubscription,
   TestOptions,
-  AddMessageEventOptions,
 } from "./IRenderer";
 import { Input } from "./Input";
 import { DEFAULT_MESH_UP_AXIS, ModelCache } from "./ModelCache";
@@ -253,6 +253,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #renderScheduler = new RenderScheduler(() => {
     this.#frameHandler(this.currentTime);
   });
+  // Assumed on screen until the owner reports otherwise (the offline renderer never does).
+  #canvasVisibility: CanvasVisibility = "visible";
   #disposed = false;
   #appliedCanvasSize = new THREE.Vector2();
   #drawingBufferSize = new THREE.Vector2();
@@ -1103,12 +1105,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
-  public addMessageEvent(
-    messageEvent: Readonly<MessageEvent>,
-    options?: Partial<AddMessageEventOptions>,
-  ): void {
-    const { message } = messageEvent;
+  public addMessageEvent(messageEvent: Readonly<MessageEvent>): void {
+    this.addMessageCoordinateFrames(messageEvent.message);
+    queueMessage(messageEvent, this.topicSubscriptions.get(messageEvent.topic));
+    queueMessage(messageEvent, this.schemaSubscriptions.get(messageEvent.schemaName));
+  }
 
+  public addMessageCoordinateFrames(message: unknown): void {
     const maybeHasHeader = message as DeepPartial<{ header: Header }>;
     const maybeHasMarkers = message as DeepPartial<MarkerArray>;
     const maybeHasEntities = message as DeepPartial<SceneUpdate>;
@@ -1139,13 +1142,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       // If this message has a top-level frame_id, scrape it
       this.addCoordinateFrame(maybeHasFrameId.frame_id);
     }
-
-    if (options?.inBatch === true) {
-      return;
-    }
-
-    queueMessage(messageEvent, this.topicSubscriptions.get(messageEvent.topic));
-    queueMessage(messageEvent, this.schemaSubscriptions.get(messageEvent.schemaName));
   }
 
   /** Match the behavior of `tf::Transformer` by stripping leading slashes from
@@ -1312,6 +1308,22 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.#renderScheduler.queue();
   }
 
+  public canvasVisibility(): CanvasVisibility {
+    return this.#canvasVisibility;
+  }
+
+  public setCanvasVisibility(visibility: CanvasVisibility): void {
+    if (this.#canvasVisibility === visibility) {
+      return;
+    }
+    this.#canvasVisibility = visibility;
+    this.emit("canvasVisibilityChanged", visibility, this);
+    if (visibility === "visible") {
+      // Paint the current state right away and resume deferred decodes.
+      this.queueAnimationFrame();
+    }
+  }
+
   public async settleVideoDecodes(): Promise<void> {
     await Promise.all(
       Array.from(this.sceneExtensions.values(), async (ext) => {
@@ -1336,6 +1348,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #frameHandler = (currentTime: bigint): void => {
     this.currentTime = currentTime;
+    if (this.#canvasVisibility === "hidden") {
+      // Nothing on screen: keep transforms and renderable state current so subscription queues
+      // never pile up, but skip pose updates, video decodes and the draw itself. Setting the
+      // canvas visible again queues a full frame.
+      this.#handleSubscriptionQueues();
+      this.#seedConfiguredFrames();
+      return;
+    }
     // Resize immediately before painting, never in a separate observer/rAF turn:
     // changing canvas dimensions clears its drawing buffer.
     this.#applyCanvasSize();

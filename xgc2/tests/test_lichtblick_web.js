@@ -61,35 +61,20 @@ test("parses the browser server command line", () => {
   );
 });
 
-test("accepts historic XGC layout flags as no-ops", () => {
-  assert.deepEqual(
-    parseArgs([
-      "--initial-view",
-      "ar",
-      "--ar-visible",
-      "false",
-      "--grid-visible",
-      "false",
-      "--grid-color",
-      "#A1B2C3",
-      "--grid-size",
-      "24.5",
-      "--grid-divisions",
-      "48",
-      "--grid-line-width",
-      "2.5",
-    ]),
-    {
-      host: null,
-      port: null,
-      controlPlaneUrl: null,
-      publicUrlPrefix: null,
-      allowedOrigins: [],
-      frameAncestors: null,
-      showHelp: false,
-    },
-  );
-  assert.throws(() => parseArgs(["--grid-color"]), /missing value/);
+test("rejects the retired XGC layout flags", () => {
+  // Layout lives in the Core-generated layout, not in this generic browser server. No process
+  // definition passes these any more; the current catalog is re-provisioned, not recovered.
+  for (const flag of [
+    "--initial-view",
+    "--ar-visible",
+    "--grid-visible",
+    "--grid-color",
+    "--grid-size",
+    "--grid-divisions",
+    "--grid-line-width",
+  ]) {
+    assert.throws(() => parseArgs([flag, "value"]), /unknown option/);
+  }
 });
 
 test("normalizes exact HTTP origins and rejects ambiguous sources", () => {

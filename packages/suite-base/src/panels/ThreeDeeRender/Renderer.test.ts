@@ -284,6 +284,65 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
+  it("keeps message state but skips pose updates and draws while the canvas is hidden", () => {
+    // Given: A renderer whose TFMessage subscription has a queued message
+    const requestAnimationFrameSpy = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1);
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const visibility = jest.fn();
+    renderer.on("canvasVisibilityChanged", visibility);
+    const startFrames = Array.from(renderer.sceneExtensions.values(), (extension) =>
+      jest.spyOn(extension, "startFrame"),
+    );
+    const draw = jest.spyOn(renderer.gl, "render");
+    draw.mockClear();
+
+    // When: The canvas goes off screen and a frame runs
+    renderer.setCanvasVisibility("hidden");
+    renderer.addMessageEvent({
+      topic: "/tf",
+      schemaName: "tf2_msgs/TFMessage",
+      receiveTime: { sec: 0, nsec: 0 },
+      sizeInBytes: 0,
+      message: {
+        transforms: [
+          {
+            header: { frame_id: "world", stamp: { sec: 0, nsec: 0 } },
+            child_frame_id: "robot",
+            transform: { translation: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+          },
+        ],
+      },
+    });
+    renderer.animationFrame();
+
+    // Then: The transform was ingested and its queue drained, but nothing was posed or drawn
+    expect(renderer.canvasVisibility()).toBe("hidden");
+    expect(renderer.transformTree.hasFrame("robot")).toBe(true);
+    expect(
+      renderer.schemaSubscriptions
+        .get("tf2_msgs/TFMessage")
+        ?.every((subscription) => subscription.queue == undefined),
+    ).toBe(true);
+    expect(startFrames.every((startFrame) => startFrame.mock.calls.length === 0)).toBe(true);
+    expect(draw).not.toHaveBeenCalled();
+
+    // When: The canvas returns
+    requestAnimationFrameSpy.mockClear();
+    renderer.setCanvasVisibility("visible");
+    renderer.setCanvasVisibility("visible");
+
+    // Then: One frame is queued to paint the current state, and the next frame draws
+    expect(visibility.mock.calls.map(([value]) => value)).toEqual(["hidden", "visible"]);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+    renderer.animationFrame();
+    expect(draw).toHaveBeenCalled();
+    expect(startFrames.every((startFrame) => startFrame.mock.calls.length === 1)).toBe(true);
+
+    renderer.dispose();
+  });
+
   it("enables and disables picking mode", () => {
     // Given: A renderer instance
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
@@ -1236,6 +1295,34 @@ describe("3D Renderer", () => {
     // Then: Frame should be added and event emitted
     expect(renderer.transformTree.hasFrame("test_frame")).toBe(true);
     expect(emitSpy).toHaveBeenCalledWith("transformTreeUpdated", renderer);
+
+    renderer.dispose();
+  });
+
+  it("registers a message's frames without queueing it for subscriptions", () => {
+    // Given: A renderer whose transform extension subscribes to TFMessage
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const subscriptions = renderer.schemaSubscriptions.get("tf2_msgs/TFMessage")!;
+    const event: MessageEvent = {
+      topic: "/tf",
+      schemaName: "tf2_msgs/TFMessage",
+      receiveTime: { sec: 0, nsec: 0 },
+      sizeInBytes: 0,
+      message: { header: { frame_id: "sensor" }, transforms: [] },
+    };
+
+    // When: Only its coordinate frames are registered
+    renderer.addMessageCoordinateFrames(event.message);
+
+    // Then: The frame exists but nothing waits in the subscription queues
+    expect(renderer.transformTree.hasFrame("sensor")).toBe(true);
+    expect(subscriptions.some((subscription) => subscription.queue != undefined)).toBe(false);
+
+    // A full message event is queued as before.
+    renderer.addMessageEvent(event);
+    expect(subscriptions.some((subscription) => subscription.queue?.includes(event) === true)).toBe(
+      true,
+    );
 
     renderer.dispose();
   });
