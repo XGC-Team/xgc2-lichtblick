@@ -5,7 +5,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { t } from "i18next";
+import i18next, { t } from "i18next";
 import * as _ from "lodash-es";
 import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
@@ -572,17 +572,54 @@ function createLineGeometry(): LineGeometry {
   return lineGeometry;
 }
 
+type FrameFieldLabels = {
+  parent: string;
+  age: string;
+  historySize: string;
+  translation: string;
+  rotation: string;
+  translationOffset: string;
+  rotationOffset: string;
+};
+
+let frameFieldLabelCache: { language: string | undefined; labels: FrameFieldLabels } | undefined;
+
+/**
+ * The transforms tree holds a node per coordinate frame and is rebuilt twice a second by every 3D
+ * panel. Resolving the same labels through i18next for each frame dominated that rebuild with a
+ * robot fleet's frames; resolve them once per active language instead.
+ */
+function frameFieldLabels(): FrameFieldLabels {
+  const language = i18next.language as string | undefined;
+  if (frameFieldLabelCache == undefined || frameFieldLabelCache.language !== language) {
+    frameFieldLabelCache = {
+      language,
+      labels: {
+        parent: t("threeDee:parent"),
+        age: t("threeDee:age"),
+        historySize: t("threeDee:historySize"),
+        translation: t("threeDee:translation"),
+        rotation: t("threeDee:rotation"),
+        translationOffset: t("threeDee:translationOffset"),
+        rotationOffset: t("threeDee:rotationOffset"),
+      },
+    };
+  }
+  return frameFieldLabelCache.labels;
+}
+
 function buildSettingsFields(
   frame: CoordinateFrame | undefined,
   currentTime: bigint | undefined,
   config: Immutable<RendererConfig>,
 ): SettingsTreeFields {
+  const labels = frameFieldLabels();
   const frameKey = frame ? `frame:${frame.id}` : "";
   const parentFrameId = frame?.parent()?.id;
 
   if (parentFrameId == undefined) {
     return {
-      parent: { label: t("threeDee:parent"), input: "string", readonly: true, value: "<root>" },
+      parent: { label: labels.parent, input: "string", readonly: true, value: "<root>" },
     };
   }
 
@@ -611,25 +648,25 @@ function buildSettingsFields(
 
   const fields: SettingsTreeFields = {
     parent: {
-      label: t("threeDee:parent"),
+      label: labels.parent,
       input: "string",
       readonly: true,
       value: parentFrameId,
     },
     age: {
-      label: t("threeDee:age"),
+      label: labels.age,
       input: "string",
       readonly: true,
       value: ageValue,
     },
     historySize: {
-      label: t("threeDee:historySize"),
+      label: labels.historySize,
       input: "string",
       readonly: true,
       value: historySizeValue,
     },
     xyz: {
-      label: t("threeDee:translation"),
+      label: labels.translation,
       input: "vec3",
       precision: PRECISION_DISTANCE,
       labels: ["X", "Y", "Z"],
@@ -637,7 +674,7 @@ function buildSettingsFields(
       value: xyzValue,
     },
     rpy: {
-      label: t("threeDee:rotation"),
+      label: labels.rotation,
       input: "vec3",
       precision: PRECISION_DEGREES,
       labels: ["R", "P", "Y"],
@@ -660,7 +697,7 @@ function buildSettingsFields(
     }
 
     fields.xyzOffset = {
-      label: t("threeDee:translationOffset"),
+      label: labels.translationOffset,
       input: "vec3",
       precision: PRECISION_DISTANCE,
       step: 0.1,
@@ -668,7 +705,7 @@ function buildSettingsFields(
       value: xyzOffsetValue,
     };
     fields.rpyCoefficient = {
-      label: t("threeDee:rotationOffset"),
+      label: labels.rotationOffset,
       input: "vec3",
       precision: PRECISION_DEGREES,
       step: 1,
