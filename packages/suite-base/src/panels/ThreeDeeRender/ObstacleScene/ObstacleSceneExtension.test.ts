@@ -115,36 +115,6 @@ describe("3D obstacle authoring", () => {
     },
   );
 
-  it("keeps ground footprints at the floor while resizing a raised compound and after cancellation", async () => {
-    const { extension, controls, initial, dispose } = await setup({ whole: true });
-    const raised = createObstacle("Arch", "arch-1");
-    raised.pose.position = [0, 0, 0.6];
-    extension.session!.accept({
-      ...initial,
-      revision: 2,
-      document: { ...initial.document, obstacles: [raised] },
-    });
-    extension.setMode("scale");
-    const target = controls.object!;
-    const footprints = target.children.filter((child) => child.userData.footprint === true);
-    expect(footprints.length).toBeGreaterThan(0);
-    controls.dispatchEvent({ type: "mouseDown" });
-    target.scale.setScalar(2);
-    controls.dispatchEvent({ type: "objectChange" });
-    for (const footprint of footprints) {
-      expect(footprint.getWorldPosition(new THREE.Vector3()).z).toBeCloseTo(
-        footprint.userData.groundZ as number,
-      );
-    }
-    extension.cancelPreview();
-    for (const footprint of footprints) {
-      expect(footprint.getWorldPosition(new THREE.Vector3()).z).toBeCloseTo(
-        footprint.userData.groundZ as number,
-      );
-    }
-    dispose();
-  });
-
   it.each([
     "Sphere",
     "Capsule",
@@ -335,15 +305,27 @@ describe("3D obstacle authoring", () => {
     expect(controls.object?.name).toBe("lintel");
     expect(controls.object?.parent?.name).toBe("arch-1");
     expect(
-      controls.object?.parent?.children.filter(
-        (child) => child instanceof THREE.Mesh && child.userData.footprint !== true,
-      ),
+      controls.object?.parent?.children.filter((child) => child instanceof THREE.Mesh),
     ).toHaveLength(3);
     expect(
       extension
         .getSubscriptions()
         .map((subscription) => (subscription.type === "topic" ? subscription.topicName : "")),
     ).toEqual(["/xgc/scene/document", "/xgc/scene/state"]);
+    dispose();
+  });
+
+  it("renders the 3D pane as lit solids without edge or ground-projection overlays", async () => {
+    const { controls, dispose } = await setup();
+    const meshes = (controls.object?.parent?.children ?? []).filter(
+      (child) => child instanceof THREE.Mesh,
+    );
+    expect(meshes).toHaveLength(3);
+    for (const mesh of meshes) {
+      expect((mesh as THREE.Mesh).material).toBeInstanceOf(THREE.MeshLambertMaterial);
+      expect(mesh.children).toHaveLength(0);
+      expect(mesh.userData.groundZ).toBeUndefined();
+    }
     dispose();
   });
 
@@ -474,6 +456,7 @@ describe("AR overlay color override", () => {
       gl: { domElement: canvas },
       settings: { setNodesForKey: jest.fn() },
       config: { scene: { obstacleScene } },
+      interfaceMode: "image",
       queueAnimationFrame: jest.fn(),
       cameraHandler: { getActiveCamera: () => camera, setInteractionEnabled: jest.fn() },
       addCoordinateFrame: jest.fn(),
@@ -528,23 +511,5 @@ describe("AR overlay color override", () => {
       expect(material.transparent).toBe(false);
       dispose();
     }
-  });
-
-  it("pins footprints to the floor when the obstacle origin sits at volume centre", async () => {
-    // The runtime scene service emits single-part obstacles with the origin at
-    // volume centre (z = half height), not on the ground.
-    const { extension, dispose } = await setupOverlay({ namespace: "/xgc/scene" }, (doc) => {
-      doc.document.obstacles[0]!.pose.position = [0, 0, 0.6];
-    });
-    const group = extension.children[0]!.children[0]!;
-    expect(group.position.z).toBeCloseTo(0.6);
-    const footprints = group.children.filter((child) => child.userData.footprint === true);
-    expect(footprints.length).toBeGreaterThan(0);
-    for (const footprint of footprints) {
-      const groundZ = footprint.userData.groundZ as number;
-      expect(footprint.position.z + group.position.z).toBeCloseTo(groundZ);
-      expect(groundZ).toBeLessThan(0.05);
-    }
-    dispose();
   });
 });

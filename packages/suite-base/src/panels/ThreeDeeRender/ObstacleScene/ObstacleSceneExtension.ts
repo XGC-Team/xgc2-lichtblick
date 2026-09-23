@@ -39,7 +39,7 @@ import {
   convexFacePlanes,
   createObstacleEdges,
   createObstacleFill,
-  createObstacleFootprint,
+  createObstacleSolid,
   RENDER_ORDER_FILL,
   setObstacleVisualSelected,
   trimSharedFaces,
@@ -50,7 +50,10 @@ import { SceneExtension } from "../SceneExtension";
 import { makePose } from "../transforms";
 import { updatePose } from "../updatePose";
 
-type SceneMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+type SceneMesh = THREE.Mesh<
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial | THREE.MeshLambertMaterial
+>;
 type Drag = {
   selection: SceneSelection;
   obstacle: SceneObstacle;
@@ -139,11 +142,14 @@ export class ObstacleSceneExtension extends SceneExtension {
   #scaleHandles: { group: THREE.Object3D; children: THREE.Object3D[] }[];
   #draftGroup: THREE.Group | undefined;
   #colorOverride: [number, number, number, number] | undefined;
+  /** Image panes render the glass overlay; every other pane renders the lit solid. */
+  #imagePane: boolean;
 
   public constructor(renderer: IRenderer) {
     super(ObstacleSceneExtension.extensionId, renderer);
     this.#canvas = renderer.gl.domElement;
     this.#frame.userData.pose = makePose();
+    this.#imagePane = renderer.interfaceMode === "image";
     this.#colorOverride = sceneColorOverride(renderer.config.scene.obstacleScene?.color);
     this.add(this.#frame);
     this.#controls = new TransformControls(renderer.cameraHandler.getActiveCamera(), this.#canvas);
@@ -240,6 +246,46 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.renderer.queueAnimationFrame();
   };
 
+  /**
+   * One part mesh. The image pane gets the trimmed glass overlay with facet
+   * edges; other panes get the lit solid, whose opaque depth already hides the
+   * coincident interior faces of a convex decomposition.
+   */
+  #partMesh(
+    parts: ScenePart[],
+    planeSets: THREE.Plane[][],
+    index: number,
+    rgba: [...Rgb, number],
+  ): SceneMesh {
+    const part = parts[index]!;
+    const blockers = this.#imagePane ? seamBlockers(parts, planeSets, index) : [];
+    const mesh: SceneMesh = this.#imagePane
+      ? new THREE.Mesh(
+          trimSharedFaces(createGeometry(part.geometry), blockers),
+          createObstacleFill(rgba),
+        )
+      : new THREE.Mesh(createGeometry(part.geometry), createObstacleSolid(rgba));
+    mesh.name = part.id;
+    if (this.#imagePane) {
+      mesh.renderOrder = RENDER_ORDER_FILL;
+      const edges = createObstacleEdges(mesh.geometry, rgba.slice(0, 3) as Rgb, blockers);
+      if (edges) {
+        edges.name = `${part.id}:edges`;
+        mesh.add(edges);
+        mesh.userData.edges = edges;
+      }
+    }
+    applyPose(mesh, part.pose);
+    return mesh;
+  }
+
+  /** Sibling face planes, only needed by the image-pane seam suppression. */
+  #partPlaneSets(parts: ScenePart[]): THREE.Plane[][] {
+    return this.#imagePane
+      ? parts.map((part) => convexFacePlanes(createGeometry(part.geometry), part.pose))
+      : [];
+  }
+
   #syncSession = (): void => {
     const state = this.session?.getSnapshot();
     const envelope = state?.envelope;
@@ -261,47 +307,22 @@ export class ObstacleSceneExtension extends SceneExtension {
         const group = new THREE.Group();
         group.name = obstacle.id;
         applyPose(group, obstacle.pose);
-        const planeSets = obstacle.parts.map((part) =>
-          convexFacePlanes(createGeometry(part.geometry), part.pose),
-        );
+        const planeSets = this.#partPlaneSets(obstacle.parts);
         obstacle.parts.forEach((part, index) => {
-          const rgba = this.#colorOverride ?? part.color;
-          const blockers = seamBlockers(obstacle.parts, planeSets, index);
-          const mesh = new THREE.Mesh(
-            trimSharedFaces(createGeometry(part.geometry), blockers),
-            createObstacleFill(rgba),
+          const mesh = this.#partMesh(
+            obstacle.parts,
+            planeSets,
+            index,
+            this.#colorOverride ?? part.color,
           );
-          mesh.name = part.id;
           mesh.userData.obstacleId = obstacle.id;
           mesh.userData.partId = part.id;
-          mesh.renderOrder = RENDER_ORDER_FILL;
-          applyPose(mesh, part.pose);
-          const edges = createObstacleEdges(mesh.geometry, rgba.slice(0, 3) as Rgb, blockers);
-          if (edges) {
-            edges.name = `${part.id}:edges`;
-            mesh.add(edges);
-            mesh.userData.edges = edges;
-          }
           group.add(mesh);
           this.#meshes.push(mesh);
-        });
-        obstacle.parts.forEach((part, index) => {
-          const rgba = this.#colorOverride ?? part.color;
-          const footprint = createObstacleFootprint(
-            createGeometry(part.geometry),
-            part.pose,
-            rgba.slice(0, 3) as Rgb,
-            index * 0.001,
-          );
-          if (footprint) {
-            footprint.name = `${part.id}:footprint`;
-            group.add(footprint);
-          }
         });
         this.#groups.set(obstacle.id, group);
         this.#frame.add(group);
       }
-      this.#syncFootprintHeights();
     }
     this.#accepted = envelope;
     if (
@@ -325,22 +346,6 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#attach();
     this.renderer.queueAnimationFrame();
   };
-
-  /**
-   * Footprints pin to the document ground plane: the obstacle origin may sit
-   * at volume centre, and runtime poses move it further, so re-pin every
-   * rendered frame. Yaw-only obstacle rotations leave z untouched.
-   */
-  #syncFootprintHeights(): void {
-    for (const group of this.#frame.children) {
-      for (const child of group.children) {
-        const groundZ = child.userData.groundZ as number | undefined;
-        if (child.userData.footprint === true && groundZ != undefined) {
-          child.position.z = (groundZ - group.position.z) / group.scale.z;
-        }
-      }
-    }
-  }
 
   #applyRuntimePoses(): void {
     const envelope = this.session?.getSnapshot().envelope;
@@ -399,47 +404,18 @@ export class ObstacleSceneExtension extends SceneExtension {
     const group = new THREE.Group();
     group.name = SCENE_DRAFT_ID;
     applyPose(group, placement.pose);
-    const planeSets = placement.parts.map((part) =>
-      convexFacePlanes(createGeometry(part.geometry), part.pose),
-    );
+    const planeSets = this.#partPlaneSets(placement.parts);
     placement.parts.forEach((part, index) => {
       const [r, g, b] = part.color;
-      const blockers = seamBlockers(placement.parts, planeSets, index);
-      const mesh = new THREE.Mesh(
-        trimSharedFaces(createGeometry(part.geometry), blockers),
-        createObstacleFill([r, g, b, 0.45]),
-      );
-      mesh.name = part.id;
+      const mesh = this.#partMesh(placement.parts, planeSets, index, [r, g, b, 0.45]);
       mesh.userData.obstacleId = SCENE_DRAFT_ID;
       mesh.userData.partId = part.id;
       mesh.userData.draft = true;
-      mesh.renderOrder = RENDER_ORDER_FILL;
-      applyPose(mesh, part.pose);
-      const edges = createObstacleEdges(mesh.geometry, [r, g, b], blockers);
-      if (edges) {
-        edges.name = `${part.id}:edges`;
-        mesh.add(edges);
-        mesh.userData.edges = edges;
-      }
       group.add(mesh);
       this.#meshes.push(mesh);
     });
-    placement.parts.forEach((part, index) => {
-      const [r, g, b] = part.color;
-      const footprint = createObstacleFootprint(
-        createGeometry(part.geometry),
-        part.pose,
-        [r, g, b],
-        index * 0.001,
-      );
-      if (footprint) {
-        footprint.name = `${part.id}:footprint`;
-        group.add(footprint);
-      }
-    });
     this.#draftGroup = group;
     this.#frame.add(group);
-    this.#syncFootprintHeights();
   }
 
   public canTransform(): boolean {
@@ -697,7 +673,6 @@ export class ObstacleSceneExtension extends SceneExtension {
         }
         const preview = this.#dragCandidate(this.#drag);
         this.#drag.changed = true;
-        this.#syncFootprintHeights();
         this.#setTransform({ preview, scaleFactor: mode === "scale" ? target.scale.x : undefined });
       } catch (error) {
         this.cancelPreview();
@@ -805,7 +780,6 @@ export class ObstacleSceneExtension extends SceneExtension {
       applyPose(this.#draftGroup, placement.pose);
     }
     this.#applyRuntimePoses();
-    this.#syncFootprintHeights();
     this.renderer.queueAnimationFrame();
   }
 
@@ -882,7 +856,6 @@ export class ObstacleSceneExtension extends SceneExtension {
     if (!envelope) {
       return;
     }
-    this.#syncFootprintHeights();
     const frame = this.renderer.normalizeFrameId(envelope.document.frame);
     const success = updatePose(
       this.#frame,

@@ -10,30 +10,35 @@ import * as THREE from "three";
 import type { ScenePose, Vec3 } from "./types";
 
 /**
- * Product look for projected obstacles: a uniformly tinted glass fill with a
- * fresnel rim so the silhouette stays readable over any camera background,
- * crisp facet edges, and a ground footprint that anchors each part to the
- * floor. Scene lighting is deliberately ignored: a lit CG material clashes
- * with the lighting baked into the camera image.
+ * Product look for projected obstacles, per pane:
+ *
+ * - 3D pane (`createObstacleSolid`): an opaque lit solid under the same scene
+ *   lighting as URDF models, so spheres read as balls and cylinder walls as
+ *   curved surfaces instead of flat stickers. No edge overlay and no ground
+ *   projection: silhouettes come from shading, and convex parts of one
+ *   obstacle share coplanar face normals, so decomposition seams shade
+ *   continuously and the compound reads as one body.
+ * - Image pane (`createObstacleFill`): a uniformly tinted glass fill with a
+ *   fresnel rim so the silhouette stays readable over any camera background,
+ *   plus crisp facet edges. Scene lighting is deliberately ignored: a lit CG
+ *   material clashes with the lighting baked into the camera image.
  */
 
 const EDGE_ANGLE_DEG = 25;
 const EDGE_OPACITY = 0.9;
 const EDGE_SELECTED_OPACITY = 1;
 const EDGE_DARKEN = 0.55;
-const FOOTPRINT_Z = 0.012;
-const FOOTPRINT_FILL_OPACITY = 0.22;
-const FOOTPRINT_LINE_OPACITY = 0.6;
 const FRESNEL_POWER = 3;
 const FRESNEL_TINT = 0.55;
 const FRESNEL_ALPHA = 0.3;
 const RIM_LIGHTEN = 0.5;
 const SELECT_TINT: Vec3 = [1, 0.85, 0.45];
 const SELECT_MIX = 0.45;
+const SOLID_EMISSIVE_LIFT = 0.3;
 /** Tolerance (m) for a point to count as on/inside a sibling part's face planes. */
 const SEAM_EPS = 1e-3;
 
-/** Transparent pass order: footprint -> fill -> edges, so fill depth hides far-side edges. */
+/** Transparent pass order in the image pane: fill then edges, so fill depth hides far-side edges. */
 export const RENDER_ORDER_FILL = 1;
 export const RENDER_ORDER_EDGES = 2;
 
@@ -102,6 +107,32 @@ uniform float uSelected;`,
     material.userData.shader = shader;
   };
   material.customProgramCacheKey = () => "xgc2-obstacle-fill";
+  return material;
+}
+
+/**
+ * Lit solid for the 3D pane. Shading from the scene lights supplies the depth
+ * cues the image-pane glass deliberately avoids; coincident interior faces of
+ * a convex decomposition stay invisible behind opaque depth, so no face
+ * trimming or edge filtering is needed on this path.
+ *
+ * Lambert (pure diffuse) on purpose: a Standard GGX lobe adds a white sheen
+ * that reads as gray dust on the amber. The same-hue emissive floor keeps the
+ * hue vivid where the scene lights fall off, the way Gazebo's ambient keeps
+ * its obstacles saturated instead of mud-brown.
+ */
+export function createObstacleSolid(rgba: [...Rgb, number]): THREE.MeshLambertMaterial {
+  const [r, g, b, a] = rgba;
+  const base = new THREE.Color(r, g, b);
+  const material = new THREE.MeshLambertMaterial({
+    color: base,
+    transparent: a < 1,
+    opacity: a,
+    side: THREE.DoubleSide,
+  });
+  material.emissive.copy(base).multiplyScalar(SOLID_EMISSIVE_LIFT);
+  material.userData.baseEmissive = material.emissive.clone();
+  material.userData.selected = false;
   return material;
 }
 
@@ -253,112 +284,22 @@ export function createObstacleEdges(
   return lines;
 }
 
-type Vec2 = [number, number];
-
-/** Andrew monotone chain over projected XY points; collinear intermediates are dropped. */
-export function convexHull2D(points: Vec2[]): Vec2[] {
-  const sorted: Vec2[] = [];
-  for (const p of [...points].sort((a, b) => {
-    const horizontal = a[0] - b[0];
-    return horizontal !== 0 && !Number.isNaN(horizontal) ? horizontal : a[1] - b[1];
-  })) {
-    const last = sorted[sorted.length - 1];
-    if (!last || Math.abs(p[0] - last[0]) > 1e-9 || Math.abs(p[1] - last[1]) > 1e-9) {
-      sorted.push(p);
-    }
-  }
-  if (sorted.length < 3) {
-    return sorted;
-  }
-  const cross = (o: Vec2, a: Vec2, b: Vec2) =>
-    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const half = (seq: Vec2[]): Vec2[] => {
-    const stack: Vec2[] = [];
-    for (const p of seq) {
-      while (
-        stack.length >= 2 &&
-        cross(stack[stack.length - 2]!, stack[stack.length - 1]!, p) <= 1e-12
-      ) {
-        stack.pop();
-      }
-      stack.push(p);
-    }
-    return stack;
-  };
-  const lower = half(sorted);
-  const upper = half([...sorted].reverse());
-  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
-}
-
-/**
- * Soft ground-contact patch: the part geometry is transformed into obstacle
- * space, projected straight down, and drawn as a faint fill plus outline at
- * floor level. A part with no area on the ground (degenerate) is skipped.
- *
- * The returned group stores its intended document-frame height in
- * `userData.groundZ`; the owning extension re-pins it whenever the obstacle
- * pose changes, because the obstacle origin is not necessarily on the floor.
- */
-export function createObstacleFootprint(
-  geometry: THREE.BufferGeometry,
-  pose: ScenePose,
-  color: Rgb,
-  lift = 0,
-): THREE.Group | undefined {
-  const matrix = new THREE.Matrix4().compose(
-    new THREE.Vector3(...pose.position),
-    new THREE.Quaternion(...pose.orientation),
-    new THREE.Vector3(1, 1, 1),
-  );
-  const position = geometry.getAttribute("position");
-  const points: Vec2[] = [];
-  const vertex = new THREE.Vector3();
-  for (let i = 0; i < position.count; i++) {
-    vertex.fromBufferAttribute(position, i).applyMatrix4(matrix);
-    points.push([vertex.x, vertex.y]);
-  }
-  geometry.dispose();
-  const hull = convexHull2D(points);
-  if (hull.length < 3) {
-    return undefined;
-  }
-  const shape = new THREE.Shape(hull.map(([x, y]) => new THREE.Vector2(x, y)));
-  const group = new THREE.Group();
-  // Stacked parts share their ground projection; stagger micro-offsets so
-  // coincident outlines never z-fight.
-  group.position.z = FOOTPRINT_Z + lift;
-  group.userData.groundZ = FOOTPRINT_Z + lift;
-  const fill = new THREE.Mesh(
-    new THREE.ShapeGeometry(shape),
-    new THREE.MeshBasicMaterial({
-      color: new THREE.Color(...color),
-      transparent: true,
-      opacity: FOOTPRINT_FILL_OPACITY,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    }),
-  );
-  const outline = new THREE.LineLoop(
-    new THREE.BufferGeometry().setFromPoints(hull.map(([x, y]) => new THREE.Vector3(x, y, 0))),
-    new THREE.LineBasicMaterial({
-      color: edgeColor(color),
-      transparent: true,
-      opacity: FOOTPRINT_LINE_OPACITY,
-      depthWrite: false,
-    }),
-  );
-  group.add(fill, outline);
-  group.userData.footprint = true;
-  return group;
-}
-
 /** Selection glow for the editor. Safe before the first GL compile. */
 export function setObstacleVisualSelected(
-  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>,
+  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial | THREE.MeshLambertMaterial>,
   { selected }: { selected: boolean },
 ): void {
-  mesh.material.userData.selected = selected;
-  const shader = mesh.material.userData.shader as ShaderLike | undefined;
+  const material = mesh.material;
+  material.userData.selected = selected;
+  if (material instanceof THREE.MeshLambertMaterial) {
+    const base = (material.userData.baseEmissive as THREE.Color | undefined) ?? new THREE.Color(0, 0, 0);
+    material.emissive.copy(base);
+    if (selected) {
+      material.emissive.setRGB(...SELECT_TINT).multiplyScalar(SELECT_MIX);
+    }
+    return;
+  }
+  const shader = material.userData.shader as ShaderLike | undefined;
   if (shader?.uniforms.uSelected) {
     shader.uniforms.uSelected.value = selected ? 1 : 0;
   }

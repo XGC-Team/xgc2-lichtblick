@@ -13,10 +13,9 @@ import { createGeometry } from "./geometry";
 import type { ScenePose } from "./types";
 import {
   convexFacePlanes,
-  convexHull2D,
   createObstacleEdges,
   createObstacleFill,
-  createObstacleFootprint,
+  createObstacleSolid,
   setObstacleVisualSelected,
   trimSharedFaces,
 } from "./visuals";
@@ -41,6 +40,19 @@ describe("obstacle visuals", () => {
     expect(overlay.opacity).toBe(0.4);
     expect(overlay.transparent).toBe(true);
     expect(overlay.customProgramCacheKey()).toBe("xgc2-obstacle-fill");
+  });
+
+  it("renders the 3D pane as a matte lit solid without edge or ground overlays", () => {
+    const solid = createObstacleSolid([...AMBER, 1]);
+    expect(solid).toBeInstanceOf(THREE.MeshLambertMaterial);
+    expect(solid.color.toArray()).toEqual(AMBER);
+    expect(solid.opacity).toBe(1);
+    expect(solid.transparent).toBe(false);
+    // Same-hue emissive floor keeps the amber vivid where scene lights fall off.
+    expect(solid.emissive.toArray()).toEqual(AMBER.map((n) => n * 0.3));
+    const draft = createObstacleSolid([...AMBER, 0.45]);
+    expect(draft.opacity).toBe(0.45);
+    expect(draft.transparent).toBe(true);
   });
 
   it("draws facet edges for boxes but not for smooth surfaces", () => {
@@ -79,49 +91,6 @@ describe("obstacle visuals", () => {
     expect(trimSharedFaces(plain, [])).toBe(plain);
   });
 
-  it("projects a rotated box to a rectangle footprint at floor level", () => {
-    const footprint = createObstacleFootprint(
-      createGeometry({ type: "box", size: [2, 1, 1] }),
-      pose([3, 4, 0.5], Math.PI / 2),
-      AMBER,
-    );
-    expect(footprint).toBeDefined();
-    expect(footprint!.userData.footprint).toBe(true);
-    expect(footprint!.position.z).toBeLessThan(0.05);
-    const outline = footprint!.children.find((child) => child instanceof THREE.LineLoop)!;
-    const xs = [...(outline.geometry.getAttribute("position").array as Float32Array)];
-    const xy: [number, number][] = [];
-    for (let i = 0; i < xs.length; i += 3) {
-      xy.push([xs[i]!, xs[i + 1]!]);
-    }
-    // Rotated 90°: the 2 m side lies along obstacle Y, the 1 m side along X.
-    expect(Math.max(...xy.map(([x]) => x))).toBeCloseTo(3.5);
-    expect(Math.min(...xy.map(([x]) => x))).toBeCloseTo(2.5);
-    expect(Math.max(...xy.map(([, y]) => y))).toBeCloseTo(5);
-    expect(Math.min(...xy.map(([, y]) => y))).toBeCloseTo(3);
-    expect(xy).toHaveLength(4);
-  });
-
-  it("hulls a sphere projection to a disc-sized polygon", () => {
-    const hull = convexHull2D([
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, 1],
-      [0.5, 0.5],
-      [0.2, 0.8],
-    ]);
-    expect(hull).toHaveLength(4);
-    expect(hull).toEqual(
-      expect.arrayContaining([
-        [0, 0],
-        [1, 0],
-        [1, 1],
-        [0, 1],
-      ]),
-    );
-  });
-
   it("toggles selection without a compiled GL program", () => {
     const mesh = new THREE.Mesh(
       createGeometry({ type: "box", size: [1, 1, 1] }),
@@ -135,5 +104,18 @@ describe("obstacle visuals", () => {
     setObstacleVisualSelected(mesh, { selected: false });
     expect(mesh.material.userData.selected).toBe(false);
     expect(edges.material.opacity).toBeCloseTo(0.9);
+  });
+
+  it("moves the 3D pane selection glow onto the lit material emissive", () => {
+    const mesh = new THREE.Mesh(
+      createGeometry({ type: "box", size: [1, 1, 1] }),
+      createObstacleSolid([...AMBER, 1]),
+    );
+    const baseEmissive = mesh.material.emissive.toArray();
+    setObstacleVisualSelected(mesh, { selected: true });
+    expect(mesh.material.userData.selected).toBe(true);
+    expect(mesh.material.emissive.toArray()).not.toEqual(baseEmissive);
+    setObstacleVisualSelected(mesh, { selected: false });
+    expect(mesh.material.emissive.toArray()).toEqual(baseEmissive);
   });
 });
