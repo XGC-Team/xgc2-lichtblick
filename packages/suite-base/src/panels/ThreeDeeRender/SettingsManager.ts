@@ -6,7 +6,6 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import EventEmitter from "eventemitter3";
-import { produce } from "immer";
 
 import { SettingsTreeAction, SettingsTreeNode, SettingsTreeNodes } from "@lichtblick/suite";
 
@@ -48,22 +47,26 @@ export class SettingsManager extends EventEmitter<SettingsManagerEvents> {
       });
     });
 
-    this.#root = produce(this.#root, (draft) => {
-      // Delete all previous nodes for this key
-      const prevNodes = this.#nodesByKey.get(key);
-      if (prevNodes) {
-        for (const { path } of prevNodes) {
-          removeNodeAtPath(draft, path);
-        }
+    // Every update copies only the ancestors on each changed path, so unchanged subtrees stay
+    // shared between trees. The inserted nodes are built fresh by the caller; there is nothing to
+    // gain from walking them (an immer draft re-walked every one on finalize — a node per
+    // coordinate frame, twice a second for each 3D panel).
+    let root = this.#root;
+    // Delete all previous nodes for this key
+    for (const { path } of this.#nodesByKey.get(key) ?? []) {
+      root = withoutNodeAtPath(root, path, 0);
+    }
+    // Add the new nodes
+    for (const { path, node } of nodes) {
+      node.error ??= this.errors.errors.errorAtPath(path);
+      node.label ??= path[path.length - 1];
+      node.defaultExpansionState ??= "collapsed";
+      if (path.length === 0) {
+        throw new Error(`Empty path for settings node "${node.label}"`);
       }
-      // Add the new nodes
-      for (const { path, node } of nodes) {
-        node.error ??= this.errors.errors.errorAtPath(path);
-        node.label ??= path[path.length - 1];
-        node.defaultExpansionState ??= "collapsed";
-        addNodeAtPath(draft, path, node);
-      }
-    });
+      root = withNodeAtPath(root, path, 0, node);
+    }
+    this.#root = root;
 
     // Update the map of nodes by key
     this.#nodesByKey.set(key, nodes);
@@ -72,17 +75,16 @@ export class SettingsManager extends EventEmitter<SettingsManagerEvents> {
   }
 
   public setLabel(path: Path, label: string): void {
-    this.#root = produce(this.#root, (draft) => {
-      setLabelAtPath(draft, path, label);
-    });
+    if (path.length === 0) {
+      throw new Error(`Empty path for settings label "${label}"`);
+    }
+    this.#root = withLabelAtPath(this.#root, path, 0, label);
 
     this.emit("update");
   }
 
   public clearChildren(path: Path): void {
-    this.#root = produce(this.#root, (draft) => {
-      clearChildren(draft, path);
-    });
+    this.#root = withoutChildrenAtPath(this.#root, path, 0);
 
     this.emit("update");
   }
@@ -120,103 +122,86 @@ export class SettingsManager extends EventEmitter<SettingsManagerEvents> {
   };
 
   public handleErrorUpdate = (path: Path): void => {
-    this.#root = produce(this.#root, (draft) => {
-      if (path.length === 0) {
-        return { ...draft };
-      }
-
-      let curNode = draft;
-      for (const segment of path) {
-        const nextNode = curNode.children?.[segment];
-        if (!nextNode) {
-          curNode.children = { ...curNode.children };
-          return draft;
-        }
-        curNode = nextNode;
-      }
-
-      curNode.error = this.errors.errors.errorAtPath(path);
-      return draft;
-    });
+    this.#root =
+      path.length === 0
+        ? { ...this.#root }
+        : withErrorAtPath(this.#root, path, 0, () => this.errors.errors.errorAtPath(path));
 
     this.emit("update");
   };
 }
 
-function removeNodeAtPath(root: SettingsTreeNode, path: Path): boolean {
-  if (path.length === 0) {
-    return false;
-  }
+type Node = SettingsTreeNodeWithActionHandler;
 
-  const segment = path[0]!;
-  const nextNode = root.children?.[segment];
-  if (!nextNode) {
-    return false;
-  }
-
-  if (path.length === 1) {
-    const hasEntry = root.children?.[segment] != undefined;
-    if (hasEntry) {
-      root.children![segment] = undefined;
-    }
-    return hasEntry;
-  }
-
-  return removeNodeAtPath(nextNode, path.slice(1));
+/** `root` with `node` at `path`, creating missing ancestors. */
+function withNodeAtPath(root: Node, path: Path, depth: number, node: Node): Node {
+  const segment = path[depth]!;
+  const next =
+    depth === path.length - 1
+      ? node
+      : withNodeAtPath(root.children?.[segment] ?? {}, path, depth + 1, node);
+  return { ...root, children: { ...root.children, [segment]: next } };
 }
 
-function clearChildren(root: SettingsTreeNode, path: Path): void {
-  if (path.length === 0) {
-    return;
+/** `root` with the node at `path` emptied; its key remains with an undefined value. */
+function withoutNodeAtPath(root: Node, path: Path, depth: number): Node {
+  if (depth >= path.length) {
+    return root;
   }
-
-  const segment = path[0]!;
-  const nextNode = root.children?.[segment];
-  if (!nextNode) {
-    return;
+  const segment = path[depth]!;
+  const child = root.children?.[segment];
+  if (!child) {
+    return root;
   }
-
-  if (path.length === 1) {
-    nextNode.children = undefined;
-    return;
-  }
-
-  clearChildren(nextNode, path.slice(1));
+  const next = depth === path.length - 1 ? undefined : withoutNodeAtPath(child, path, depth + 1);
+  return next === child ? root : { ...root, children: { ...root.children, [segment]: next } };
 }
 
-function addNodeAtPath(root: SettingsTreeNode, path: Path, node: SettingsTreeNode): void {
-  if (path.length === 0) {
-    throw new Error(`Empty path for settings node "${node.label}"`);
+/** `root` with the children of the node at `path` removed, if that node exists. */
+function withoutChildrenAtPath(root: Node, path: Path, depth: number): Node {
+  if (depth >= path.length) {
+    return root;
   }
-
-  // Recursively walk/build the settings tree down to the end of the path except
-  // for the last segment, which is the node to add
-  let curNode = root;
-  for (let i = 0; i < path.length - 1; i++) {
-    const segment = path[i]!;
-    curNode.children ??= {};
-    curNode.children[segment] ??= {};
-    curNode = curNode.children[segment]!;
+  const segment = path[depth]!;
+  const child = root.children?.[segment];
+  if (!child) {
+    return root;
   }
-
-  // Assign the node to the last segment of the path
-  const lastSegment = path[path.length - 1]!;
-  curNode.children ??= {};
-  curNode.children[lastSegment] = node;
+  const next =
+    depth === path.length - 1
+      ? { ...child, children: undefined }
+      : withoutChildrenAtPath(child, path, depth + 1);
+  return next === child ? root : { ...root, children: { ...root.children, [segment]: next } };
 }
 
-function setLabelAtPath(root: SettingsTreeNode, path: Path, label: string): void {
-  if (path.length === 0) {
-    throw new Error(`Empty path for settings label "${label}"`);
+/** `root` with `label` on the node at `path`, creating missing nodes. */
+function withLabelAtPath(root: Node, path: Path, depth: number, label: string): Node {
+  if (depth === path.length) {
+    return { ...root, label };
   }
+  const segment = path[depth]!;
+  const next = withLabelAtPath(root.children?.[segment] ?? {}, path, depth + 1, label);
+  return { ...root, children: { ...root.children, [segment]: next } };
+}
 
-  // Recursively walk/build the settings tree down to the end of the path
-  let curNode = root;
-  for (const segment of path) {
-    curNode.children ??= {};
-    curNode.children[segment] ??= {};
-    curNode = curNode.children[segment]!;
+/**
+ * `root` with the current error on the node at `path`. When the path has no node yet, only the
+ * existing ancestors are copied so observers still see a new tree.
+ */
+function withErrorAtPath(
+  root: Node,
+  path: Path,
+  depth: number,
+  error: () => string | undefined,
+): Node {
+  if (depth === path.length) {
+    return { ...root, error: error() };
   }
-
-  curNode.label = label;
+  const segment = path[depth]!;
+  const child = root.children?.[segment];
+  const next = child ? withErrorAtPath(child, path, depth + 1, error) : undefined;
+  return {
+    ...root,
+    children: next ? { ...root.children, [segment]: next } : { ...root.children },
+  };
 }
