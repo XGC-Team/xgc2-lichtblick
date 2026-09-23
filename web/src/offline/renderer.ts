@@ -250,7 +250,7 @@ export class OfflineRenderer {
     renderer.setCurrentTime(nanos(row.timeNs));
     const event: MessageEvent = row.event;
     // Keep native coordinate-frame discovery, but bypass ONLY live queue coalescing.
-    renderer.addMessageEvent(event, { inBatch: true });
+    renderer.addMessageCoordinateFrames(event.message);
     const subscriptions = new Set([
       ...(renderer.topicSubscriptions.get(event.topic) ?? []),
       ...(renderer.schemaSubscriptions.get(event.schemaName) ?? []),

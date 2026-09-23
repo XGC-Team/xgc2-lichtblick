@@ -1240,6 +1240,34 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
+  it("registers a message's frames without queueing it for subscriptions", () => {
+    // Given: A renderer whose transform extension subscribes to TFMessage
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const subscriptions = renderer.schemaSubscriptions.get("tf2_msgs/TFMessage")!;
+    const event: MessageEvent = {
+      topic: "/tf",
+      schemaName: "tf2_msgs/TFMessage",
+      receiveTime: { sec: 0, nsec: 0 },
+      sizeInBytes: 0,
+      message: { header: { frame_id: "sensor" }, transforms: [] },
+    };
+
+    // When: Only its coordinate frames are registered
+    renderer.addMessageCoordinateFrames(event.message);
+
+    // Then: The frame exists but nothing waits in the subscription queues
+    expect(renderer.transformTree.hasFrame("sensor")).toBe(true);
+    expect(subscriptions.some((subscription) => subscription.queue != undefined)).toBe(false);
+
+    // A full message event is queued as before.
+    renderer.addMessageEvent(event);
+    expect(subscriptions.some((subscription) => subscription.queue?.includes(event) === true)).toBe(
+      true,
+    );
+
+    renderer.dispose();
+  });
+
   it("does not re-add existing coordinate frame", () => {
     // Given: A renderer with an existing frame
     const renderer = new Renderer({ ...defaultRendererProps, canvas });

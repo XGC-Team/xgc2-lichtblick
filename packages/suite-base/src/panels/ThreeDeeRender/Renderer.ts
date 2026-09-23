@@ -53,7 +53,6 @@ import {
   RendererEvents,
   RendererSubscription,
   TestOptions,
-  AddMessageEventOptions,
 } from "./IRenderer";
 import { Input } from "./Input";
 import { DEFAULT_MESH_UP_AXIS, ModelCache } from "./ModelCache";
@@ -1103,12 +1102,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
-  public addMessageEvent(
-    messageEvent: Readonly<MessageEvent>,
-    options?: Partial<AddMessageEventOptions>,
-  ): void {
-    const { message } = messageEvent;
+  public addMessageEvent(messageEvent: Readonly<MessageEvent>): void {
+    this.addMessageCoordinateFrames(messageEvent.message);
+    queueMessage(messageEvent, this.topicSubscriptions.get(messageEvent.topic));
+    queueMessage(messageEvent, this.schemaSubscriptions.get(messageEvent.schemaName));
+  }
 
+  public addMessageCoordinateFrames(message: unknown): void {
     const maybeHasHeader = message as DeepPartial<{ header: Header }>;
     const maybeHasMarkers = message as DeepPartial<MarkerArray>;
     const maybeHasEntities = message as DeepPartial<SceneUpdate>;
@@ -1139,13 +1139,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       // If this message has a top-level frame_id, scrape it
       this.addCoordinateFrame(maybeHasFrameId.frame_id);
     }
-
-    if (options?.inBatch === true) {
-      return;
-    }
-
-    queueMessage(messageEvent, this.topicSubscriptions.get(messageEvent.topic));
-    queueMessage(messageEvent, this.schemaSubscriptions.get(messageEvent.schemaName));
   }
 
   /** Match the behavior of `tf::Transformer` by stripping leading slashes from

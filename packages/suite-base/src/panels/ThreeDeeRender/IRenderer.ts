@@ -233,10 +233,6 @@ export class InstancedLineMaterial extends THREE.LineBasicMaterial {
   }
 }
 
-export type AddMessageEventOptions = {
-  inBatch: boolean;
-};
-
 export interface IRenderer extends EventEmitter<RendererEvents> {
   readonly interfaceMode: InterfaceMode;
   readonly gl: THREE.WebGLRenderer;
@@ -372,10 +368,14 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setSelectedRenderable(selection: PickedRenderable | undefined): void;
 
-  addMessageEvent(
-    messageEvent: Readonly<MessageEvent>,
-    options?: Partial<AddMessageEventOptions>,
-  ): void;
+  /** Register the message's coordinate frames and queue it for its subscriptions. */
+  addMessageEvent(messageEvent: Readonly<MessageEvent>): void;
+
+  /**
+   * Register the coordinate frames a message references without queueing it. For callers that
+   * deliver messages to subscription handlers themselves (the offline renderer).
+   */
+  addMessageCoordinateFrames(message: unknown): void;
 
   /**  Set desired render/display frame, will render using fallback if id is undefined or frame does not exist */
   setFollowFrameId(frameId: string | undefined): void;
