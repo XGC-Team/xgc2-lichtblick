@@ -381,10 +381,16 @@ export function getVideoDecoderConfig(frameMsg: CompressedVideo): VideoDecoderCo
   return undefined;
 }
 
+/**
+ * @param knownH264Type Frame type already derived from this frame's bytes by
+ *   `H264.IsKeyframe`; H.264 callers that classified the frame on arrival pass it
+ *   so the payload is not scanned twice.
+ */
 export function prepareVideoFrame(
   frameMsg: CompressedVideo,
   context?: PrepareVideoFrameContext,
   resolvedCodec?: VideoCodec,
+  knownH264Type?: PreparedVideoFrame["type"],
 ): PreparedVideoFrame {
   switch (resolvedCodec ?? canonicalVideoCodec(frameMsg.format)) {
     case VideoCodec.H265: {
@@ -420,7 +426,7 @@ export function prepareVideoFrame(
     case VideoCodec.H264:
     default: {
       const frameData = frameMsg.data;
-      const type = H264Parser.IsKeyframe(frameData) ? "key" : "delta";
+      const type = knownH264Type ?? (H264Parser.IsKeyframe(frameData) ? "key" : "delta");
       return {
         data: frameData,
         // Only keyframes carry an SPS; delta frames have nothing to parse.

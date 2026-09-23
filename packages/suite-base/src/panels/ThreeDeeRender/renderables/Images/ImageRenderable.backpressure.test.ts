@@ -90,7 +90,8 @@ describe("independent image decode backpressure", () => {
     requests[0]!.resolve(new ImageBitmap());
     await settle();
     expect(decode).toHaveBeenCalledTimes(3);
-    expect(decode).toHaveBeenLastCalledWith(images[999], 999);
+    // Independent images carry no H.264 frame type.
+    expect(decode).toHaveBeenLastCalledWith(images[999], 999, undefined);
     expect(update).toHaveBeenCalledTimes(1); // Active results must not starve under sustained load.
     requests[1]!.resolve(new ImageBitmap());
     requests[2]!.resolve(new ImageBitmap());

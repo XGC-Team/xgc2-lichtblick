@@ -122,6 +122,8 @@ type PendingVideoDecode = {
   resizeWidth?: number;
   onDecoded?: () => void;
   seq: number;
+  /** H.264 frame type found while classifying the recovery point, reused by the decoder. */
+  videoFrameType?: EncodedVideoFrame["type"];
 };
 
 type PreparedIncomingVideoFrame = {
@@ -166,16 +168,32 @@ function closeGraphicResource(resource: { close: () => void } | undefined): void
 }
 
 function isCompleteVideoRecoveryPoint(frame: CompressedVideo, codec: VideoCodec): boolean {
+  return classifyVideoFrame(frame, codec).isRecoveryPoint;
+}
+
+/**
+ * Classify an incoming frame once. For H.264 the keyframe scan that decides the recovery point is
+ * also the decoder's frame type, so the payload is walked once per message instead of again in
+ * `prepareVideoFrame`.
+ */
+function classifyVideoFrame(
+  frame: CompressedVideo,
+  codec: VideoCodec,
+): { isRecoveryPoint: boolean; h264Type?: EncodedVideoFrame["type"] } {
   switch (codec) {
-    case VideoCodec.H264:
-      return (
-        H264.IsKeyframe(frame.data) &&
-        H264.GetFirstNALUOfType(frame.data, H264NaluType.SPS) != undefined &&
-        H264.GetFirstNALUOfType(frame.data, H264NaluType.PPS) != undefined
-      );
+    case VideoCodec.H264: {
+      const isKeyframe = H264.IsKeyframe(frame.data);
+      return {
+        isRecoveryPoint:
+          isKeyframe &&
+          H264.GetFirstNALUOfType(frame.data, H264NaluType.SPS) != undefined &&
+          H264.GetFirstNALUOfType(frame.data, H264NaluType.PPS) != undefined,
+        h264Type: isKeyframe ? "key" : "delta",
+      };
+    }
     case VideoCodec.H265: {
       const frameInfo = H265.InspectFrame(frame.data);
-      return frameInfo.isKeyframe && frameInfo.hasRequiredParameterSets;
+      return { isRecoveryPoint: frameInfo.isKeyframe && frameInfo.hasRequiredParameterSets };
     }
   }
 }
@@ -427,10 +445,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       // It also makes the in-flight work awaitable through `#activeVideoDecode`, so a
       // pause stops painting at the current frame instead of letting orphaned parallel decodes
       // keep drawing for a second after stop.
+      const { isRecoveryPoint, h264Type } = classifyVideoFrame(videoImage, codec);
       const enqueueResult = this.#pendingVideoDecodeQueue.enqueue({
-        value: { image, resizeWidth, onDecoded, seq },
+        value: { image, resizeWidth, onDecoded, seq, videoFrameType: h264Type },
         sizeInBytes: videoImage.data.byteLength,
-        isRecoveryPoint: isCompleteVideoRecoveryPoint(videoImage, codec),
+        isRecoveryPoint,
       });
       if (enqueueResult.accepted) {
         this.#receivedImageSequenceNumber = seq;
@@ -577,7 +596,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         pendingDecode.seq,
         pendingDecode.resizeWidth,
         pendingDecode.onDecoded,
-        { videoFrame: true, videoDecodeEpoch },
+        { videoFrame: true, videoDecodeEpoch, videoFrameType: pendingDecode.videoFrameType },
       );
     }
   }
@@ -604,10 +623,14 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     seq: number,
     resizeWidth?: number,
     onDecoded?: () => void,
-    options?: { videoFrame?: boolean; videoDecodeEpoch?: number },
+    options?: {
+      videoFrame?: boolean;
+      videoDecodeEpoch?: number;
+      videoFrameType?: EncodedVideoFrame["type"];
+    },
   ): Promise<void> {
     try {
-      const result = await this.decodeImage(image, resizeWidth);
+      const result = await this.decodeImage(image, resizeWidth, options?.videoFrameType);
       if (this.isDisposed()) {
         if (result instanceof ImageBitmap) {
           this.#releaseBitmap(result);
@@ -695,7 +718,10 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.renderer.queueAnimationFrame();
   }
 
-  #prepareIncomingVideoFrame(frameMsg: CompressedVideo): PreparedIncomingVideoFrame {
+  #prepareIncomingVideoFrame(
+    frameMsg: CompressedVideo,
+    knownH264Type?: EncodedVideoFrame["type"],
+  ): PreparedIncomingVideoFrame {
     const messageTime = toNanoSec(frameMsg.timestamp);
     if (
       this.#lastVideoMessageTime != undefined &&
@@ -732,7 +758,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#lastVideoMessageTime = messageTime;
     this.#videoFirstMessageTime ??= messageTime;
 
-    const preparedFrame = prepareVideoFrame(frameMsg, undefined, this.#codec);
+    const preparedFrame = prepareVideoFrame(frameMsg, undefined, this.#codec, knownH264Type);
 
     // Keyframes are the only frames that produce a decoder config; remember it for delta frames.
     if (preparedFrame.decoderConfig != undefined) {
@@ -906,9 +932,14 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     }
   }
 
+  /**
+   * @param videoFrameType H.264 frame type already classified from this message by `setImage`,
+   *   so its payload is not scanned for an IDR again.
+   */
   protected async decodeImage(
     image: AnyImage,
     resizeWidth?: number,
+    videoFrameType?: EncodedVideoFrame["type"],
   ): Promise<ImageBitmap | ImageData> {
     if ("format" in image) {
       if (this.#codec == undefined) {
@@ -944,7 +975,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         }
 
         const videoPlayer = this.videoPlayer;
-        const { preparedFrame } = this.#prepareIncomingVideoFrame(frameMsg);
+        const { preparedFrame } = this.#prepareIncomingVideoFrame(frameMsg, videoFrameType);
 
         if (preparedFrame.status === PreparedVideoFrameStatus.UnsupportedBFrame) {
           return videoPlayer.lastImageBitmap ?? (await emptyVideoFrame(videoPlayer, resizeWidth));
