@@ -69,6 +69,7 @@ import {
   CompressedVideo,
   getFrameIdFromImage,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/ImageTypes";
+import { presentableImageSize } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/VideoFrameTexture";
 import { filterCompressedVideoQueue } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/filterCompressedVideoQueue";
 import {
   cameraInfosEqual,
@@ -782,7 +783,7 @@ export class ImageMode
     // otherwise we would need to wait for the next image
     if (decodedImage && lastImageMessage) {
       const frameId = getFrameIdFromImage(lastImageMessage);
-      const { width, height } = decodedImage;
+      const { width, height } = presentableImageSize(decodedImage);
       const cameraInfo = createFallbackCameraInfoForImage({
         frameId,
         height,
@@ -1021,10 +1022,9 @@ export class ImageMode
       const { rotation, flipHorizontal, flipVertical } = settings;
       const stamp = "header" in imageMessage ? imageMessage.header.stamp : imageMessage.timestamp;
       try {
-        const width =
-          rotation === 90 || rotation === 270 ? currentImage.height : currentImage.width;
-        const height =
-          rotation === 90 || rotation === 270 ? currentImage.width : currentImage.height;
+        const imageSize = presentableImageSize(currentImage);
+        const width = rotation === 90 || rotation === 270 ? imageSize.height : imageSize.width;
+        const height = rotation === 90 || rotation === 270 ? imageSize.width : imageSize.height;
 
         // re-render the image onto a new canvas to download the original image
         const canvas = document.createElement("canvas");
@@ -1042,7 +1042,7 @@ export class ImageMode
         ctx.translate(width / 2, height / 2);
         ctx.scale(flipHorizontal ? -1 : 1, flipVertical ? -1 : 1);
         ctx.rotate((rotation / 180) * Math.PI);
-        ctx.translate(-currentImage.width / 2, -currentImage.height / 2);
+        ctx.translate(-imageSize.width / 2, -imageSize.height / 2);
         ctx.drawImage(bitmap, 0, 0);
 
         // read the canvas data as an image (png)

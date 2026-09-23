@@ -37,6 +37,12 @@ import { BoundedVideoFrameQueue } from "./BoundedVideoFrameQueue";
 import { AnyImage, CompressedVideo } from "./ImageTypes";
 import { MediaSourceVideoPlayer } from "./MediaSourceVideoPlayer";
 import {
+  PresentableImage,
+  VideoFrameTexture,
+  isVideoFrame,
+  presentableImageSize,
+} from "./VideoFrameTexture";
+import {
   createImageBitmapMaybeResized,
   decodeCompressedImageToBitmap,
   decodeCompressedVideoToBitmap,
@@ -167,6 +173,13 @@ function closeGraphicResource(resource: { close: () => void } | undefined): void
   }
 }
 
+/** Presented images holding decoder or GPU memory until closed (ImageData is plain memory). */
+type ClosableImage = ImageBitmap | VideoFrame;
+
+function isClosableImage(value: unknown): value is ClosableImage {
+  return value instanceof ImageBitmap || isVideoFrame(value);
+}
+
 function isCompleteVideoRecoveryPoint(frame: CompressedVideo, codec: VideoCodec): boolean {
   return classifyVideoFrame(frame, codec).isRecoveryPoint;
 }
@@ -216,7 +229,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
   #isUpdating = false;
 
-  #decodedImage?: ImageBitmap | ImageData;
+  // A decoded VideoFrame is presented directly (no bitmap copy) when it needs no resize.
+  #decodedImage?: PresentableImage;
   // Black frame shared by consecutive delta frames while video waits for a keyframe.
   #keyframeWaitBitmap?: ImageBitmap;
   protected decoder?: WorkerImageDecoder;
@@ -271,7 +285,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     return this.#disposed;
   }
 
-  public getDecodedImage(): ImageBitmap | ImageData | undefined {
+  public getDecodedImage(): PresentableImage | undefined {
     return this.#decodedImage;
   }
 
@@ -292,15 +306,15 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   public override dispose(): void {
     this.#disposed = true;
     this.#pendingImageDecode = undefined;
-    const textureImage = this.userData.texture?.image;
-    if (textureImage instanceof ImageBitmap) {
-      this.#releaseBitmap(textureImage);
+    const textureImage: unknown = this.userData.texture?.image;
+    if (isClosableImage(textureImage)) {
+      this.#releaseImage(textureImage);
     }
-    if (this.#decodedImage instanceof ImageBitmap && this.#decodedImage !== textureImage) {
-      this.#releaseBitmap(this.#decodedImage);
+    if (isClosableImage(this.#decodedImage) && this.#decodedImage !== textureImage) {
+      this.#releaseImage(this.#decodedImage);
     }
     if (this.#keyframeWaitBitmap != undefined) {
-      this.#releaseBitmap(this.#keyframeWaitBitmap);
+      this.#releaseImage(this.#keyframeWaitBitmap);
     }
     this.userData.texture?.dispose();
     this.userData.material?.dispose();
@@ -637,8 +651,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     try {
       const result = await this.decodeImage(image, resizeWidth, options?.videoFrameType);
       if (this.isDisposed()) {
-        if (result instanceof ImageBitmap) {
-          this.#releaseBitmap(result);
+        if (isClosableImage(result)) {
+          this.#releaseImage(result);
         }
         return;
       }
@@ -703,11 +717,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       this.isDisposed() ||
       (videoDecodeEpoch != undefined && videoDecodeEpoch !== this.#videoDecodeEpoch)
     ) {
-      this.#releaseBitmap(errorBitmap);
+      this.#releaseImage(errorBitmap);
       return;
     }
     if (this.#displayedImageSequenceNumber > seq) {
-      this.#releaseBitmap(errorBitmap);
+      this.#releaseImage(errorBitmap);
       return;
     }
     this.#replaceDecodedImage(errorBitmap);
@@ -941,7 +955,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     image: AnyImage,
     resizeWidth?: number,
     videoFrameType?: EncodedVideoFrame["type"],
-  ): Promise<ImageBitmap | ImageData> {
+  ): Promise<PresentableImage> {
     if ("format" in image) {
       if (this.#codec == undefined) {
         return await decodeCompressedImageToBitmap(image, resizeWidth);
@@ -1017,7 +1031,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
           videoPlayer,
           this.#videoFirstMessageTime,
           resizeWidth,
-          { retainPreviousBitmap: true },
+          { retainPreviousBitmap: true, presentVideoFrame: true },
         );
       }
     }
@@ -1076,14 +1090,14 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     this.#meshNeedsUpdate = true;
   }
 
-  #releaseBitmap(bitmap: ImageBitmap): void {
-    if (this.videoPlayer?.lastImageBitmap === bitmap) {
+  #releaseImage(image: ClosableImage): void {
+    if (this.videoPlayer?.lastImageBitmap === image) {
       this.videoPlayer.lastImageBitmap = undefined;
     }
-    if (this.#keyframeWaitBitmap === bitmap) {
+    if (this.#keyframeWaitBitmap === image) {
       this.#keyframeWaitBitmap = undefined;
     }
-    closeGraphicResource(bitmap);
+    closeGraphicResource(image);
   }
 
   /**
@@ -1091,14 +1105,14 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    * is still presented (the player's last bitmap, or the shared keyframe-wait frame); only close
    * results nothing else references.
    */
-  #discardSupersededResult(result: ImageBitmap | ImageData): void {
+  #discardSupersededResult(result: PresentableImage): void {
     if (
-      result instanceof ImageBitmap &&
+      isClosableImage(result) &&
       result !== this.#decodedImage &&
       result !== this.userData.texture?.image &&
       result !== this.#keyframeWaitBitmap
     ) {
-      this.#releaseBitmap(result);
+      this.#releaseImage(result);
     }
   }
 
@@ -1106,7 +1120,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    * The black frame shown while video waits for its next keyframe. Every delta frame of the wait
    * used to allocate, convert and upload a fresh coded-size frame (33 MB at 4K) — during overload
    * recovery, when the main thread can least afford it. Reuse one frame of the same size until a
-   * decoded picture replaces it; `#releaseBitmap` forgets it once it is closed.
+   * decoded picture replaces it; `#releaseImage` forgets it once it is closed.
    */
   async #keyframeWaitImage(
     videoPlayer: VideoPlayer | MediaSourceVideoPlayer | undefined,
@@ -1129,17 +1143,17 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     return bitmap;
   }
 
-  #replaceDecodedImage(image: ImageBitmap | ImageData): void {
+  #replaceDecodedImage(image: PresentableImage): void {
     const previous = this.#decodedImage;
     this.#decodedImage = image;
     // Intermediate catch-up frames may never have been attached to a texture.
-    // Release them here, but keep the presented bitmap alive until texture swap.
+    // Release them here, but keep the presented image alive until texture swap.
     if (
-      previous instanceof ImageBitmap &&
+      isClosableImage(previous) &&
       previous !== image &&
       previous !== this.userData.texture?.image
     ) {
-      this.#releaseBitmap(previous);
+      this.#releaseImage(previous);
     }
   }
 
@@ -1150,8 +1164,23 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     );
     const decodedImage = this.#decodedImage;
     const previousTexture = this.userData.texture;
-    // Create or update the bitmap texture
-    if (decodedImage instanceof ImageBitmap) {
+    if (isVideoFrame(decodedImage)) {
+      // The decoder's frame is uploaded as is: no ImageBitmap copy between decode and texture.
+      const videoTexture = this.userData.texture;
+      if (
+        videoTexture instanceof VideoFrameTexture &&
+        sameImageSize(videoTexture.currentFrame(), decodedImage)
+      ) {
+        if (videoTexture.currentFrame() !== decodedImage) {
+          const previousFrame = videoTexture.currentFrame();
+          videoTexture.image = decodedImage;
+          videoTexture.needsUpdate = true;
+          this.#releaseImage(previousFrame);
+        }
+      } else {
+        this.#replaceTexture(new VideoFrameTexture(decodedImage));
+      }
+    } else if (decodedImage instanceof ImageBitmap) {
       const canvasTexture = this.userData.texture;
       if (
         canvasTexture == undefined ||
@@ -1159,11 +1188,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         !(canvasTexture instanceof THREE.CanvasTexture) ||
         !bitmapDimensionsEqual(decodedImage, canvasTexture.image as ImageBitmap | undefined)
       ) {
-        if (canvasTexture?.image instanceof ImageBitmap) {
-          this.#releaseBitmap(canvasTexture.image);
-        }
-        canvasTexture?.dispose();
-        this.userData.texture = createCanvasTexture(decodedImage);
+        this.#replaceTexture(createCanvasTexture(decodedImage));
       } else if (canvasTexture.image !== decodedImage) {
         // An ImageBitmap is immutable, so re-presenting the attached one (the player's last
         // frame after a decode gap, the shared keyframe-wait frame) needs no second upload.
@@ -1171,11 +1196,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         canvasTexture.image = decodedImage;
         canvasTexture.needsUpdate = true;
         if (previousImage != undefined) {
-          this.#releaseBitmap(previousImage);
+          this.#releaseImage(previousImage);
         }
       }
     } else {
-      let dataTexture = this.userData.texture;
+      const dataTexture = this.userData.texture;
       if (
         dataTexture == undefined ||
         // instanceof check allows us to switch from a compressed image (CanvasTexture) to a raw image (DataTexture)
@@ -1183,12 +1208,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         dataTexture.image.width !== decodedImage.width ||
         dataTexture.image.height !== decodedImage.height
       ) {
-        if (dataTexture?.image instanceof ImageBitmap) {
-          this.#releaseBitmap(dataTexture.image);
-        }
-        dataTexture?.dispose();
-        dataTexture = createDataTexture(decodedImage);
-        this.userData.texture = dataTexture;
+        this.#replaceTexture(createDataTexture(decodedImage));
       } else {
         dataTexture.image = decodedImage;
         dataTexture.needsUpdate = true;
@@ -1197,6 +1217,16 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     // Uploading pixels to the same texture does not change the material. Only
     // a new texture reference (format/dimensions) needs its sampler rebound.
     this.#materialNeedsUpdate ||= this.userData.texture !== previousTexture;
+  }
+
+  /** Swap in a texture of another kind or size, releasing the previous one and its image. */
+  #replaceTexture(texture: THREE.Texture): void {
+    const previousImage: unknown = this.userData.texture?.image;
+    if (isClosableImage(previousImage) && previousImage !== texture.image) {
+      this.#releaseImage(previousImage);
+    }
+    this.userData.texture?.dispose();
+    this.userData.texture = texture;
   }
 
   #updateMaterial(): void {
@@ -1391,6 +1421,12 @@ function createGeometry(
 
 const bitmapDimensionsEqual = (a?: ImageBitmap, b?: ImageBitmap) =>
   a?.width === b?.width && a?.height === b?.height;
+
+function sameImageSize(a: PresentableImage, b: PresentableImage): boolean {
+  const sizeA = presentableImageSize(a);
+  const sizeB = presentableImageSize(b);
+  return sizeA.width === sizeB.width && sizeA.height === sizeB.height;
+}
 
 async function getErrorImage(width: number, height: number): Promise<ImageBitmap> {
   const canvas = document.createElement("canvas");

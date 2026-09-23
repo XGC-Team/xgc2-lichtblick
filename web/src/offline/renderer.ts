@@ -12,6 +12,7 @@ import type {
 import type { NodeError } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
 import { Renderer } from "@lichtblick/suite-base/panels/ThreeDeeRender/Renderer";
 import { ImageMode } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/ImageMode";
+import { presentableImageSize } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/VideoFrameTexture";
 import { Markers } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Markers";
 import { MeasurementTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/MeasurementTool";
 import { PoseArrays } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PoseArrays";
@@ -69,7 +70,8 @@ class OfflineImageMode extends ImageMode {
       renderable.setImage(image, frame.width, () => {
         clearTimeout(timeout);
         const decoded = renderable.getDecodedImage();
-        if (decoded?.width !== frame.width || decoded.height !== frame.height) {
+        const size = decoded == undefined ? undefined : presentableImageSize(decoded);
+        if (size?.width !== frame.width || size.height !== frame.height) {
           reject(new Error("Original image decode did not preserve native dimensions"));
         } else {
           resolve();
