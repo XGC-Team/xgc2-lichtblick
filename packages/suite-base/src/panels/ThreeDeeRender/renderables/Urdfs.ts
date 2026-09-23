@@ -59,7 +59,7 @@ import {
 } from "../settings";
 import { Pose, makePose, TransformTree } from "../transforms";
 import { updatePose } from "../updatePose";
-import { customUrdfLayerNeedsReload } from "./customUrdfLayer";
+import { customUrdfLayerNeedsReload, urdfLayerDisplayScale } from "./customUrdfLayer";
 
 const log = Logger.getLogger(__filename);
 
@@ -101,6 +101,8 @@ export type LayerSettingsCustomUrdf = CustomLayerSettings & {
   framePrefix: string;
   displayMode: "auto" | "visual" | "collision";
   fallbackColor?: string;
+  /** Viewer-only uniform display factor; 1 keeps true dimensions. */
+  scale?: number;
 };
 
 const DEFAULT_SETTINGS: LayerSettingsUrdf = {
@@ -126,6 +128,7 @@ const DEFAULT_CUSTOM_SETTINGS: LayerSettingsCustomUrdf = {
   framePrefix: "",
   displayMode: "auto",
   fallbackColor: DEFAULT_COLOR_STR,
+  scale: 1,
 };
 
 const MANAGED_URDF_LAYER_PREFIX = "xgc2-urdf-";
@@ -137,6 +140,13 @@ const tempVec3b = new THREE.Vector3();
 const tempQuaternion1 = new THREE.Quaternion();
 const tempQuaternion2 = new THREE.Quaternion();
 const tempEuler = new THREE.Euler();
+
+const IDENTITY_POSE: Pose = makePose();
+const scaledChainRootPose: Pose = makePose();
+const scaledChainRelPose: Pose = makePose();
+const scaledChainVec = new THREE.Vector3();
+const scaledChainQuat = new THREE.Quaternion();
+const scaledChainQuat2 = new THREE.Quaternion();
 
 export type UrdfUserData = BaseUserData & {
   settings: LayerSettingsUrdf | LayerSettingsCustomUrdf;
@@ -195,6 +205,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   public static extensionId = "foxglove.Urdfs";
   #framesByInstanceId = new Map<string, string[]>();
   #transformsByInstanceId = new Map<string, TransformData[]>();
+  #rootFramesByInstanceId = new Map<string, string>();
   #jointStates = new Map<string, JointPosition>();
   #textDecoder = new TextDecoder();
   #urdfsByTopic = new Map<string, string>();
@@ -448,6 +459,16 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
             ...baseFallbackColorField,
             value: config.fallbackColor ?? DEFAULT_SETTINGS.fallbackColor,
           },
+          scale: {
+            label: "Scale",
+            input: "number",
+            help: "Display-only uniform scale for this robot model. Transforms, camera projection, and the simulator keep true dimensions.",
+            min: 0.1,
+            max: 20,
+            step: 0.1,
+            precision: 2,
+            value: config.scale ?? DEFAULT_CUSTOM_SETTINGS.scale,
+          },
         };
 
         entries.push({
@@ -509,20 +530,53 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         continue;
       }
 
+      const scale = urdfLayerDisplayScale(
+        renderable.userData.settings as Partial<LayerSettingsCustomUrdf>,
+      );
+      const rootFrameId =
+        scale === 1
+          ? undefined
+          : this.#rootFramesByInstanceId.get(renderable.userData.settings.instanceId);
+      let scaledRootPose: Pose | undefined;
+      let scaledRootResolved = false;
+
       // UrdfRenderables always stay at the origin. Their children renderables
       // are individually updated since each child exists in a different frame
       for (const childRenderable of renderable.userData.renderables.values()) {
         const srcTime = currentTime;
         const frameId = childRenderable.userData.frameId;
-        const updated = updatePose(
-          childRenderable,
-          this.renderer.transformTree,
-          renderFrameId,
-          fixedFrameId,
-          frameId,
-          currentTime,
-          srcTime,
-        );
+        let updated: boolean;
+        if (rootFrameId != undefined) {
+          if (!scaledRootResolved) {
+            scaledRootPose = this.#poseInRenderFrame(
+              rootFrameId,
+              renderFrameId,
+              fixedFrameId,
+              currentTime,
+            );
+            scaledRootResolved = true;
+          }
+          updated =
+            scaledRootPose != undefined &&
+            this.#applyScaledChildPose(
+              childRenderable,
+              scaledRootPose,
+              rootFrameId,
+              frameId,
+              scale,
+              currentTime,
+            );
+        } else {
+          updated = updatePose(
+            childRenderable,
+            this.renderer.transformTree,
+            renderFrameId,
+            fixedFrameId,
+            frameId,
+            currentTime,
+            srcTime,
+          );
+        }
         if (!updated) {
           missingFrameId = frameId;
         }
@@ -540,6 +594,89 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         this.renderer.settings.errors.remove(path, MISSING_TRANSFORM);
       }
     }
+  }
+
+  /** Pose of `frameId` in the render frame, or undefined when the chain is incomplete. */
+  #poseInRenderFrame(
+    frameId: string,
+    renderFrameId: string,
+    fixedFrameId: string,
+    time: bigint,
+  ): Pose | undefined {
+    return this.renderer.transformTree.apply(
+      scaledChainRootPose,
+      IDENTITY_POSE,
+      renderFrameId,
+      fixedFrameId,
+      frameId,
+      time,
+      time,
+    );
+  }
+
+  /**
+   * Viewer-only display scale: place the child as
+   * `rootPose ⊕ (scale · rel.t, rel.q) ⊕ visualPose`, where rel is the live
+   * root→link transform from the shared tree. Dynamic joint TF (spinning
+   * rotors, wheels) keeps its rotation and only its translation rides the
+   * factor, so the whole robot grows uniformly about its root while every
+   * other consumer of the tree keeps true dimensions.
+   */
+  #applyScaledChildPose(
+    childRenderable: Renderable,
+    rootPose: Readonly<Pose>,
+    rootFrameId: string,
+    frameId: string,
+    scale: number,
+    time: bigint,
+  ): boolean {
+    const rel = this.renderer.transformTree.apply(
+      scaledChainRelPose,
+      IDENTITY_POSE,
+      rootFrameId,
+      rootFrameId,
+      frameId,
+      time,
+      time,
+    );
+    if (!rel) {
+      childRenderable.visible = false;
+      return false;
+    }
+    const pose = childRenderable.userData.pose as Readonly<Pose>;
+    scaledChainQuat.set(
+      rootPose.orientation.x,
+      rootPose.orientation.y,
+      rootPose.orientation.z,
+      rootPose.orientation.w,
+    );
+    scaledChainVec
+      .set(rel.position.x * scale, rel.position.y * scale, rel.position.z * scale)
+      .applyQuaternion(scaledChainQuat);
+    const baseX = rootPose.position.x + scaledChainVec.x;
+    const baseY = rootPose.position.y + scaledChainVec.y;
+    const baseZ = rootPose.position.z + scaledChainVec.z;
+    scaledChainQuat.multiply(
+      scaledChainQuat2.set(rel.orientation.x, rel.orientation.y, rel.orientation.z, rel.orientation.w),
+    );
+    scaledChainVec.set(pose.position.x, pose.position.y, pose.position.z).applyQuaternion(scaledChainQuat);
+    childRenderable.position.set(
+      baseX + scaledChainVec.x,
+      baseY + scaledChainVec.y,
+      baseZ + scaledChainVec.z,
+    );
+    childRenderable.quaternion.copy(
+      scaledChainQuat.multiply(
+        scaledChainQuat2.set(
+          pose.orientation.x,
+          pose.orientation.y,
+          pose.orientation.z,
+          pose.orientation.w,
+        ),
+      ),
+    );
+    childRenderable.visible = true;
+    return true;
   }
 
   #handleTopicSettingsAction = (action: SettingsTreeAction): void => {
@@ -634,7 +771,12 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         this.#debouncedLoadUrdf({ instanceId, urdf, forceReload: true });
       } else if (field === "framePrefix") {
         this.#debouncedLoadUrdf({ instanceId, urdf, forceReload: true });
-      } else if (field === "displayMode" || field === "visible" || field === "fallbackColor") {
+      } else if (
+        field === "displayMode" ||
+        field === "visible" ||
+        field === "fallbackColor" ||
+        field === "scale"
+      ) {
         this.#loadUrdf({ instanceId, urdf, forceReload: true });
       } else if (field === "sourceType") {
         const sourceType = action.payload.value as LayerSettingsCustomUrdf["sourceType"];
@@ -834,6 +976,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     }
     this.#framesByInstanceId.delete(instanceId);
     this.#transformsByInstanceId.delete(instanceId);
+    this.#rootFramesByInstanceId.delete(instanceId);
     this.#refreshTransforms();
     this.updateSettingsTree();
     if (updateConfig) {
@@ -862,11 +1005,13 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
             framePrefix: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>)
               .framePrefix,
             parameter: renderable.userData.parameter,
+            scale: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).scale,
           },
           {
             urdf: renderable.userData.urdf,
             framePrefix: (settings as Partial<LayerSettingsCustomUrdf>).framePrefix,
             parameter: (settings as Partial<LayerSettingsCustomUrdf>).parameter,
+            scale: (settings as Partial<LayerSettingsCustomUrdf>).scale,
           },
         )
       ) {
@@ -904,8 +1049,14 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           framePrefix: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>)
             .framePrefix,
           parameter: renderable.userData.parameter,
+          scale: (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).scale,
         },
-        { urdf, framePrefix, parameter },
+        {
+          urdf,
+          framePrefix,
+          parameter,
+          scale: (settings as Partial<LayerSettingsCustomUrdf>).scale,
+        },
         { forceReload },
       )
     ) {
@@ -920,6 +1071,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     }
     this.#transformsByInstanceId.delete(instanceId);
     this.#framesByInstanceId.delete(instanceId);
+    this.#rootFramesByInstanceId.delete(instanceId);
     this.updateSettingsTree();
 
     const isTopicOrParam = instanceId === TOPIC_NAME || instanceId === PARAM_KEY;
@@ -1065,12 +1217,23 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const settings = renderable.userData.settings;
     const instanceId = settings.instanceId;
     const displayMode = settings.displayMode;
+    const scale = urdfLayerDisplayScale(settings as Partial<LayerSettingsCustomUrdf>);
     const fallbackColor = settings.fallbackColor
       ? stringToRgba(makeRgba(), settings.fallbackColor)
       : undefined;
 
     this.#loadFrames(instanceId, frames);
     this.#loadTransforms(instanceId, transforms);
+    // The display-scale composition grows every link about this root frame;
+    // dynamic joint TF (rotors, wheels) is composed in startFrame, so scaling
+    // must anchor on the frame nothing in the URDF parents.
+    const childFrames = new Set(transforms.map((transform) => transform.child));
+    const rootFrame = frames.find((frame) => !childFrames.has(frame));
+    if (rootFrame) {
+      this.#rootFramesByInstanceId.set(instanceId, rootFrame);
+    } else {
+      this.#rootFramesByInstanceId.delete(instanceId);
+    }
     this.updateSettingsTree();
 
     // Dispose any existing renderables
@@ -1085,6 +1248,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         renderer,
         baseUrl,
         fallbackColor,
+        scale,
       });
       // Set the childRenderable settingsPath so errors route to the correct place
       childRenderable.userData.settingsPath = renderable.userData.settingsPath;
@@ -1196,6 +1360,10 @@ async function parseUrdf(
   }
 }
 
+function scaledXyz(xyz: Vector3, scale: number): Vector3 {
+  return scale === 1 ? xyz : { x: xyz.x * scale, y: xyz.y * scale, z: xyz.z * scale };
+}
+
 function createRenderable(args: {
   visual: UrdfVisual;
   robot: UrdfRobot;
@@ -1204,44 +1372,56 @@ function createRenderable(args: {
   renderer: IRenderer;
   baseUrl?: string;
   fallbackColor?: ColorRGBA;
+  scale: number;
 }): Renderable {
-  const { visual, robot, id, frameId, renderer, baseUrl, fallbackColor } = args;
+  const { visual, robot, id, frameId, renderer, baseUrl, fallbackColor, scale } = args;
   const name = `${frameId}-${id}-${visual.geometry.geometryType}`;
   const orientation = eulerToQuaternion(visual.origin.rpy);
-  const pose = { position: visual.origin.xyz, orientation };
+  const pose = { position: scaledXyz(visual.origin.xyz, scale), orientation };
   const color = getColor(visual, robot) ?? fallbackColor ?? DEFAULT_COLOR;
   const type = visual.geometry.geometryType;
   switch (type) {
     case "box": {
-      const scale = visual.geometry.size;
-      const marker = createMarker(frameId, MarkerType.CUBE, pose, scale, color);
+      const marker = createMarker(
+        frameId,
+        MarkerType.CUBE,
+        pose,
+        scaledXyz(visual.geometry.size, scale),
+        color,
+      );
       return new RenderableCube(name, marker, undefined, renderer);
     }
     case "cylinder": {
       const cylinder = visual.geometry;
-      const scale = {
-        x: cylinder.radius * 2,
-        y: cylinder.radius * 2,
-        z: cylinder.length,
-      };
-      const marker = createMarker(frameId, MarkerType.CUBE, pose, scale, color);
+      const cylinderScale = scaledXyz(
+        {
+          x: cylinder.radius * 2,
+          y: cylinder.radius * 2,
+          z: cylinder.length,
+        },
+        scale,
+      );
+      const marker = createMarker(frameId, MarkerType.CUBE, pose, cylinderScale, color);
       return new RenderableCylinder(name, marker, undefined, renderer);
     }
     case "sphere": {
       const sphere = visual.geometry;
-      const scale = {
-        x: sphere.radius * 2,
-        y: sphere.radius * 2,
-        z: sphere.radius * 2,
-      };
-      const marker = createMarker(frameId, MarkerType.CUBE, pose, scale, color);
+      const sphereScale = scaledXyz(
+        {
+          x: sphere.radius * 2,
+          y: sphere.radius * 2,
+          z: sphere.radius * 2,
+        },
+        scale,
+      );
+      const marker = createMarker(frameId, MarkerType.CUBE, pose, sphereScale, color);
       return new RenderableSphere(name, marker, undefined, renderer);
     }
     case "mesh": {
       const isCollada = visual.geometry.filename.toLowerCase().endsWith(".dae");
       // Use embedded materials if the mesh is a Collada file
       const embedded = isCollada ? EmbeddedMaterialUsage.Use : EmbeddedMaterialUsage.Ignore;
-      const marker = createMeshMarker(frameId, pose, embedded, visual.geometry, baseUrl, color);
+      const marker = createMeshMarker(frameId, pose, embedded, visual.geometry, baseUrl, color, scale);
       return new RenderableMeshResource(name, marker, undefined, renderer, {
         referenceUrl: baseUrl,
       });
@@ -1297,8 +1477,9 @@ function createMeshMarker(
   mesh: UrdfGeometryMesh,
   baseUrl: string | undefined,
   color: ColorRGBA,
+  scale: number,
 ): Marker {
-  const scale = mesh.scale ?? VEC3_ONE;
+  const meshScale = scaledXyz(mesh.scale ?? VEC3_ONE, scale);
   return {
     header: { frame_id: frameId, stamp: { sec: 0, nsec: 0 } },
     ns: "",
@@ -1306,7 +1487,7 @@ function createMeshMarker(
     type: MarkerType.MESH_RESOURCE,
     action: MarkerAction.ADD,
     pose,
-    scale,
+    scale: meshScale,
     color,
     lifetime: { sec: 0, nsec: 0 },
     frame_locked: true,
