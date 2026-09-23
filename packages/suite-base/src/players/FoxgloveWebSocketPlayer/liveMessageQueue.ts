@@ -595,24 +595,17 @@ export function inspectAnnexBVideoFrame(data: Uint8Array): AnnexBVideoFrameInfo 
   let hasH265Sps = false;
   let hasH265Pps = false;
 
-  for (let i = 0; i + 3 < data.length; i++) {
-    if (data[i] !== 0 || data[i + 1] !== 0) {
+  // Every start code ends in 0x01 and its NAL header is the following byte. Jump between 0x01
+  // bytes natively instead of testing each payload byte in script: this runs for every live video
+  // message, in the worker and again on the main thread.
+  let one = data.indexOf(1, 2);
+  while (one !== -1 && one + 1 < data.length) {
+    if (data[one - 1] !== 0 || data[one - 2] !== 0) {
+      one = data.indexOf(1, one + 1);
       continue;
     }
 
-    let headerIndex: number;
-    if (data[i + 2] === 1) {
-      headerIndex = i + 3;
-    } else if (i + 4 < data.length && data[i + 2] === 0 && data[i + 3] === 1) {
-      headerIndex = i + 4;
-    } else {
-      continue;
-    }
-
-    const header = data[headerIndex];
-    if (header == undefined) {
-      break;
-    }
+    const header = data[one + 1]!;
 
     const h264Type = header & 0x1f;
     hasH264Idr ||= h264Type === 5;
@@ -625,7 +618,8 @@ export function inspectAnnexBVideoFrame(data: Uint8Array): AnnexBVideoFrameInfo 
     hasH265Sps ||= h265Type === 33;
     hasH265Pps ||= h265Type === 34;
 
-    i = headerIndex;
+    // The next start code begins after this header byte, so its 0x01 is at least 3 bytes later.
+    one = data.indexOf(1, one + 4);
   }
 
   const hasH264ParameterSet = hasH264Sps && hasH264Pps;

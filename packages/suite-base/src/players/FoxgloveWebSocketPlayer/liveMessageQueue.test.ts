@@ -566,6 +566,57 @@ describe("inspectAnnexBVideoFrame", () => {
       isRecoveryPoint: true,
     });
   });
+
+  it("classifies exactly like the byte-by-byte start-code scan", () => {
+    // The previous per-byte loop, kept as the definition the native indexOf search must match.
+    const reference = (data: Uint8Array) => {
+      const types: number[] = [];
+      for (let i = 0; i + 3 < data.length; i++) {
+        if (data[i] !== 0 || data[i + 1] !== 0) {
+          continue;
+        }
+        let headerIndex: number;
+        if (data[i + 2] === 1) {
+          headerIndex = i + 3;
+        } else if (i + 4 < data.length && data[i + 2] === 0 && data[i + 3] === 1) {
+          headerIndex = i + 4;
+        } else {
+          continue;
+        }
+        types.push(data[headerIndex]!);
+        i = headerIndex;
+      }
+      const h264 = new Set(types.map((header) => header & 0x1f));
+      const h265 = new Set(types.map((header) => (header >> 1) & 0x3f));
+      const isH264 = h264.has(5) || h264.has(7) || h264.has(8);
+      const isH265 = [16, 17, 18, 19, 20, 21, 22, 23, 32, 33, 34].some((t) => h265.has(t));
+      const hasH264Sets = h264.has(7) && h264.has(8);
+      const hasH265Sets = h265.has(32) && h265.has(33) && h265.has(34);
+      const hasH265Irap = [16, 17, 18, 19, 20, 21, 22, 23].some((t) => h265.has(t));
+      return {
+        hasParameterSet: (isH264 && hasH264Sets) || (isH265 && hasH265Sets),
+        isRecoveryPoint:
+          (isH264 && h264.has(5) && hasH264Sets) || (isH265 && hasH265Irap && hasH265Sets),
+      };
+    };
+    const headers = [0x65, 0x67, 0x68, 0x41, 0x26, 0x40, 0x42, 0x44, 0x02, 0x00, 0x01];
+    let seed = 0x1dea;
+    const next = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed >> 8;
+    };
+    for (let round = 0; round < 3000; round++) {
+      const data = new Uint8Array(next() % 40);
+      for (let i = 0; i < data.length; i++) {
+        const r = next() % 10;
+        data[i] = r < 4 ? 0 : r < 6 ? 1 : headers[next() % headers.length]!;
+      }
+      expect([Array.from(data), inspectAnnexBVideoFrame(data)]).toEqual([
+        Array.from(data),
+        reference(data),
+      ]);
+    }
+  });
 });
 
 describe("LiveMessageQueue indexed storage", () => {

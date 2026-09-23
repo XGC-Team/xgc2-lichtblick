@@ -10,25 +10,26 @@
  * the given buffer, starting at the given offset. Shared between H.264 and
  * H.265 since both formats use the same Annex B framing.
  *
+ * Every start code ends in the byte 0x01, so the search jumps between 0x01
+ * bytes with the native `indexOf` instead of testing every byte in script.
+ * Video frames are scanned on the main thread, and a 4K P-frame is mostly
+ * slice payload, where 0x01 is rare. Results match the byte-by-byte scan,
+ * which never starts a match after `data.length - 4`.
+ *
  * Returns `data.length` if no start code is found.
  */
 export function findNextStartCode(data: Uint8Array, start: number): number {
-  let i = start;
-  while (i < data.length - 3) {
-    const isStartCode3Bytes = data[i + 0] === 0 && data[i + 1] === 0 && data[i + 2] === 1;
-    if (isStartCode3Bytes) {
-      return i;
+  for (let one = data.indexOf(1, start + 2); one !== -1; one = data.indexOf(1, one + 1)) {
+    const startCode = one - 2;
+    if (data[one - 1] !== 0 || data[startCode] !== 0) {
+      continue;
     }
-    const isStartCode4Bytes =
-      i + 3 < data.length &&
-      data[i + 0] === 0 &&
-      data[i + 1] === 0 &&
-      data[i + 2] === 0 &&
-      data[i + 3] === 1;
-    if (isStartCode4Bytes) {
-      return i;
+    // 0x00000001 begins one byte before 0x000001 and always fits before the end of `data`.
+    if (startCode > start && data[startCode - 1] === 0) {
+      return startCode - 1;
     }
-    i++;
+    // A 3-byte start code ending on the last byte is not reported, as before.
+    return startCode <= data.length - 4 ? startCode : data.length;
   }
   return data.length;
 }
