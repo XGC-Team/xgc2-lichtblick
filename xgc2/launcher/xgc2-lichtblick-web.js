@@ -93,19 +93,6 @@ function parseArgs(argv) {
       case "--frame-ancestors":
         opts.frameAncestors = argv[++i];
         break;
-      case "--ar-visible":
-      case "--grid-visible":
-      case "--grid-color":
-      case "--grid-size":
-      case "--grid-divisions":
-      case "--grid-line-width":
-      case "--initial-view":
-        // Historical package definitions may still supply these arguments.
-        // Deliberately consume them as no-ops so recovering an old process
-        // instance remains safe, while all XGC layout behavior lives outside
-        // this generic browser server.
-        consumeDeprecatedLayoutOption(arg, argv[++i]);
-        break;
       default:
         if (arg.startsWith("--")) {
           throw new Error(`unknown option: ${arg}`);
@@ -114,12 +101,6 @@ function parseArgs(argv) {
     }
   }
   return opts;
-}
-
-function consumeDeprecatedLayoutOption(name, value) {
-  if (value == undefined) {
-    throw new Error(`missing value for ${name}`);
-  }
 }
 
 function printHelp() {
