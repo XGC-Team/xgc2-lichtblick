@@ -276,6 +276,25 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     [config.followMode, config.scene.syncCamera, context, renderer],
   );
 
+  // Frames are only worth drawing and decoding while the canvas is on screen. A parked XGC2 embed
+  // (`content-visibility: hidden` on the iframe) and a collapsed panel report as not intersecting;
+  // the observer is event driven, so a hidden panel costs no timers.
+  useEffect(() => {
+    if (!renderer || !canvas || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      const latest = entries[entries.length - 1];
+      if (latest != undefined) {
+        renderer.setCanvasVisibility(latest.isIntersecting ? "visible" : "hidden");
+      }
+    });
+    observer.observe(canvas);
+    return () => {
+      observer.disconnect();
+    };
+  }, [canvas, renderer]);
+
   // Maintain the settings tree
   const [settingsTree, setSettingsTree] = useState<SettingsTreeNodes | undefined>(undefined);
   const updateSettingsTree = useCallback((curRenderer: IRenderer) => {

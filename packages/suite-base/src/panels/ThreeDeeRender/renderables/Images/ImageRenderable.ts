@@ -22,7 +22,10 @@ import {
 import Logger from "@lichtblick/log";
 import { toNanoSec } from "@lichtblick/rostime";
 import { ICameraModel } from "@lichtblick/suite";
-import { IRenderer } from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
+import {
+  CanvasVisibility,
+  IRenderer,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
 import { BaseUserData, Renderable } from "@lichtblick/suite-base/panels/ThreeDeeRender/Renderable";
 import { stringToRgba } from "@lichtblick/suite-base/panels/ThreeDeeRender/color";
 import {
@@ -270,6 +273,10 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   #videoFrameHistoryBytes = 0;
 
   #disposed = false;
+  // False while the owning renderer's canvas is off screen (parked embed, collapsed panel). Then
+  // nothing is decoded, converted or uploaded: independent images keep only the newest pending
+  // image and video keeps only its newest GOP, so returning costs at most one GOP of decoding.
+  #canvasVisible = true;
 
   #videoFormat: string | undefined;
   // Cache canonical codec normalization by incoming format string to avoid repeated prefix checks
@@ -283,6 +290,23 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
   protected isDisposed(): boolean {
     return this.#disposed;
+  }
+
+  public setCanvasVisibility(visibility: CanvasVisibility): void {
+    const visible = visibility === "visible";
+    if (this.#canvasVisible === visible) {
+      return;
+    }
+    this.#canvasVisible = visible;
+    if (
+      visible &&
+      this.#pendingImageDecode != undefined &&
+      this.#activeImageDecodes < MAX_CONCURRENT_IMAGE_DECODES
+    ) {
+      this.#activeImageDecodes++;
+      void this.#drainPendingImageDecodes();
+    }
+    // Video resumes with the next frame's flushPendingDecodes; the renderer queues that frame.
   }
 
   public getDecodedImage(): PresentableImage | undefined {
@@ -465,6 +489,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
       // pause stops painting at the current frame instead of letting orphaned parallel decodes
       // keep drawing for a second after stop.
       const { isRecoveryPoint, h264Type } = classifyVideoFrame(videoImage, codec);
+      if (!this.#canvasVisible && isRecoveryPoint && !this.#videoSeekInProgress) {
+        // Nothing decodes while the canvas is hidden, and a complete recovery point makes every
+        // queued frame redundant: keep one GOP, not minutes of video, for the return.
+        this.#pendingVideoDecodeQueue.clear();
+      }
       const enqueueResult = this.#pendingVideoDecodeQueue.enqueue({
         value: { image, resizeWidth, onDecoded, seq, videoFrameType: h264Type },
         sizeInBytes: videoImage.data.byteLength,
@@ -483,7 +512,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
     this.#receivedImageSequenceNumber = seq;
     this.#pendingImageDecode = { image, seq, resizeWidth, onDecoded };
-    if (this.#activeImageDecodes < MAX_CONCURRENT_IMAGE_DECODES) {
+    if (this.#canvasVisible && this.#activeImageDecodes < MAX_CONCURRENT_IMAGE_DECODES) {
       this.#activeImageDecodes++;
       void this.#drainPendingImageDecodes();
     }
@@ -491,7 +520,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
 
   async #drainPendingImageDecodes(): Promise<void> {
     try {
-      while (!this.isDisposed() && this.#pendingImageDecode != undefined) {
+      while (!this.isDisposed() && this.#canvasVisible && this.#pendingImageDecode != undefined) {
         const pending = this.#pendingImageDecode;
         this.#pendingImageDecode = undefined;
         const videoDecodeEpoch = this.#videoDecodeEpoch;
@@ -561,7 +590,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
    * live overload may publish intermediate progress; seek backfill still waits for its target.
    */
   public flushPendingDecodes(): void {
-    if (this.#pendingVideoDecodeQueue.getLength() > 0 && this.#activeVideoDecode == undefined) {
+    if (
+      this.#canvasVisible &&
+      this.#pendingVideoDecodeQueue.getLength() > 0 &&
+      this.#activeVideoDecode == undefined
+    ) {
       this.#activeVideoDecode = this.#drainPendingVideoDecodes().finally(() => {
         this.#activeVideoDecode = undefined;
       });
@@ -593,7 +626,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   }
 
   async #drainPendingVideoDecodes(): Promise<void> {
-    while (this.#pendingVideoDecodeQueue.getLength() > 0) {
+    // A drain running when the canvas is hidden stops after its current frame.
+    while (this.#canvasVisible && this.#pendingVideoDecodeQueue.getLength() > 0) {
       if (this.#pendingVideoResetRequired) {
         this.videoPlayer?.resetForSeek();
         this.#waitingForVideoKeyframe = true;

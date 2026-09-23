@@ -80,9 +80,14 @@ export type RendererEvents = {
   resetAllFramesCursor: (renderer: IRenderer) => void;
   hudItemsChanged: (renderer: IRenderer) => void;
   clearPreloadBuffer: (renderer: IRenderer) => void;
+  /** The canvas went off or back on screen, e.g. the host parked or restored this viewer. */
+  canvasVisibilityChanged: (visibility: CanvasVisibility, renderer: IRenderer) => void;
 };
 
 export type FollowMode = "follow-pose" | "follow-position" | "follow-none";
+
+/** Whether a renderer's canvas is on screen. */
+export type CanvasVisibility = "visible" | "hidden";
 
 export type ImageAnnotationSettings = {
   visible: boolean;
@@ -405,6 +410,14 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
   // Callback handlers
   animationFrame: () => void;
   queueAnimationFrame: () => void;
+
+  /**
+   * Whether the canvas is on screen. While it is not (a parked embed with `content-visibility:
+   * hidden`, a collapsed panel), frames keep message state current but skip pose updates, video
+   * decodes and draws; the first visible frame catches up.
+   */
+  canvasVisibility(): CanvasVisibility;
+  setCanvasVisibility(visibility: CanvasVisibility): void;
 
   /**
    * Resolves once all scene extensions have finished any in-flight asynchronous video decoding.

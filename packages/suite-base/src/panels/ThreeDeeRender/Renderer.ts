@@ -47,6 +47,7 @@ import { palette, fontMonospace } from "@lichtblick/theme";
 import { LabelMaterial, LabelPool } from "@lichtblick/three-text";
 
 import {
+  CanvasVisibility,
   IRenderer,
   InstancedLineMaterial,
   RendererConfig,
@@ -252,6 +253,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #renderScheduler = new RenderScheduler(() => {
     this.#frameHandler(this.currentTime);
   });
+  // Assumed on screen until the owner reports otherwise (the offline renderer never does).
+  #canvasVisibility: CanvasVisibility = "visible";
   #disposed = false;
   #appliedCanvasSize = new THREE.Vector2();
   #drawingBufferSize = new THREE.Vector2();
@@ -1305,6 +1308,22 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.#renderScheduler.queue();
   }
 
+  public canvasVisibility(): CanvasVisibility {
+    return this.#canvasVisibility;
+  }
+
+  public setCanvasVisibility(visibility: CanvasVisibility): void {
+    if (this.#canvasVisibility === visibility) {
+      return;
+    }
+    this.#canvasVisibility = visibility;
+    this.emit("canvasVisibilityChanged", visibility, this);
+    if (visibility === "visible") {
+      // Paint the current state right away and resume deferred decodes.
+      this.queueAnimationFrame();
+    }
+  }
+
   public async settleVideoDecodes(): Promise<void> {
     await Promise.all(
       Array.from(this.sceneExtensions.values(), async (ext) => {
@@ -1329,6 +1348,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #frameHandler = (currentTime: bigint): void => {
     this.currentTime = currentTime;
+    if (this.#canvasVisibility === "hidden") {
+      // Nothing on screen: keep transforms and renderable state current so subscription queues
+      // never pile up, but skip pose updates, video decodes and the draw itself. Setting the
+      // canvas visible again queues a full frame.
+      this.#handleSubscriptionQueues();
+      this.#seedConfiguredFrames();
+      return;
+    }
     // Resize immediately before painting, never in a separate observer/rAF turn:
     // changing canvas dimensions clears its drawing buffer.
     this.#applyCanvasSize();

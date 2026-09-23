@@ -86,6 +86,7 @@ import { ImageAnnotations } from "./annotations/ImageAnnotations";
 import { imageModeDecodeWidth, imageModePreviewBudget } from "./utils";
 import type {
   AnyRendererSubscription,
+  CanvasVisibility,
   IRenderer,
   ImageModeConfig,
   RendererConfig,
@@ -209,8 +210,13 @@ export class ImageMode
     });
 
     this.renderer.on("topicsChanged", this.#handleTopicsChanged);
+    this.renderer.on("canvasVisibilityChanged", this.#handleCanvasVisibilityChanged);
     this.#handleTopicsChanged();
   }
+
+  #handleCanvasVisibilityChanged = (visibility: CanvasVisibility): void => {
+    this.imageRenderable?.setCanvasVisibility(visibility);
+  };
 
   protected initMessageHandler(config: Immutable<ConfigWithDefaults>): IMessageHandler {
     return new MessageHandler(config, this.hud);
@@ -315,6 +321,7 @@ export class ImageMode
     this.renderer.settings.errors.off("clear", this.#handleErrorChange);
     this.renderer.settings.errors.off("remove", this.#handleErrorChange);
     this.renderer.off("topicsChanged", this.#handleTopicsChanged);
+    this.renderer.off("canvasVisibilityChanged", this.#handleCanvasVisibilityChanged);
     this.#annotations.dispose();
     this.imageRenderable?.dispose();
     super.dispose();
@@ -848,6 +855,7 @@ export class ImageMode
       mesh: undefined,
     });
 
+    renderable.setCanvasVisibility(this.renderer.canvasVisibility());
     this.add(renderable);
     this.imageRenderable = renderable;
     renderable.setRenderBehindScene();

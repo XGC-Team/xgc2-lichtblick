@@ -284,6 +284,65 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
+  it("keeps message state but skips pose updates and draws while the canvas is hidden", () => {
+    // Given: A renderer whose TFMessage subscription has a queued message
+    const requestAnimationFrameSpy = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1);
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const visibility = jest.fn();
+    renderer.on("canvasVisibilityChanged", visibility);
+    const startFrames = Array.from(renderer.sceneExtensions.values(), (extension) =>
+      jest.spyOn(extension, "startFrame"),
+    );
+    const draw = jest.spyOn(renderer.gl, "render");
+    draw.mockClear();
+
+    // When: The canvas goes off screen and a frame runs
+    renderer.setCanvasVisibility("hidden");
+    renderer.addMessageEvent({
+      topic: "/tf",
+      schemaName: "tf2_msgs/TFMessage",
+      receiveTime: { sec: 0, nsec: 0 },
+      sizeInBytes: 0,
+      message: {
+        transforms: [
+          {
+            header: { frame_id: "world", stamp: { sec: 0, nsec: 0 } },
+            child_frame_id: "robot",
+            transform: { translation: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+          },
+        ],
+      },
+    });
+    renderer.animationFrame();
+
+    // Then: The transform was ingested and its queue drained, but nothing was posed or drawn
+    expect(renderer.canvasVisibility()).toBe("hidden");
+    expect(renderer.transformTree.hasFrame("robot")).toBe(true);
+    expect(
+      renderer.schemaSubscriptions
+        .get("tf2_msgs/TFMessage")
+        ?.every((subscription) => subscription.queue == undefined),
+    ).toBe(true);
+    expect(startFrames.every((startFrame) => startFrame.mock.calls.length === 0)).toBe(true);
+    expect(draw).not.toHaveBeenCalled();
+
+    // When: The canvas returns
+    requestAnimationFrameSpy.mockClear();
+    renderer.setCanvasVisibility("visible");
+    renderer.setCanvasVisibility("visible");
+
+    // Then: One frame is queued to paint the current state, and the next frame draws
+    expect(visibility.mock.calls.map(([value]) => value)).toEqual(["hidden", "visible"]);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+    renderer.animationFrame();
+    expect(draw).toHaveBeenCalled();
+    expect(startFrames.every((startFrame) => startFrame.mock.calls.length === 1)).toBe(true);
+
+    renderer.dispose();
+  });
+
   it("enables and disables picking mode", () => {
     // Given: A renderer instance
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
