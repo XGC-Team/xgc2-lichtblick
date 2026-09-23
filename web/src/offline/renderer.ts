@@ -100,6 +100,13 @@ export class OfflineRenderer {
   readonly #data: SnapshotEvent[];
   readonly #tf: SnapshotEvent[];
   readonly #static: SnapshotEvent[];
+  // Row times are validated and parsed once; every output frame compares and dispatches them.
+  readonly #dataTimes: bigint[];
+  readonly #tfTimes: bigint[];
+  readonly #staticTimes: bigint[];
+  // Readback and output storage shared by every strictly captured frame (33 MB each at 4K).
+  #readback: Uint8Array | undefined;
+  #capture: ImageData | undefined;
   #staticCursor = 0;
   #dataCursor = 0;
   #tfCursor = 0;
@@ -108,7 +115,7 @@ export class OfflineRenderer {
   #tainted = false;
   readonly #native: NativeScene = {};
   #edits: OfflineEdits | undefined;
-  readonly #paths = new Map<string, SnapshotEvent>();
+  readonly #paths = new Map<string, { row: SnapshotEvent; timeNs: bigint }>();
 
   public constructor(snapshot: Snapshot, history: SnapshotEvent[], sha256: string, base: URL) {
     requireValue(
@@ -141,6 +148,9 @@ export class OfflineRenderer {
     this.#data = history.filter((r) => r.role === "data");
     this.#tf = history.filter((r) => r.role === "tf");
     this.#static = history.filter((r) => r.role === "tf-static");
+    this.#dataTimes = this.#data.map((row) => nanos(row.timeNs));
+    this.#tfTimes = this.#tf.map((row) => nanos(row.timeNs));
+    this.#staticTimes = this.#static.map((row) => nanos(row.timeNs));
 
     const canvas = document.createElement("canvas");
     canvas.width = 3840;
@@ -242,12 +252,12 @@ export class OfflineRenderer {
     this.#renderer.setColorScheme("light", undefined);
   }
 
-  #dispatch(row: SnapshotEvent): void {
+  #dispatch(row: SnapshotEvent, timeNs: bigint): void {
     const renderer = this.#renderer;
     if (row.event.schemaName === "nav_msgs/Path") {
-      this.#paths.set(row.event.topic, row);
+      this.#paths.set(row.event.topic, { row, timeNs });
     }
-    renderer.setCurrentTime(nanos(row.timeNs));
+    renderer.setCurrentTime(timeNs);
     const event: MessageEvent = row.event;
     // Keep native coordinate-frame discovery, but bypass ONLY live queue coalescing.
     renderer.addMessageCoordinateFrames(event.message);
@@ -282,32 +292,33 @@ export class OfflineRenderer {
       }
       // Static messages are indexed by their availability; dynamic TF permits an
       // explicit bounded lookahead for interpolation, never for algorithm data.
+      const logTime = nanos(image.logTimeNs);
       while (this.#staticCursor < this.#static.length) {
-        const row = this.#static[this.#staticCursor]!;
-        if (nanos(row.timeNs) > nanos(image.logTimeNs)) {
+        const rowTime = this.#staticTimes[this.#staticCursor]!;
+        if (rowTime > logTime) {
           break;
         }
-        this.#dispatch(row);
+        this.#dispatch(this.#static[this.#staticCursor]!, rowTime);
         this.#staticCursor++;
       }
       const tfEnd = time + nanos(this.#snapshot.policy.tfLookaheadNs);
       while (this.#tfCursor < this.#tf.length) {
-        const row = this.#tf[this.#tfCursor]!;
-        if (nanos(row.timeNs) > tfEnd) {
+        const rowTime = this.#tfTimes[this.#tfCursor]!;
+        if (rowTime > tfEnd) {
           break;
         }
-        this.#dispatch(row);
+        this.#dispatch(this.#tf[this.#tfCursor]!, rowTime);
         this.#tfCursor++;
       }
       while (this.#dataCursor < this.#data.length) {
-        const row = this.#data[this.#dataCursor]!;
-        if (nanos(row.timeNs) > time) {
+        const rowTime = this.#dataTimes[this.#dataCursor]!;
+        if (rowTime > time) {
           break;
         }
-        this.#dispatch(row);
+        this.#dispatch(this.#data[this.#dataCursor]!, rowTime);
         this.#dataCursor++;
       }
-      for (const [topic, row] of this.#paths) {
+      for (const [topic, { row, timeNs: rowTime }] of this.#paths) {
         const candidates = (this.#snapshot.tracks ?? []).filter(
           (track): track is Extract<Track, { kind: "path" }> =>
             track.kind === "path" && track.selector.topic === topic,
@@ -339,7 +350,7 @@ export class OfflineRenderer {
             value: track != undefined && trackOpacity(track, editTime) > 0,
           },
         });
-        this.#dispatch(row);
+        this.#dispatch(row, rowTime);
       }
       this.#renderer.setCurrentTime(time);
       if (this.#lastImageId !== image.sourceFrameId) {
@@ -349,27 +360,33 @@ export class OfflineRenderer {
           image.asset.size,
         );
         requireValue(bytes.byteLength === image.asset.size, "Camera asset size mismatch");
-        this.#dispatch({
-          timeNs: String(time),
-          role: "data",
-          event: {
-            topic: this.#snapshot.recipe.source.cameraTopic,
-            schemaName: "sensor_msgs/CompressedImage",
-            receiveTime: {
-              sec: Number(time / 1_000_000_000n),
-              nsec: Number(time % 1_000_000_000n),
-            },
-            sizeInBytes: bytes.byteLength,
-            message: {
-              header: {
-                ...image.header,
-                stamp: { sec: Number(time / 1_000_000_000n), nsec: Number(time % 1_000_000_000n) },
+        this.#dispatch(
+          {
+            timeNs: String(time),
+            role: "data",
+            event: {
+              topic: this.#snapshot.recipe.source.cameraTopic,
+              schemaName: "sensor_msgs/CompressedImage",
+              receiveTime: {
+                sec: Number(time / 1_000_000_000n),
+                nsec: Number(time % 1_000_000_000n),
               },
-              format: image.format,
-              data: new Uint8Array(bytes),
+              sizeInBytes: bytes.byteLength,
+              message: {
+                header: {
+                  ...image.header,
+                  stamp: {
+                    sec: Number(time / 1_000_000_000n),
+                    nsec: Number(time % 1_000_000_000n),
+                  },
+                },
+                format: image.format,
+                data: new Uint8Array(bytes),
+              },
             },
           },
-        });
+          time,
+        );
         await this.#imageMode.decodeOriginal(image);
       }
       await this.#renderer.settleVideoDecodes();
@@ -401,9 +418,16 @@ export class OfflineRenderer {
         // never pay the 4K readback/2D copy.
         const gl = this.#renderer.gl.getContext();
         requireValue(gl instanceof WebGL2RenderingContext, "WebGL2 required");
-        const pixels = readFramePixels(gl, image.width, image.height);
-        const capture = new ImageData(image.width, image.height);
-        capture.data.set(pixels);
+        if (this.#capture?.width !== image.width || this.#capture.height !== image.height) {
+          this.#capture = new ImageData(image.width, image.height);
+          this.#readback = new Uint8Array(image.width * image.height * 4);
+        }
+        const capture = this.#capture;
+        // putImageData copies synchronously, so both buffers are free again for the next frame.
+        readFramePixels(gl, image.width, image.height, {
+          readback: this.#readback!,
+          output: capture.data,
+        });
         this.#output.putImageData(capture, 0, 0);
         width = this.#output.canvas.width;
         height = this.#output.canvas.height;

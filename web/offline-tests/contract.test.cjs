@@ -131,6 +131,11 @@ test("RGBA row orientation flips once and validates buffer dimensions", () => {
   ]) {
     assert.throws(() => c.flipRows(pixels, w, h));
   }
+  // A frame loop may flip into its own reusable storage; the size must match exactly.
+  const target = new Uint8ClampedArray(8);
+  assert.equal(c.flipRows(pixels, 1, 2, target), target);
+  assert.deepEqual(Array.from(target), [5, 6, 7, 8, 1, 2, 3, 4]);
+  assert.throws(() => c.flipRows(pixels, 1, 2, new Uint8ClampedArray(4)));
 });
 test("GPU readback restores pack and framebuffer state even on error", () => {
   const keys = [
@@ -162,6 +167,13 @@ test("GPU readback restores pack and framebuffer state even on error", () => {
   for (const k of keys) {
     assert.equal(values.get(k), k + "-initial");
   }
+  const buffers = { readback: new Uint8Array(8), output: new Uint8ClampedArray(8) };
+  assert.equal(c.readFramePixels(gl, 1, 2, buffers), buffers.output);
+  assert.deepEqual(Array.from(buffers.output), [5, 6, 7, 8, 1, 2, 3, 4]);
+  assert.throws(
+    () => c.readFramePixels(gl, 1, 2, { readback: new Uint8Array(4), output: buffers.output }),
+    /Invalid RGBA buffer/,
+  );
   gl.getError = () => 1;
   assert.throws(() => c.readFramePixels(gl, 1, 2), /readback/);
   for (const k of keys) {
