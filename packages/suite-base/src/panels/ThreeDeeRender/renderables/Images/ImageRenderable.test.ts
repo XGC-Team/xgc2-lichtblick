@@ -1304,3 +1304,69 @@ it("scans each live H.264 payload for its keyframe once", async () => {
     jest.restoreAllMocks();
   }
 });
+
+it("shares one black frame and one texture upload while video waits for a keyframe", async () => {
+  jest.clearAllMocks();
+  const created: ImageBitmap[] = [];
+  jest.spyOn(self, "createImageBitmap").mockImplementation(async (source) => {
+    const { width, height, codedWidth, codedHeight } = source as Partial<ImageData & VideoFrame>;
+    const bitmap = Object.assign(new ImageBitmap(), {
+      width: width ?? codedWidth,
+      height: height ?? codedHeight,
+      close: jest.fn(),
+    });
+    created.push(bitmap);
+    return bitmap;
+  });
+  const renderable = new ImageRenderable(mockUserData.topic, mockRenderer, { ...mockUserData });
+  renderable.videoPlayer = {
+    isInitialized: jest.fn().mockReturnValue(true),
+    init: jest.fn().mockResolvedValue(undefined),
+    decode: jest.fn(async (_data: Uint8Array, timestampMicros: number) =>
+      createDecodedVideoFrame(timestampMicros),
+    ),
+    codedSize: jest.fn().mockReturnValue({ width: 64, height: 36 }),
+    decoderConfig: jest.fn(),
+    resetForSeek: jest.fn(),
+    close: jest.fn(),
+    lastImageBitmap: undefined,
+    lastVideoFrame: undefined,
+  } as unknown as ImageRenderable["videoPlayer"];
+  const delta = Uint8Array.from([0, 0, 0, 1, 0x41, 0x9a, 0x02, 0x03]);
+  const keyframe = Uint8Array.from(
+    Buffer.from(
+      "000000016742c033da00f0010fa10000030001000003003c8f1832a00000000168ce0fc800000001658884",
+      "hex",
+    ),
+  );
+  const present = async (data: Uint8Array, index: number) => {
+    renderable.setImage({
+      format: "h264",
+      timestamp: { sec: 1, nsec: index * 33_333_333 },
+      frame_id: "camera",
+      data,
+    });
+    renderable.flushPendingDecodes();
+    await renderable.settleVideoDecodes();
+  };
+  try {
+    // A stream joined mid-GOP: every delta before the first IDR shows the same black frame.
+    for (let index = 0; index < 5; index++) {
+      await present(delta, index);
+    }
+    expect(created).toHaveLength(1);
+    const waitFrame = created[0]! as ImageBitmap & { close: jest.Mock };
+    expect(renderable.getDecodedImage()).toBe(waitFrame);
+    expect(renderable.userData.texture?.image).toBe(waitFrame);
+    // Created with needsUpdate once; re-presenting the attached bitmap adds no upload.
+    expect(renderable.userData.texture?.version).toBe(1);
+
+    await present(keyframe, 5);
+    expect(created).toHaveLength(2);
+    expect(renderable.getDecodedImage()).toBe(created[1]);
+    expect(waitFrame.close).toHaveBeenCalled();
+  } finally {
+    renderable.dispose();
+    jest.restoreAllMocks();
+  }
+});

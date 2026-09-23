@@ -217,6 +217,8 @@ export class ImageRenderable extends Renderable<ImageUserData> {
   #isUpdating = false;
 
   #decodedImage?: ImageBitmap | ImageData;
+  // Black frame shared by consecutive delta frames while video waits for a keyframe.
+  #keyframeWaitBitmap?: ImageBitmap;
   protected decoder?: WorkerImageDecoder;
   #receivedImageSequenceNumber = 0;
   #displayedImageSequenceNumber = 0;
@@ -296,6 +298,9 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     }
     if (this.#decodedImage instanceof ImageBitmap && this.#decodedImage !== textureImage) {
       this.#releaseBitmap(this.#decodedImage);
+    }
+    if (this.#keyframeWaitBitmap != undefined) {
+      this.#releaseBitmap(this.#keyframeWaitBitmap);
     }
     this.userData.texture?.dispose();
     this.userData.material?.dispose();
@@ -641,15 +646,11 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         options?.videoDecodeEpoch != undefined &&
         options.videoDecodeEpoch !== this.#videoDecodeEpoch
       ) {
-        if (result instanceof ImageBitmap) {
-          this.#releaseBitmap(result);
-        }
+        this.#discardSupersededResult(result);
         return;
       }
       if (this.#displayedImageSequenceNumber > seq) {
-        if (result instanceof ImageBitmap) {
-          this.#releaseBitmap(result);
-        }
+        this.#discardSupersededResult(result);
         return;
       }
       const skipRender = options?.videoFrame === true && !this.#shouldPresentVideoFrame();
@@ -955,7 +956,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
             return this.videoPlayer.lastImageBitmap;
           }
           // show black image instead of error image
-          return await emptyVideoFrame(this.videoPlayer, resizeWidth);
+          return await this.#keyframeWaitImage(this.videoPlayer, resizeWidth);
         }
 
         if (!this.videoPlayer) {
@@ -978,13 +979,15 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         const { preparedFrame } = this.#prepareIncomingVideoFrame(frameMsg, videoFrameType);
 
         if (preparedFrame.status === PreparedVideoFrameStatus.UnsupportedBFrame) {
-          return videoPlayer.lastImageBitmap ?? (await emptyVideoFrame(videoPlayer, resizeWidth));
+          return (
+            videoPlayer.lastImageBitmap ?? (await this.#keyframeWaitImage(videoPlayer, resizeWidth))
+          );
         }
         if (this.#waitingForVideoKeyframe && preparedFrame.type !== "key") {
           const replayBitmap = this.#canReplayVideoGop
             ? await this.#decodeVideoGopToTarget(frameMsg, resizeWidth)
             : undefined;
-          return replayBitmap ?? (await emptyVideoFrame(videoPlayer, resizeWidth));
+          return replayBitmap ?? (await this.#keyframeWaitImage(videoPlayer, resizeWidth));
         }
 
         // Initialize the video player if needed
@@ -995,7 +998,7 @@ export class ImageRenderable extends Renderable<ImageUserData> {
               const replayBitmap = this.#canReplayVideoGop
                 ? await this.#decodeVideoGopToTarget(frameMsg, resizeWidth)
                 : undefined;
-              return replayBitmap ?? (await emptyVideoFrame(videoPlayer, resizeWidth));
+              return replayBitmap ?? (await this.#keyframeWaitImage(videoPlayer, resizeWidth));
             }
             await videoPlayer.init(decoderConfig);
             this.#waitingForVideoKeyframe = false;
@@ -1077,7 +1080,53 @@ export class ImageRenderable extends Renderable<ImageUserData> {
     if (this.videoPlayer?.lastImageBitmap === bitmap) {
       this.videoPlayer.lastImageBitmap = undefined;
     }
+    if (this.#keyframeWaitBitmap === bitmap) {
+      this.#keyframeWaitBitmap = undefined;
+    }
     closeGraphicResource(bitmap);
+  }
+
+  /**
+   * Drop a result that lost to a newer frame or decode epoch. A decode may hand back a bitmap that
+   * is still presented (the player's last bitmap, or the shared keyframe-wait frame); only close
+   * results nothing else references.
+   */
+  #discardSupersededResult(result: ImageBitmap | ImageData): void {
+    if (
+      result instanceof ImageBitmap &&
+      result !== this.#decodedImage &&
+      result !== this.userData.texture?.image &&
+      result !== this.#keyframeWaitBitmap
+    ) {
+      this.#releaseBitmap(result);
+    }
+  }
+
+  /**
+   * The black frame shown while video waits for its next keyframe. Every delta frame of the wait
+   * used to allocate, convert and upload a fresh coded-size frame (33 MB at 4K) — during overload
+   * recovery, when the main thread can least afford it. Reuse one frame of the same size until a
+   * decoded picture replaces it; `#releaseBitmap` forgets it once it is closed.
+   */
+  async #keyframeWaitImage(
+    videoPlayer: VideoPlayer | MediaSourceVideoPlayer | undefined,
+    resizeWidth?: number,
+  ): Promise<ImageBitmap> {
+    // Same dimensions as `emptyVideoFrame`, so camera fallback models and textures are unchanged.
+    const fallbackWidth = resizeWidth ?? 32;
+    const size = videoPlayer?.codedSize() ?? { width: fallbackWidth, height: fallbackWidth };
+    const cached = this.#keyframeWaitBitmap;
+    if (cached?.width === size.width && cached.height === size.height) {
+      return cached;
+    }
+    const bitmap = await emptyVideoFrame(videoPlayer, resizeWidth);
+    const previous = this.#keyframeWaitBitmap;
+    this.#keyframeWaitBitmap = bitmap;
+    if (previous != undefined) {
+      // Still presented frames are released when their texture is replaced.
+      this.#discardSupersededResult(previous);
+    }
+    return bitmap;
   }
 
   #replaceDecodedImage(image: ImageBitmap | ImageData): void {
@@ -1115,11 +1164,13 @@ export class ImageRenderable extends Renderable<ImageUserData> {
         }
         canvasTexture?.dispose();
         this.userData.texture = createCanvasTexture(decodedImage);
-      } else {
+      } else if (canvasTexture.image !== decodedImage) {
+        // An ImageBitmap is immutable, so re-presenting the attached one (the player's last
+        // frame after a decode gap, the shared keyframe-wait frame) needs no second upload.
         const previousImage = canvasTexture.image as ImageBitmap | undefined;
         canvasTexture.image = decodedImage;
         canvasTexture.needsUpdate = true;
-        if (previousImage != undefined && previousImage !== decodedImage) {
+        if (previousImage != undefined) {
           this.#releaseBitmap(previousImage);
         }
       }
