@@ -657,9 +657,16 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const baseY = rootPose.position.y + scaledChainVec.y;
     const baseZ = rootPose.position.z + scaledChainVec.z;
     scaledChainQuat.multiply(
-      scaledChainQuat2.set(rel.orientation.x, rel.orientation.y, rel.orientation.z, rel.orientation.w),
+      scaledChainQuat2.set(
+        rel.orientation.x,
+        rel.orientation.y,
+        rel.orientation.z,
+        rel.orientation.w,
+      ),
     );
-    scaledChainVec.set(pose.position.x, pose.position.y, pose.position.z).applyQuaternion(scaledChainQuat);
+    scaledChainVec
+      .set(pose.position.x, pose.position.y, pose.position.z)
+      .applyQuaternion(scaledChainQuat);
     childRenderable.position.set(
       baseX + scaledChainVec.x,
       baseY + scaledChainVec.y,
@@ -1421,7 +1428,15 @@ function createRenderable(args: {
       const isCollada = visual.geometry.filename.toLowerCase().endsWith(".dae");
       // Use embedded materials if the mesh is a Collada file
       const embedded = isCollada ? EmbeddedMaterialUsage.Use : EmbeddedMaterialUsage.Ignore;
-      const marker = createMeshMarker(frameId, pose, embedded, visual.geometry, baseUrl, color, scale);
+      const marker = createMeshMarker(
+        frameId,
+        pose,
+        embedded,
+        visual.geometry,
+        baseUrl,
+        color,
+        scale,
+      );
       return new RenderableMeshResource(name, marker, undefined, renderer, {
         referenceUrl: baseUrl,
       });

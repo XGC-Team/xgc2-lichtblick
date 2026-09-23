@@ -91,29 +91,34 @@ async function setup(options: { preset?: ScenePreset; whole?: boolean } = {}) {
 }
 
 describe("3D obstacle authoring", () => {
-  it.each(["Sphere", "Capsule", "Arch"] as const)(
-    "keeps a %s centre-handle drag finite and reversible even when native scaling divides by zero",
-    async (preset) => {
-      const { extension, controls, canvas, command, dispose } = await setup({ preset, whole: true });
-      extension.setMode("scale");
-      controls.axis = "XYZ";
-      canvas.dispatchEvent(new MouseEvent("pointermove", { clientX: 100, clientY: 100 }));
-      controls.dispatchEvent({ type: "mouseDown" });
-      for (const [x, y, expected] of [[132, 100, Math.exp(0.2)], [100, 132, Math.exp(-0.2)], [100, 100, 1]]) {
-        canvas.dispatchEvent(new MouseEvent("pointermove", { clientX: x, clientY: y }));
-        controls.object!.scale.setScalar(Infinity);
-        controls.dispatchEvent({ type: "objectChange" });
-        expect(controls.object!.scale.toArray()).toEqual([expected, expected, expected]);
-        expect(extension.getTransformSnapshot().scaleFactor).toBeCloseTo(expected!);
-      }
-      expect(command).not.toHaveBeenCalled();
-      extension.cancelPreview();
-      controls.dispatchEvent({ type: "mouseUp" });
-      expect(command).not.toHaveBeenCalled();
-      expect(controls.object!.scale.toArray()).toEqual([1, 1, 1]);
-      dispose();
-    },
-  );
+  it.each([
+    "Sphere",
+    "Capsule",
+    "Arch",
+  ] as const)("keeps a %s centre-handle drag finite and reversible even when native scaling divides by zero", async (preset) => {
+    const { extension, controls, canvas, command, dispose } = await setup({ preset, whole: true });
+    extension.setMode("scale");
+    controls.axis = "XYZ";
+    canvas.dispatchEvent(new MouseEvent("pointermove", { clientX: 100, clientY: 100 }));
+    controls.dispatchEvent({ type: "mouseDown" });
+    for (const [x, y, expected] of [
+      [132, 100, Math.exp(0.2)],
+      [100, 132, Math.exp(-0.2)],
+      [100, 100, 1],
+    ]) {
+      canvas.dispatchEvent(new MouseEvent("pointermove", { clientX: x, clientY: y }));
+      controls.object!.scale.setScalar(Infinity);
+      controls.dispatchEvent({ type: "objectChange" });
+      expect(controls.object!.scale.toArray()).toEqual([expected, expected, expected]);
+      expect(extension.getTransformSnapshot().scaleFactor).toBeCloseTo(expected!);
+    }
+    expect(command).not.toHaveBeenCalled();
+    extension.cancelPreview();
+    controls.dispatchEvent({ type: "mouseUp" });
+    expect(command).not.toHaveBeenCalled();
+    expect(controls.object!.scale.toArray()).toEqual([1, 1, 1]);
+    dispose();
+  });
 
   it.each([
     "Sphere",

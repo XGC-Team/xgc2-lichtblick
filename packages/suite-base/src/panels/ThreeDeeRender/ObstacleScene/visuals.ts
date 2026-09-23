@@ -292,7 +292,8 @@ export function setObstacleVisualSelected(
   const material = mesh.material;
   material.userData.selected = selected;
   if (material instanceof THREE.MeshLambertMaterial) {
-    const base = (material.userData.baseEmissive as THREE.Color | undefined) ?? new THREE.Color(0, 0, 0);
+    const base =
+      (material.userData.baseEmissive as THREE.Color | undefined) ?? new THREE.Color(0, 0, 0);
     material.emissive.copy(base);
     if (selected) {
       material.emissive.setRGB(...SELECT_TINT).multiplyScalar(SELECT_MIX);
