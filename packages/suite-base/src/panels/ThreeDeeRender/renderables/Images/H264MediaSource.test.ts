@@ -84,3 +84,29 @@ it("rejects non-finite and invalid private sample timelines", () => {
   expect(() => mediaSegment(key, -1, 1)).toThrow(/timeline/);
   expect(() => mediaSegment(key, 0, 0)).toThrow(/timeline/);
 });
+
+it("writes each coded NAL once, behind its AVC length prefix", () => {
+  const avcc = (...nals: Uint8Array[]) =>
+    Buffer.concat(
+      nals.flatMap((nal) => {
+        const length = Buffer.alloc(4);
+        length.writeUInt32BE(nal.length);
+        return [length, Buffer.from(nal)];
+      }),
+    );
+  const large = new Uint8Array(256 * 1024).fill(0xaa);
+  large.set(bytes("4100031389a207"));
+  const late = bytes("4100031389a207aaaa");
+  const startCode = bytes("00000001");
+  const frames: [Uint8Array, Buffer][] = [
+    [key, avcc(key.subarray(4, 28), key.subarray(32, 36), key.subarray(40))],
+    [Buffer.concat([startCode, large, startCode, late]), avcc(large, late)],
+  ];
+  for (const [frame, expected] of frames) {
+    const segment = mediaSegment(frame, 0, 1);
+    const [moof, mdat] = boxes(segment);
+    expect(moof!.offset + 8 + moof!.data.length).toBe(mdat!.offset);
+    expect(mdat!.offset + 8 + mdat!.data.length).toBe(segment.length);
+    expect(Buffer.from(mdat!.data).equals(expected)).toBe(true);
+  }
+});
