@@ -76,6 +76,10 @@ export class PlotCoordinator extends EventEmitter<PlotCoordinatorEventTypes> {
   private queueDispatchDownsample = debouncePromise(this.dispatchDownsample.bind(this));
   private queueDatasetsRender = debouncePromise(this.dispatchDatasetsRender.bind(this));
   private destroyed = false;
+  /** The canvas is off screen (collapsed panel, parked XGC2 embed): no renders or downsamples. */
+  private hidden = false;
+  /** A render or downsample was skipped while hidden and must catch up when shown. */
+  private staleWhileHidden = false;
 
   private readonly subscribeMessageRange: UseSubscribeMessageRange;
   private readonly rangeSubscriptionCancels = new Map<
@@ -109,6 +113,28 @@ export class PlotCoordinator extends EventEmitter<PlotCoordinatorEventTypes> {
 
   private isDestroyed(): boolean {
     return this.destroyed;
+  }
+
+  /**
+   * Live data keeps arriving while the canvas is off screen, and each tick would downsample and
+   * redraw the chart in the worker for nobody. While hidden, data is still accumulated by the
+   * builder; renders and downsamples are skipped and run once when the canvas is shown again.
+   */
+  public setCanvasVisibility(visibility: "visible" | "hidden"): void {
+    this.hidden = visibility === "hidden";
+    if (!this.hidden && this.staleWhileHidden) {
+      this.staleWhileHidden = false;
+      this.queueDispatchRender();
+      this.queueDispatchDownsample();
+    }
+  }
+
+  /** Returns true, and remembers to catch up, when work must wait for the canvas to show. */
+  private deferWhileHidden(): boolean {
+    if (this.hidden) {
+      this.staleWhileHidden = true;
+    }
+    return this.hidden;
   }
 
   public setShouldSync({ shouldSync }: { shouldSync: boolean }): void {
@@ -437,7 +463,7 @@ export class PlotCoordinator extends EventEmitter<PlotCoordinatorEventTypes> {
   }
 
   private async dispatchRender(): Promise<void> {
-    if (this.isDestroyed()) {
+    if (this.isDestroyed() || this.deferWhileHidden()) {
       return;
     }
     this.updateAction.xBounds = this.getXBounds();
@@ -481,7 +507,7 @@ export class PlotCoordinator extends EventEmitter<PlotCoordinatorEventTypes> {
 
   /** Dispatch getting the latest downsampled datasets and then queue rendering them */
   private async dispatchDownsample(): Promise<void> {
-    if (this.isDestroyed()) {
+    if (this.isDestroyed() || this.deferWhileHidden()) {
       return;
     }
 
@@ -499,7 +525,7 @@ export class PlotCoordinator extends EventEmitter<PlotCoordinatorEventTypes> {
 
   /** Render the provided datasets */
   private async dispatchDatasetsRender(datasets: Dataset[]): Promise<void> {
-    if (this.isDestroyed()) {
+    if (this.isDestroyed() || this.deferWhileHidden()) {
       return;
     }
 
