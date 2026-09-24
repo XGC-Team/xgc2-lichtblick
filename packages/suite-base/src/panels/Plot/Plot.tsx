@@ -191,6 +191,24 @@ const Plot = (props: PlotProps): React.JSX.Element => {
     };
   }, [canvasDiv, datasetsBuilder, renderer, subscribeMessageRange]);
 
+  // A parked XGC2 embed (`content-visibility: hidden` on the iframe) and a collapsed panel report
+  // as not intersecting; the observer is event driven, so a hidden plot costs no timers.
+  useEffect(() => {
+    if (!coordinator || !canvasDiv || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      const latest = entries[entries.length - 1];
+      if (latest != undefined) {
+        coordinator.setCanvasVisibility(latest.isIntersecting ? "visible" : "hidden");
+      }
+    });
+    observer.observe(canvasDiv);
+    return () => {
+      observer.disconnect();
+    };
+  }, [canvasDiv, coordinator]);
+
   const numSeries = config.paths.length;
   const tooltipContent = useMemo(() => {
     return activeTooltip ? (

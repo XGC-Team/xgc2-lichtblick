@@ -403,6 +403,51 @@ describe("PlotCoordinator", () => {
     });
   });
 
+  describe("setCanvasVisibility", () => {
+    it("skips renders and downsamples while hidden and catches up once when shown", async () => {
+      const update = jest.fn().mockResolvedValue(undefined);
+      renderer.update = update;
+      const updateDatasets = jest.fn().mockResolvedValue(undefined);
+      renderer.updateDatasets = updateDatasets;
+      const getViewportDatasets = jest.fn().mockResolvedValue({
+        datasetsByConfigIndex: [],
+        pathsWithMismatchedDataLengths: [],
+      });
+      datasetsBuilder.getViewportDatasets = getViewportDatasets;
+      plotCoordinator.setCanvasVisibility("hidden");
+
+      plotCoordinator.setSize({ width: 800, height: 600 });
+      plotCoordinator.resetBounds();
+      await plotCoordinator["dispatchDatasetsRender"]([]);
+
+      expect(update).not.toHaveBeenCalled();
+      expect(getViewportDatasets).not.toHaveBeenCalled();
+      expect(updateDatasets).not.toHaveBeenCalled();
+
+      plotCoordinator.setCanvasVisibility("visible");
+      await plotCoordinator["queueDispatchRender"].currentPromise;
+      await plotCoordinator["queueDispatchDownsample"].currentPromise;
+      await plotCoordinator["queueDatasetsRender"].currentPromise;
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ size: { width: 800, height: 600 } }),
+      );
+      // The render may move the viewport bounds, which queues a follow-up downsample as usual.
+      expect(getViewportDatasets).toHaveBeenCalled();
+      expect(updateDatasets).toHaveBeenCalled();
+    });
+
+    it("does not render when shown with nothing skipped", () => {
+      const update = jest.fn().mockResolvedValue(undefined);
+      renderer.update = update;
+      plotCoordinator.setCanvasVisibility("hidden");
+      plotCoordinator.setCanvasVisibility("visible");
+
+      expect(update).not.toHaveBeenCalled();
+    });
+  });
+
   describe("dispatchRender", () => {
     it("should return immediately if plotCoordinator is destroyed", async () => {
       plotCoordinator.destroy();
