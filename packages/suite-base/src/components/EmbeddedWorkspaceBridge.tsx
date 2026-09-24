@@ -94,7 +94,15 @@ export default function EmbeddedWorkspaceBridge(): null {
     toggleThreeDTools,
   } = useEmbeddedWorkspaceControls();
 
-  const sidebars = useWorkspaceStore((store) => store.sidebars);
+  // Only which sidebar item is open matters to the host. Selecting the whole `sidebars` object also
+  // tracked their sizes, so dragging a sidebar splitter re-sent `ready` on every pointer move and the
+  // host re-rendered its frame and re-posted the scene binding each time.
+  const leftItem = useWorkspaceStore((store) =>
+    store.sidebars.left.open ? store.sidebars.left.item : undefined,
+  );
+  const rightItem = useWorkspaceStore((store) =>
+    store.sidebars.right.open ? store.sidebars.right.item : undefined,
+  );
 
   useEffect(() => embeddedSceneBridge.connect(window.parent, window.location.origin), []);
 
@@ -117,16 +125,12 @@ export default function EmbeddedWorkspaceBridge(): null {
         case "topics":
         case "layouts":
           sidebarActions.left.selectItem(
-            sidebars.left.open && sidebars.left.item === event.data.surface
-              ? undefined
-              : event.data.surface,
+            leftItem === event.data.surface ? undefined : event.data.surface,
           );
           break;
         case "variables":
           sidebarActions.right.selectItem(
-            sidebars.right.open && sidebars.right.item === event.data.surface
-              ? undefined
-              : event.data.surface,
+            rightItem === event.data.surface ? undefined : event.data.surface,
           );
           break;
         case "panel-controls":
@@ -156,8 +160,7 @@ export default function EmbeddedWorkspaceBridge(): null {
             ? obstacleSceneVisible
             : surface === "3d-tools"
               ? threeDToolsVisible
-              : (sidebars.left.open && sidebars.left.item === surface) ||
-                (sidebars.right.open && sidebars.right.item === surface),
+              : leftItem === surface || rightItem === surface,
       ),
     };
     parentWindow.postMessage(readyMessage, expectedOrigin);
@@ -166,9 +169,10 @@ export default function EmbeddedWorkspaceBridge(): null {
       window.removeEventListener("message", handleMessage);
     };
   }, [
+    leftItem,
     panelControlsVisible,
+    rightItem,
     sidebarActions,
-    sidebars,
     threeDToolsVisible,
     obstacleSceneVisible,
     toggleObstacleScene,
