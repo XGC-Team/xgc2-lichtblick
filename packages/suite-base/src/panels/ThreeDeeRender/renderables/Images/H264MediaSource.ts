@@ -36,6 +36,7 @@ const box = (type: string, ...payload: Uint8Array[]) =>
 const full = (type: string, flags: number, ...payload: Uint8Array[]) =>
   box(type, u32(flags), ...payload);
 const matrix = u32(0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000);
+const MDAT = ascii("mdat");
 /** ISO BMFF initialization for a complete Annex-B AVC recovery point.
  * Only repackages encoded bytes; no transcoding, resize or AR implementation.
  * https://www.w3.org/TR/mse-byte-stream-format-isobmff/
@@ -190,6 +191,7 @@ export function mediaSegment(frame: Uint8Array, ts: number, seq: number): Uint8A
   const duration = MEDIA_SOURCE_FRAME_DURATION_US;
   const key = H264.IsKeyframe(frame);
   const nals: Uint8Array[] = [];
+  let sampleSize = 0;
   let hasSlice = false;
   for (let i = findNextStartCodeEnd(frame, 0); i < frame.length; ) {
     const end = findNextStartCode(frame, i);
@@ -208,23 +210,37 @@ export function mediaSegment(frame: Uint8Array, ts: number, seq: number): Uint8A
       } else if (type >= 2 && type <= 4) {
         throw Error("MSE H264 does not support partitioned slices");
       }
-      nals.push(u32(nal.length), nal);
+      nals.push(nal);
+      sampleSize += 4 + nal.length;
     }
     i = findNextStartCodeEnd(frame, end);
   }
   if (!hasSlice) {
     throw new Error("H264 access unit has no coded picture");
   }
-  const sample = join(...nals);
   const traf = (offset: number) =>
     box(
       "traf",
       full("tfhd", 0x20000, u32(1)),
       full("tfdt", 0x1000000, u32(Math.floor(ts / 4294967296), ts >>> 0)),
-      full("trun", 0x701, u32(1, offset, duration, sample.length, key ? 0x02000000 : 0x01010000)),
+      full("trun", 0x701, u32(1, offset, duration, sampleSize, key ? 0x02000000 : 0x01010000)),
     );
   const mfhd = full("mfhd", 0, u32(seq));
   let moof = box("moof", mfhd, traf(0));
   moof = box("moof", mfhd, traf(moof.length + 8));
-  return join(moof, box("mdat", sample));
+  // The coded frame is copied once: each NAL goes straight behind its AVC
+  // length prefix inside mdat, with no intermediate sample or box buffers.
+  const segment = new Uint8Array(moof.length + 8 + sampleSize);
+  const view = new DataView(segment.buffer);
+  segment.set(moof, 0);
+  let offset = moof.length;
+  view.setUint32(offset, 8 + sampleSize);
+  segment.set(MDAT, offset + 4);
+  offset += 8;
+  for (const nal of nals) {
+    view.setUint32(offset, nal.length);
+    segment.set(nal, offset + 4);
+    offset += 4 + nal.length;
+  }
+  return segment;
 }
