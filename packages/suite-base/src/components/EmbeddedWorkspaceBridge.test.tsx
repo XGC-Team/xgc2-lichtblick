@@ -51,9 +51,7 @@ type MockSidebar = { open: boolean; item?: string; size?: number };
 
 /** Runs the component's real selectors against a store holding only these sidebars. */
 function mockSidebars(sidebars: { left: MockSidebar; right: MockSidebar }): void {
-  jest
-    .mocked(useWorkspaceStore)
-    .mockImplementation((selector) => selector({ sidebars } as never));
+  jest.mocked(useWorkspaceStore).mockImplementation((selector) => selector({ sidebars } as never));
 }
 
 function hostCommand(surface: Xgc2EmbeddedHostCommand["surface"]): Xgc2EmbeddedHostCommand {
