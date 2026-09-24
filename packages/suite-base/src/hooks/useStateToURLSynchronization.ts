@@ -20,7 +20,11 @@ import { AppURLState, updateAppURLState } from "@lichtblick/suite-base/util/appU
 
 const selectCanSeek = (ctx: MessagePipelineContext) =>
   ctx.playerState.capabilities.includes(PLAYER_CAPABILITIES.playbackControl);
-const selectCurrentTime = (ctx: MessagePipelineContext) => ctx.playerState.activeData?.currentTime;
+// Only a seekable player writes its time to the URL. A live player's time changes every tick, and
+// selecting it re-rendered this hook, re-armed the debounce and rewrote an unchanged URL twice a
+// second for the whole connection (in an XGC2 embed, while nobody can even see that URL).
+const selectSeekableCurrentTime = (ctx: MessagePipelineContext) =>
+  selectCanSeek(ctx) ? ctx.playerState.activeData?.currentTime : undefined;
 const selectUrlState = (ctx: MessagePipelineContext) => ctx.playerState.urlState;
 const selectSelectedEventId = (store: EventsStore) => store.selectedEventId;
 
@@ -36,14 +40,14 @@ export function useStateToURLSynchronization(): void {
   const playerUrlState = useMessagePipeline(selectUrlState);
   const stablePlayerUrlState = useDeepMemo(playerUrlState);
   const canSeek = useMessagePipeline(selectCanSeek);
-  const currentTime = useMessagePipeline(selectCurrentTime);
+  const currentTime = useMessagePipeline(selectSeekableCurrentTime);
   const [debouncedCurrentTime] = useDebounce(currentTime, 500, { maxWait: 500 });
   const selectedEventId = useEvents(selectSelectedEventId);
 
   // Sync current time with the url.
   useEffect(() => {
     updateUrl({
-      time: canSeek ? debouncedCurrentTime : undefined,
+      time: debouncedCurrentTime,
     });
   }, [canSeek, debouncedCurrentTime]);
 

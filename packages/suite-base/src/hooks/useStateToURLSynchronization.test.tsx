@@ -15,7 +15,7 @@
 //   found at http://www.apache.org/licenses/LICENSE-2.0
 //   You may not use this file except in compliance with the License.
 
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { ReactNode } from "react";
 
 import { useMessagePipeline } from "@lichtblick/suite-base/components/MessagePipeline";
@@ -81,6 +81,45 @@ describe("useStateToURLSynchronization", () => {
       "",
       "http://localhost/?ds=test-source2&ds.b=two&ds.c=three&time=1970-01-01T00:00:01.000000001Z",
     );
+  });
+
+  it("does not follow a live player's time", () => {
+    jest.useFakeTimers();
+    try {
+      const spy = jest.spyOn(window.history, "replaceState");
+      const liveState = (sec: number) => ({
+        playerState: {
+          activeData: { currentTime: { sec, nsec: 0 } },
+          capabilities: [],
+          urlState: { sourceId: "foxglove-websocket", parameters: { url: "ws://robot" } },
+        },
+      });
+      let state = liveState(1);
+      (useMessagePipeline as jest.Mock).mockImplementation((selector) => selector(state));
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <EventsProvider>{children}</EventsProvider>
+      );
+
+      const { rerender } = renderHook(useStateToURLSynchronization, { wrapper });
+      const writes = spy.mock.calls.length;
+      expect(spy).toHaveBeenLastCalledWith(
+        undefined,
+        "",
+        "http://localhost/?ds=foxglove-websocket&ds.url=ws://robot",
+      );
+
+      for (let sec = 2; sec < 10; sec++) {
+        state = liveState(sec);
+        rerender();
+        act(() => {
+          jest.advanceTimersByTime(600);
+        });
+      }
+
+      expect(spy).toHaveBeenCalledTimes(writes);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("suppresses ds param writeback when sessionid is present in the URL", () => {
