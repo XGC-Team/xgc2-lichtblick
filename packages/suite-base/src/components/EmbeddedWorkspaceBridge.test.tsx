@@ -47,6 +47,15 @@ function mockControls(
   };
 }
 
+type MockSidebar = { open: boolean; item?: string; size?: number };
+
+/** Runs the component's real selectors against a store holding only these sidebars. */
+function mockSidebars(sidebars: { left: MockSidebar; right: MockSidebar }): void {
+  jest
+    .mocked(useWorkspaceStore)
+    .mockImplementation((selector) => selector({ sidebars } as never));
+}
+
 function hostCommand(surface: Xgc2EmbeddedHostCommand["surface"]): Xgc2EmbeddedHostCommand {
   return {
     channel: XGC2_EMBED_CHANNEL,
@@ -70,9 +79,7 @@ function dispatchHostMessage(data: unknown, overrides: Partial<MessageEventInit>
 
 describe("EmbeddedWorkspaceBridge", () => {
   beforeEach(() => {
-    jest
-      .mocked(useWorkspaceStore)
-      .mockReturnValue({ left: { open: false }, right: { open: false } });
+    mockSidebars({ left: { open: false }, right: { open: false } });
     jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue(mockControls());
     jest.mocked(useWorkspaceActions).mockReturnValue({
       sidebarActions: {
@@ -175,7 +182,7 @@ describe("EmbeddedWorkspaceBridge", () => {
   });
 
   it("reports independent visible surfaces and toggles an open sidebar closed", () => {
-    jest.mocked(useWorkspaceStore).mockReturnValue({
+    mockSidebars({
       left: { open: true, item: "topics" },
       right: { open: true, item: "variables" },
     });
@@ -197,7 +204,7 @@ describe("EmbeddedWorkspaceBridge", () => {
   });
 
   it("closes the visible variables sidebar without changing left or panel controls", () => {
-    jest.mocked(useWorkspaceStore).mockReturnValue({
+    mockSidebars({
       left: { open: true, item: "topics" },
       right: { open: true, item: "variables" },
     });
@@ -215,7 +222,7 @@ describe("EmbeddedWorkspaceBridge", () => {
   it("reports current surfaces after local sidebar and panel-control state changes", () => {
     const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
     const { rerender } = render(<EmbeddedWorkspaceBridge />);
-    jest.mocked(useWorkspaceStore).mockReturnValue({
+    mockSidebars({
       left: { open: true, item: "layouts" },
       right: { open: true, item: "variables" },
     });
@@ -230,7 +237,7 @@ describe("EmbeddedWorkspaceBridge", () => {
       }),
       window.location.origin,
     );
-    jest.mocked(useWorkspaceStore).mockReturnValue({
+    mockSidebars({
       left: { open: false, item: "layouts" },
       right: { open: true, item: "variables" },
     });
@@ -246,6 +253,20 @@ describe("EmbeddedWorkspaceBridge", () => {
     });
     expect(selectLeftItem).toHaveBeenCalledTimes(1);
     expect(selectLeftItem).toHaveBeenCalledWith("layouts");
+  });
+
+  it("does not re-announce when only a sidebar size changes", () => {
+    const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
+    mockSidebars({ left: { open: true, item: "layouts", size: 20 }, right: { open: false } });
+    const { rerender } = render(<EmbeddedWorkspaceBridge />);
+    expect(postMessage).toHaveBeenCalledTimes(1);
+
+    for (const size of [21, 22, 23]) {
+      mockSidebars({ left: { open: true, item: "layouts", size }, right: { open: false, size } });
+      rerender(<EmbeddedWorkspaceBridge />);
+    }
+
+    expect(postMessage).toHaveBeenCalledTimes(1);
   });
 
   it("rejects commands from a different origin or window", () => {
