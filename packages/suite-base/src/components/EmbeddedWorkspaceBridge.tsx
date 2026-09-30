@@ -12,6 +12,7 @@ import { useWorkspaceStore } from "@lichtblick/suite-base/context/Workspace/Work
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
 import { embeddedSceneBridge } from "./EmbeddedSceneBridge";
+import { embeddedViewCapture } from "./EmbeddedViewCapture";
 import { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProtocol";
 
 export { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProtocol";
@@ -105,6 +106,7 @@ export default function EmbeddedWorkspaceBridge(): null {
   );
 
   useEffect(() => embeddedSceneBridge.connect(window.parent, window.location.origin), []);
+  useEffect(() => embeddedViewCapture.connect(window.parent, window.location.origin), []);
 
   useEffect(() => {
     const parentWindow = window.parent;

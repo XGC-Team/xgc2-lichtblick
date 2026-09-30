@@ -30,7 +30,10 @@ import { useExtensionCatalog } from "@lichtblick/suite-base/context/ExtensionCat
 import { createSyncRoot } from "@lichtblick/suite-base/panels/createSyncRoot";
 import { SaveConfig } from "@lichtblick/suite-base/types/panels";
 
+import type { IRenderer } from "./IRenderer";
+import { DEFAULT_SCENE_EXTENSION_CONFIG } from "./SceneExtensionConfig";
 import { ThreeDeeRender } from "./ThreeDeeRender";
+import { ViewCaptureExtension } from "./ViewCaptureExtension";
 import { InitPanelArgs, InterfaceMode } from "./types";
 
 function initPanel(args: InitPanelArgs, context: BuiltinPanelExtensionContext) {
@@ -85,14 +88,24 @@ function ThreeDeeRenderAdapter(interfaceMode: InterfaceMode, props: Props) {
   const forwardedEmbeddedControls = useForwardEmbeddedWorkspaceControls();
   const { injectedFeatures } = useAppContext();
   const customSceneExtensions = useMemo(() => {
-    if (injectedFeatures == undefined) {
-      return undefined;
-    }
     const injectedSceneExtensions =
-      injectedFeatures.availableFeatures[INJECTED_FEATURE_KEYS.customSceneExtensions]
+      injectedFeatures?.availableFeatures[INJECTED_FEATURE_KEYS.customSceneExtensions]
         ?.customSceneExtensions;
-    return injectedSceneExtensions;
-  }, [injectedFeatures]);
+    // Bind the actual saved-layout panel identity, not a default ID or canvas order.
+    return {
+      ...injectedSceneExtensions,
+      reserved: {
+        ...DEFAULT_SCENE_EXTENSION_CONFIG.reserved,
+        ...injectedSceneExtensions?.reserved,
+      },
+      extensionsById: {
+        ...injectedSceneExtensions?.extensionsById,
+        [ViewCaptureExtension.extensionId]: {
+          init: (renderer: IRenderer) => new ViewCaptureExtension(renderer, panelContext?.id),
+        },
+      },
+    };
+  }, [injectedFeatures, panelContext?.id]);
 
   const boundInitPanel = useMemo(
     () =>
