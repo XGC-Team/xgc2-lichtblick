@@ -382,6 +382,8 @@ export class LaserScans extends SceneExtension<LaserScanHistoryRenderable> {
         topic,
         messageFields,
         config,
+        DEFAULT_SETTINGS,
+        { supportsWorldSize: false },
       );
       node.handler = handler;
       node.icon = "Radar";

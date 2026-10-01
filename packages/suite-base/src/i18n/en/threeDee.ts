@@ -120,6 +120,9 @@ export const threeDee = {
   pointShapeCircle: "Circle",
   pointShapeSquare: "Square",
   pointSize: "Point size",
+  pointSizeUnits: "Point size units",
+  pointSizePixels: "Pixels",
+  pointSizeMeters: "Meters",
 
   // Color Mode
   colorBy: "Color by",
