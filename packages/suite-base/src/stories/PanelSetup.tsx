@@ -52,6 +52,7 @@ import * as panels from "@lichtblick/suite-base/panels";
 import { Diagnostic, UserScriptLog } from "@lichtblick/suite-base/players/UserScriptPlayer/types";
 import {
   AdvertiseOptions,
+  PlayerPresence,
   PlayerStateActiveData,
   Progress,
   PublishPayload,
@@ -76,6 +77,7 @@ type Frame = {
 };
 
 export type Fixture = {
+  presence?: PlayerPresence;
   frame?: Frame;
   topics?: Topic[];
   capabilities?: string[];
@@ -273,6 +275,7 @@ function UnconnectedPanelSetup(props: UnconnectedProps): React.JSX.Element | Rea
   }, [initialized, props.fixture, actions, userScriptActions]);
 
   const {
+    presence,
     frame = {},
     topics = [],
     datatypes,
@@ -305,6 +308,7 @@ function UnconnectedPanelSetup(props: UnconnectedProps): React.JSX.Element | Rea
       className={props.className}
     >
       <MockMessagePipelineProvider
+        presence={presence}
         capabilities={capabilities}
         topics={topics}
         datatypes={dTypes}

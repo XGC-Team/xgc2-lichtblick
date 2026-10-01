@@ -166,6 +166,11 @@ function PanelExtensionAdapter(
   } = messagePipelineContext;
 
   const { capabilities, profile: dataSourceProfile, presence: playerPresence } = playerState;
+  // Playback buffering does not change this capability. Keep it stable so a
+  // PRESENT/BUFFERING transition does not remount panels and discard their state.
+  const dataSourceIsLive =
+    playerPresence === PlayerPresence.PRESENT &&
+    !capabilities.includes(PLAYER_CAPABILITIES.playbackControl);
 
   const { openSiblingPanel, setMessagePathDropConfig, type: panelName } = usePanelContext();
 
@@ -442,9 +447,7 @@ function PanelExtensionAdapter(
         : undefined,
 
       dataSourceProfile,
-      dataSourceIsLive:
-        playerPresence === PlayerPresence.PRESENT &&
-        !capabilities.includes(PLAYER_CAPABILITIES.playbackControl),
+      dataSourceIsLive,
 
       setParameter: (name: string, value: ParameterValue) => {
         if (!isMounted()) {
@@ -721,7 +724,7 @@ function PanelExtensionAdapter(
     initialState,
     seekPlayback,
     dataSourceProfile,
-    playerPresence,
+    dataSourceIsLive,
     setSharedPanelState,
     capabilities,
     isMounted,

@@ -24,7 +24,7 @@ import {
 } from "@lichtblick/suite";
 import MockPanelContextProvider from "@lichtblick/suite-base/components/MockPanelContextProvider";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
-import { AdvertiseOptions } from "@lichtblick/suite-base/players/types";
+import { AdvertiseOptions, PlayerPresence } from "@lichtblick/suite-base/players/types";
 import * as PanelStateContextProvider from "@lichtblick/suite-base/providers/PanelStateContextProvider";
 import PanelSetup, { Fixture } from "@lichtblick/suite-base/stories/PanelSetup";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
@@ -33,6 +33,48 @@ import PanelExtensionAdapter from "./PanelExtensionAdapter";
 import { BuiltinPanelExtensionContext } from "./types";
 
 describe("PanelExtensionAdapter", () => {
+  it("keeps a playback panel mounted while its source buffers", async () => {
+    const unmountPanel = jest.fn();
+    const initPanel = jest.fn((context: BuiltinPanelExtensionContext) => {
+      expect(context.dataSourceIsLive).toBe(false);
+      return unmountPanel;
+    });
+    const capabilities = [PLAYER_CAPABILITIES.playbackControl];
+    const config = {};
+    const saveConfig = () => {};
+    const Wrapper = ({ presence }: { presence: PlayerPresence }) => (
+      <ThemeProvider isDark>
+        <MockPanelContextProvider>
+          <PanelSetup fixture={{ capabilities, presence, profile: "ros1" }}>
+            <PanelExtensionAdapter config={config} saveConfig={saveConfig} initPanel={initPanel} />
+          </PanelSetup>
+        </MockPanelContextProvider>
+      </ThemeProvider>
+    );
+    const handle = render(<Wrapper presence={PlayerPresence.PRESENT} />);
+    await act(async () => undefined);
+    expect(initPanel).toHaveBeenCalledTimes(1);
+    for (const presence of [
+      PlayerPresence.BUFFERING,
+      PlayerPresence.PRESENT,
+      PlayerPresence.BUFFERING,
+      PlayerPresence.PRESENT,
+    ]) {
+      handle.rerender(<Wrapper presence={presence} />);
+      await act(async () => undefined);
+    }
+    expect(initPanel).toHaveBeenCalledTimes(1);
+    expect(unmountPanel).not.toHaveBeenCalled();
+
+    // Replacing/initializing a source still disposes the previous panel state.
+    handle.rerender(<Wrapper presence={PlayerPresence.INITIALIZING} />);
+    await act(async () => undefined);
+    expect(unmountPanel).toHaveBeenCalledTimes(1);
+    handle.rerender(<Wrapper presence={PlayerPresence.PRESENT} />);
+    await act(async () => undefined);
+    expect(initPanel).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     false,
     true,
