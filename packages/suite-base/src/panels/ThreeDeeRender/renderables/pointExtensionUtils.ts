@@ -34,6 +34,7 @@ import { POINTCLOUD_DATATYPES as ROS_POINTCLOUD_DATATYPES } from "../ros";
 export type LayerSettingsPointExtension = BaseSettings &
   ColorModeSettings & {
     pointSize: number;
+    pointSizeMode?: "screen" | "world";
     pointShape: "circle" | "square";
     decayTime: number;
   };
@@ -50,6 +51,7 @@ export const DEFAULT_POINT_SETTINGS: LayerSettingsPointExtension = {
   visible: false,
   frameLocked: false,
   pointSize: DEFAULT_POINT_SIZE,
+  pointSizeMode: "screen",
   pointShape: DEFAULT_POINT_SHAPE,
   decayTime: 0,
   colorMode: "flat",
@@ -77,8 +79,10 @@ export function pointSettingsNode(
   messageFields: string[],
   config: Partial<LayerSettingsPointExtension>,
   defaultSettings: LayerSettingsPointExtension = DEFAULT_POINT_SETTINGS,
+  { supportsWorldSize = true }: { supportsWorldSize?: boolean } = {},
 ): SettingsTreeNode {
   const pointSize = config.pointSize;
+  const pointSizeMode = config.pointSizeMode ?? "screen";
   const pointShape = config.pointShape ?? "circle";
   const decayTime = config.decayTime;
 
@@ -103,11 +107,24 @@ export function pointSettingsNode(
     order: topic.name.toLocaleLowerCase(),
     visible: config.visible ?? defaultSettings.visible,
     fields: {
+      ...(supportsWorldSize
+        ? {
+            pointSizeMode: {
+              label: t("threeDee:pointSizeUnits"),
+              input: "select" as const,
+              options: [
+                { label: t("threeDee:pointSizePixels"), value: "screen" },
+                { label: t("threeDee:pointSizeMeters"), value: "world" },
+              ],
+              value: pointSizeMode,
+            },
+          }
+        : {}),
       pointSize: {
         label: t("threeDee:pointSize"),
         input: "number",
-        step: 1,
-        placeholder: "2",
+        step: supportsWorldSize && pointSizeMode === "world" ? 0.01 : 1,
+        placeholder: supportsWorldSize && pointSizeMode === "world" ? "0.1" : "2",
         precision: 2,
         value: pointSize,
         min: 0,
@@ -228,6 +245,7 @@ export function pointCloudMaterial<T extends LayerSettingsPointExtension>(
   const encoding = pointCloudColorEncoding(settings);
   const scale = settings.pointSize;
   const shape = settings.pointShape;
+  const sizeMode = settings.pointSizeMode ?? "screen";
 
   const material = new THREE.PointsMaterial({
     vertexColors: true,
@@ -239,9 +257,18 @@ export function pointCloudMaterial<T extends LayerSettingsPointExtension>(
     depthWrite: true,
   });
 
-  // Tell three.js to recompile the shader when `shape` or `encoding` change
-  material.customProgramCacheKey = () => `${shape}-${encoding}`;
+  // Include units in the shader cache; a topic can switch units without a new message.
+  material.customProgramCacheKey = () => `${shape}-${encoding}-${sizeMode}`;
   material.onBeforeCompile = (shader) => {
+    if (sizeMode === "world") {
+      // size includes devicePixelRatio; scale is half the CSS viewport height.
+      // The projection/clip-W ratio maps meters to pixels for both perspective
+      // and orthographic cameras. Built-in size attenuation remains disabled.
+      shader.vertexShader = shader.vertexShader.replace(
+        "gl_PointSize = size;",
+        "gl_PointSize = size * scale * abs(projectionMatrix[1][1]) / abs(gl_Position.w);",
+      );
+    }
     const SEARCH = "#include <opaque_fragment>";
     if (shape === "circle") {
       // Patch the fragment shader to render points as circles

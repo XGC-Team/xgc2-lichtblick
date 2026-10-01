@@ -248,7 +248,8 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     const needsRebuild =
       colorHasTransparency(settings) !== material.transparent ||
       pointCloudColorEncoding(settings) !== pointCloudColorEncoding(prevSettings) ||
-      settings.pointShape !== prevSettings.pointShape;
+      settings.pointShape !== prevSettings.pointShape ||
+      settings.pointSizeMode !== prevSettings.pointSizeMode;
 
     const pointsHistory = this.#pointsHistory;
     const stixelsHistory = this.#stixelsHistory;
