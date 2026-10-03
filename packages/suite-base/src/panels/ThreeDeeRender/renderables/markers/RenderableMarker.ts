@@ -13,7 +13,7 @@ import { RosValue } from "@lichtblick/suite-base/players/types";
 import type { IRenderer } from "../../IRenderer";
 import { BaseUserData, Renderable } from "../../Renderable";
 import { makeRgba, rgbToThreeColor, stringToRgba } from "../../color";
-import { Marker } from "../../ros";
+import { Marker, MarkerType } from "../../ros";
 import type { LayerSettingsMarker } from "../TopicMarkers";
 
 const tempColor = new THREE.Color();
@@ -135,14 +135,27 @@ export class RenderableMarker extends Renderable<MarkerUserData> {
   #renderMarker(marker: Marker): Marker {
     const settings = this.getSettings();
     const colorStr = settings?.color;
+    const lineWidth = settings?.lineWidth;
+    const overrideLineWidth =
+      (marker.type === MarkerType.LINE_LIST || marker.type === MarkerType.LINE_STRIP) &&
+      typeof lineWidth === "number" &&
+      Number.isFinite(lineWidth) &&
+      lineWidth > 0 &&
+      lineWidth !== marker.scale.x;
 
-    if (colorStr == undefined) {
+    if (colorStr == undefined && !overrideLineWidth) {
       return marker;
     }
 
-    // Create a clone of the marker with the color overridden
-    const color = stringToRgba(makeRgba(), colorStr);
-    const newMarker = { ...marker, color, colors: [] };
+    // Project display overrides without modifying the received message.
+    const newMarker = { ...marker };
+    if (colorStr != undefined) {
+      newMarker.color = stringToRgba(makeRgba(), colorStr);
+      newMarker.colors = [];
+    }
+    if (overrideLineWidth) {
+      newMarker.scale = { ...marker.scale, x: lineWidth };
+    }
     return newMarker;
   }
 }

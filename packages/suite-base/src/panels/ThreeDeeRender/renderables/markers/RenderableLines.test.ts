@@ -10,6 +10,7 @@ import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 
 import { RenderableLineList } from "./RenderableLineList";
 import { RenderableLineStrip } from "./RenderableLineStrip";
+import { RenderableMarker } from "./RenderableMarker";
 import { DynamicLineGeometry } from "../../DynamicLineGeometry";
 import type { IRenderer } from "../../IRenderer";
 import { Marker, MarkerType } from "../../ros";
@@ -102,6 +103,69 @@ describe.each([
     renderable.dispose();
   });
 
+  it("overrides both line passes and picking without modifying the published marker", () => {
+    const marker = makeMarker(type, 4);
+    marker.scale.x = 0.2;
+    Object.freeze(marker.scale);
+    Object.freeze(marker);
+    const renderer = makeRenderer();
+    renderer.config.topics["/formation"] = { lineWidth: 0.01 };
+    const renderable = new Constructor("/formation", marker, 1n, renderer);
+    const lines = renderable.children as LineSegments2[];
+    for (const line of lines) {
+      expect(line.material.uniforms["linewidth"]!.value).toBe(0.01);
+    }
+    const picking = lines[1]!.userData.pickingMaterial as THREE.ShaderMaterial;
+    expect(picking.uniforms["linewidth"]!.value).toBeCloseTo(0.012);
+    expect(renderable.userData.marker.scale).toEqual({ ...marker.scale, x: 0.01 });
+    expect(renderable.userData.marker.points).toBe(marker.points);
+    expect(renderable.userData.marker.colors).toBe(marker.colors);
+    expect(renderable.userData.originalMarker).toBe(marker);
+    expect(renderable.details()).toBe(marker);
+    expect(marker.scale.x).toBe(0.2);
+
+    // Removing the display override restores the authored width.
+    renderer.config.topics["/formation"] = {};
+    renderable.update(marker, 2n);
+    expect(renderable.userData.marker).toBe(marker);
+    for (const line of lines) {
+      expect(line.material.uniforms["linewidth"]!.value).toBe(0.2);
+    }
+    expect(picking.uniforms["linewidth"]!.value).toBeCloseTo(0.24);
+    renderable.dispose();
+  });
+
+  it("combines width and color overrides while preserving the authored colors", () => {
+    const marker = makeMarker(type, 4);
+    marker.colors = [{ r: 1, g: 0, b: 0, a: 0.5 }];
+    const renderer = makeRenderer();
+    renderer.config.topics["/formation"] = { lineWidth: 0.01, color: "#00ff00ff" };
+    const renderable = new Constructor("/formation", marker, 1n, renderer);
+    expect(renderable.userData.marker.scale.x).toBe(0.01);
+    expect(renderable.userData.marker.color).toEqual({ r: 0, g: 1, b: 0, a: 1 });
+    expect(renderable.userData.marker.colors).toEqual([]);
+    expect(marker.scale.x).toBe(0.02);
+    expect(marker.colors).toEqual([{ r: 1, g: 0, b: 0, a: 0.5 }]);
+    renderable.dispose();
+  });
+
+  it.each([
+    0,
+    -1,
+    NaN,
+    Infinity,
+  ])("keeps the authored width for invalid override %s", (lineWidth) => {
+    const marker = makeMarker(type, 4);
+    const renderer = makeRenderer();
+    renderer.config.topics["/formation"] = { lineWidth };
+    const renderable = new Constructor("/formation", marker, 1n, renderer);
+    expect(renderable.userData.marker).toBe(marker);
+    for (const line of renderable.children as LineSegments2[]) {
+      expect(line.material.uniforms["linewidth"]!.value).toBe(marker.scale.x);
+    }
+    renderable.dispose();
+  });
+
   it("disposes the shared geometry once, all materials, and child references", () => {
     const renderable = new Constructor("/path", makeMarker(type, 4), 1n, makeRenderer());
     const lines = renderable.children as LineSegments2[];
@@ -120,4 +184,19 @@ describe.each([
     expect(colorLine.userData.pickingMaterial).toBeUndefined();
     expect(renderable.children).toHaveLength(0);
   });
+});
+
+it.each([
+  MarkerType.POINTS,
+  MarkerType.SPHERE,
+  MarkerType.SPHERE_LIST,
+])("does not apply line width to marker type %s", (type) => {
+  const marker = makeMarker(type, 2);
+  const renderer = makeRenderer();
+  renderer.config.topics["/objects"] = { lineWidth: 0.01 };
+  const renderable = new RenderableMarker("/objects", marker, 1n, renderer);
+  renderable.update(marker, 2n);
+  expect(renderable.userData.marker).toBe(marker);
+  expect(marker.scale.x).toBe(0.02);
+  renderable.dispose();
 });
