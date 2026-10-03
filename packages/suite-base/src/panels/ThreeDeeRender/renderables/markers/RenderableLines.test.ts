@@ -14,6 +14,13 @@ import { RenderableMarker } from "./RenderableMarker";
 import { DynamicLineGeometry } from "../../DynamicLineGeometry";
 import type { IRenderer } from "../../IRenderer";
 import { Marker, MarkerType } from "../../ros";
+import type { LayerSettingsMarker } from "../TopicMarkers";
+
+type TestRenderer = Omit<IRenderer, "config"> & {
+  config: Omit<IRenderer["config"], "topics"> & {
+    topics: Record<string, Partial<LayerSettingsMarker>>;
+  };
+};
 
 function makeMarker(type: number, count: number): Marker {
   return {
@@ -38,12 +45,12 @@ function makeMarker(type: number, count: number): Marker {
   };
 }
 
-function makeRenderer(): IRenderer {
+function makeRenderer(): TestRenderer {
   return {
     normalizeFrameId: (frame: string) => frame,
     config: { topics: {}, layers: {} },
     input: { canvasSize: new THREE.Vector2(640, 480) },
-  } as unknown as IRenderer;
+  } as unknown as TestRenderer;
 }
 
 describe.each([
@@ -142,7 +149,9 @@ describe.each([
     marker.scale.y = 0.04;
     marker.scale.z = 0.06;
     renderer.config.topics["/formation"] = {
-      markerScale: 0.5, lineWidth: 0.01, color: "#00ff00ff",
+      markerScale: 0.5,
+      lineWidth: 0.01,
+      color: "#00ff00ff",
     };
     const renderable = new Constructor("/formation", marker, 1n, renderer);
     expect(renderable.userData.marker.scale).toEqual({ x: 0.01, y: 0.02, z: 0.03 });
@@ -224,11 +233,19 @@ it.each([
   renderable.dispose();
 });
 
-
 describe.each([
-  MarkerType.ARROW, MarkerType.CUBE, MarkerType.SPHERE, MarkerType.CYLINDER,
-  MarkerType.LINE_STRIP, MarkerType.LINE_LIST, MarkerType.CUBE_LIST, MarkerType.SPHERE_LIST,
-  MarkerType.POINTS, MarkerType.TEXT_VIEW_FACING, MarkerType.MESH_RESOURCE, MarkerType.TRIANGLE_LIST,
+  MarkerType.ARROW,
+  MarkerType.CUBE,
+  MarkerType.SPHERE,
+  MarkerType.CYLINDER,
+  MarkerType.LINE_STRIP,
+  MarkerType.LINE_LIST,
+  MarkerType.CUBE_LIST,
+  MarkerType.SPHERE_LIST,
+  MarkerType.POINTS,
+  MarkerType.TEXT_VIEW_FACING,
+  MarkerType.MESH_RESOURCE,
+  MarkerType.TRIANGLE_LIST,
 ])("display size for marker type %s", (type) => {
   it.each([0.2, 2])("multiplies only the displayed scale by %s", (markerScale) => {
     const marker = makeMarker(type, 4);
@@ -265,19 +282,24 @@ describe.each([
   });
 });
 
-it.each([undefined, 1, 0, -1, NaN, Infinity, -Infinity])(
-  "preserves marker identity without a valid non-unit size multiplier (%s)",
-  (markerScale) => {
-    const marker = makeMarker(MarkerType.SPHERE, 2);
-    const renderer = makeRenderer();
-    renderer.config.topics["/objects"] = { markerScale };
-    const renderable = new RenderableMarker("/objects", marker, 1n, renderer);
-    renderable.update(marker, 2n);
-    expect(renderable.userData.marker).toBe(marker);
-    expect(renderable.userData.marker.scale).toBe(marker.scale);
-    renderable.dispose();
-  },
-);
+it.each([
+  undefined,
+  1,
+  0,
+  -1,
+  NaN,
+  Infinity,
+  -Infinity,
+])("preserves marker identity without a valid non-unit size multiplier (%s)", (markerScale) => {
+  const marker = makeMarker(MarkerType.SPHERE, 2);
+  const renderer = makeRenderer();
+  renderer.config.topics["/objects"] = { markerScale };
+  const renderable = new RenderableMarker("/objects", marker, 1n, renderer);
+  renderable.update(marker, 2n);
+  expect(renderable.userData.marker).toBe(marker);
+  expect(renderable.userData.marker.scale).toBe(marker.scale);
+  renderable.dispose();
+});
 
 it("preserves nonuniform signed and zero dimensions when scaling", () => {
   const marker = makeMarker(MarkerType.CUBE, 0);
