@@ -6,8 +6,15 @@ import * as THREE from "three";
 import { SettingsTreeField, Topic } from "@lichtblick/suite";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
+import type { IRenderer } from "../IRenderer";
+import { PointFieldType, type PointCloud2 } from "../ros";
+import { makePose } from "../transforms";
+import { PointCloudHistoryRenderable, createStixelMaterial } from "./PointClouds";
+import * as colorModes from "./colorMode";
 import {
   DEFAULT_POINT_SETTINGS,
+  createInstancePickingMaterial,
+  createPickingMaterial,
   pointCloudMaterial,
   pointSettingsNode,
 } from "./pointExtensionUtils";
@@ -165,5 +172,250 @@ describe("physical point size", () => {
       supportsWorldSize: false,
     });
     expect(scan.fields!.pointSizeMode).toBeUndefined();
+  });
+});
+
+describe("PointCloud flat buffer updates", () => {
+  type CloudSettings = ConstructorParameters<typeof PointCloudHistoryRenderable>[2]["settings"];
+
+  function cloud(values: readonly number[], datatype = PointFieldType.FLOAT32): PointCloud2 {
+    const data = new Uint8Array(values.length * 16);
+    const view = new DataView(data.buffer);
+    values.forEach((value, index) => {
+      const offset = index * 16;
+      view.setFloat32(offset, index + 1, true);
+      view.setFloat32(offset + 4, index + 2, true);
+      view.setFloat32(offset + 8, index + 3, true);
+      if (datatype === PointFieldType.UINT32) {
+        view.setUint32(offset + 12, value, true);
+      } else {
+        view.setFloat32(offset + 12, value, true);
+      }
+    });
+    return {
+      header: { seq: 1, stamp: { sec: 1, nsec: 0 }, frame_id: "world" },
+      height: 1,
+      width: values.length,
+      fields: [
+        ...["x", "y", "z"].map((name, index) => ({
+          name,
+          offset: index * 4,
+          datatype: PointFieldType.FLOAT32,
+          count: 1,
+        })),
+        { name: "value", offset: 12, datatype, count: 1 },
+      ],
+      is_bigendian: false,
+      point_step: 16,
+      row_step: data.length,
+      data,
+      is_dense: false,
+    };
+  }
+
+  function fixture(overrides: Partial<CloudSettings> = {}) {
+    const settings: CloudSettings = {
+      ...DEFAULT_POINT_SETTINGS,
+      visible: true,
+      stixelsEnabled: true,
+      colorFieldComputed: undefined,
+      colorField: "value",
+      flatColor: "#80808080",
+      ...overrides,
+    };
+    const errors = jest.fn();
+    const renderer = {
+      normalizeFrameId: (frameId: string) => frameId,
+      settings: { errors: { addToTopic: errors } },
+    } as unknown as IRenderer;
+    const renderable = new PointCloudHistoryRenderable("/cloud", renderer, {
+      receiveTime: 0n,
+      messageTime: 0n,
+      frameId: "world",
+      pose: makePose(),
+      settingsPath: ["topics", "/cloud"],
+      settings,
+      topic: "/cloud",
+      latestPointCloud: cloud([]),
+      latestOriginalMessage: undefined,
+      material: pointCloudMaterial(settings),
+      pickingMaterial: createPickingMaterial(settings),
+      instancePickingMaterial: createInstancePickingMaterial(settings),
+      stixelMaterial: createStixelMaterial(settings),
+    });
+    return { renderable, settings, errors };
+  }
+
+  function geometries(renderable: PointCloudHistoryRenderable) {
+    return renderable.children.map(
+      (child) => (child as THREE.Object3D & { geometry: THREE.BufferGeometry }).geometry,
+    );
+  }
+
+  function trackConversions() {
+    const original = colorModes.getColorConverter;
+    const calls = jest.fn();
+    jest.spyOn(colorModes, "getColorConverter").mockImplementation((settings, min, max) => {
+      const convert = original(settings, min, max);
+      return (output, value) => {
+        calls(value);
+        convert(output, value);
+      };
+    });
+    return calls;
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("reads only geometry and converts flat RGBA once, preserving every point and stixel", () => {
+    const { renderable, settings, errors } = fixture();
+    const message = cloud([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]);
+    new DataView(message.data.buffer).setFloat32(0, Number.NaN, true);
+    const reads = jest.spyOn(DataView.prototype, "getFloat32");
+    const conversions = trackConversions();
+    renderable.updatePointCloud(message, undefined, settings, 2n);
+    expect(reads).toHaveBeenCalledTimes(9);
+    expect(reads.mock.calls.some(([offset]) => offset % 16 === 12)).toBe(false);
+    expect(conversions).toHaveBeenCalledTimes(1);
+    const [points, stixels] = geometries(renderable);
+    expect(points!.drawRange.count).toBe(3);
+    expect(stixels!.drawRange.count).toBe(6);
+    expect(points!.attributes.position!.array).toBeInstanceOf(Float32Array);
+    expect(points!.attributes.position!.array[0]).toBeNaN();
+    expect(Array.from(points!.attributes.position!.array).slice(1)).toEqual([
+      2, 3, 2, 3, 4, 3, 4, 5,
+    ]);
+    expect(points!.attributes.color!.array).toBeInstanceOf(Uint8Array);
+    expect(points!.attributes.color!.normalized).toBe(true);
+    expect(Array.from(points!.attributes.color!.array)).toEqual([
+      55, 55, 55, 128, 55, 55, 55, 128, 55, 55, 55, 128,
+    ]);
+    expect(Array.from(stixels!.attributes.color!.array)).toEqual(
+      Array(6).fill([55, 55, 55, 128]).flat(),
+    );
+    expect(Array.from(stixels!.attributes.position!.array).slice(2, 6)).toEqual([
+      3,
+      Number.NaN,
+      2,
+      0,
+    ]);
+    expect(errors).not.toHaveBeenCalled();
+    renderable.dispose();
+  });
+
+  it("does not calculate ignored distance or read any values for an empty cloud", () => {
+    const { renderable, settings } = fixture({ colorField: "_auto_distance" });
+    const reads = jest.spyOn(DataView.prototype, "getFloat32");
+    const hypot = jest.spyOn(Math, "hypot");
+    const conversions = trackConversions();
+    renderable.updatePointCloud(cloud([1, 2, 3]), undefined, settings, 1n);
+    expect(reads).toHaveBeenCalledTimes(9);
+    expect(hypot).not.toHaveBeenCalled();
+    expect(conversions).toHaveBeenCalledTimes(1);
+    reads.mockClear();
+    conversions.mockClear();
+    renderable.updatePointCloud(cloud([]), undefined, settings, 2n);
+    expect(reads).not.toHaveBeenCalled();
+    expect(conversions).not.toHaveBeenCalled();
+    expect(geometries(renderable).map((geometry) => geometry.drawRange.count)).toEqual([0, 0]);
+    renderable.dispose();
+  });
+
+  it("keeps RGB field reads and conversion per point with original sRGB bytes and alpha", () => {
+    const { renderable, settings } = fixture({ colorMode: "rgb", explicitAlpha: 0.5 });
+    const reads = jest.spyOn(DataView.prototype, "getUint32");
+    const conversions = trackConversions();
+    renderable.updatePointCloud(
+      cloud([0xff0000, 0x00ff00, 0x0000ff], PointFieldType.UINT32),
+      undefined,
+      settings,
+      1n,
+    );
+    expect(reads).toHaveBeenCalledTimes(3);
+    expect(conversions).toHaveBeenCalledTimes(3);
+    const [points, stixels] = geometries(renderable);
+    expect(Array.from(points!.attributes.color!.array)).toEqual([
+      255, 0, 0, 128, 0, 255, 0, 128, 0, 0, 255, 128,
+    ]);
+    expect(Array.from(stixels!.attributes.color!.array)).toEqual([
+      255, 0, 0, 128, 255, 0, 0, 128, 0, 255, 0, 128, 0, 255, 0, 128, 0, 0, 255, 128, 0, 0, 255,
+      128,
+    ]);
+    renderable.dispose();
+  });
+
+  it("retains automatic gradient extrema and per-point reads, including NaN colors", () => {
+    const { renderable, settings } = fixture({
+      colorMode: "gradient",
+      gradient: ["#00000080", "#ffffff80"],
+    });
+    const reads = jest.spyOn(DataView.prototype, "getFloat32");
+    const conversions = trackConversions();
+    renderable.updatePointCloud(cloud([0, 5, 10]), undefined, settings, 1n);
+    expect(reads).toHaveBeenCalledTimes(15);
+    expect(conversions).toHaveBeenCalledTimes(3);
+    const [points] = geometries(renderable);
+    expect(Array.from(points!.attributes.color!.array)).toEqual([
+      0, 0, 0, 128, 64, 64, 64, 128, 128, 128, 128, 128,
+    ]);
+    reads.mockClear();
+    conversions.mockClear();
+    renderable.updatePointCloud(cloud([0, Number.NaN, 10]), undefined, settings, 2n);
+    expect(reads).toHaveBeenCalledTimes(15);
+    expect(conversions).toHaveBeenCalledTimes(3);
+    expect(Array.from(points!.attributes.color!.array)).toEqual(Array(12).fill(0));
+    renderable.dispose();
+  });
+
+  it.each([
+    16, -1,
+  ])("keeps malformed selected-field offset %s as a visible error before buffer reads", (offset) => {
+    const { renderable, settings, errors } = fixture();
+    const message = cloud([1]);
+    message.fields[3]!.offset = offset;
+    const reads = jest.spyOn(DataView.prototype, "getFloat32");
+    const conversions = trackConversions();
+    renderable.updatePointCloud(message, undefined, settings, 1n);
+    expect(errors).toHaveBeenCalledWith(
+      "/cloud",
+      "INVALID_POINTCLOUD",
+      expect.stringContaining("invalid"),
+    );
+    expect(reads).not.toHaveBeenCalled();
+    expect(conversions).not.toHaveBeenCalled();
+    expect(geometries(renderable)[0]!.drawRange.count).toBe(0);
+    renderable.dispose();
+  });
+
+  it("updates flat color after growth, shrinking and retained decay history without changing buffers", () => {
+    const { renderable, settings } = fixture({ decayTime: 1 });
+    const first = cloud([0]);
+    renderable.updatePointCloud(first, undefined, settings, 1n);
+    const firstGeometry = geometries(renderable)[0]!;
+    renderable.updatePointCloud(cloud([0, 0]), undefined, settings, 1n);
+    expect(geometries(renderable)[0]).toBe(firstGeometry);
+    expect(firstGeometry.drawRange.count).toBe(2);
+    const preservedColors = Array.from(firstGeometry.attributes.color!.array);
+    const next = cloud([0, 0, 0]);
+    const nextSettings = { ...settings, flatColor: "#ff000040" };
+    renderable.pushHistory(next, undefined, nextSettings, 2n);
+    renderable.updatePointCloud(next, undefined, nextSettings, 2n);
+    const history = geometries(renderable);
+    expect(history).toHaveLength(4);
+    expect(history[0]).toBe(firstGeometry);
+    expect(Array.from(firstGeometry.attributes.color!.array)).toEqual(preservedColors);
+    expect(Array.from(history[2]!.attributes.color!.array)).toEqual([
+      255, 0, 0, 64, 255, 0, 0, 64, 255, 0, 0, 64,
+    ]);
+    const noStixels = { ...nextSettings, stixelsEnabled: false };
+    renderable.updatePointCloud(cloud([0]), undefined, noStixels, 3n);
+    expect(history[2]!.drawRange.count).toBe(1);
+    expect(history[2]!.attributes.position!.array).toBeInstanceOf(Float32Array);
+    expect(history[2]!.attributes.color!.array).toBeInstanceOf(Uint8Array);
+    expect(history[3]!.drawRange.count).toBe(0);
+    expect(Array.from(history[2]!.attributes.color!.array).slice(0, 4)).toEqual([255, 0, 0, 64]);
+    renderable.dispose();
   });
 });

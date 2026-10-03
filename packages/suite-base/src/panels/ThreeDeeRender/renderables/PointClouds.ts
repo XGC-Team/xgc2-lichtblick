@@ -695,10 +695,16 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
         maxColorValue,
       );
 
+      const isFlatColor = settings.colorMode === "flat";
+      if (isFlatColor && pointCount > 0) {
+        colorConverter(tempColor, 0);
+      }
       for (let i = 0; i < pointCount; i++) {
-        const pointOffset = i * pointStep;
-        const colorValue = packedColorReader(view, pointOffset);
-        colorConverter(tempColor, colorValue);
+        if (!isFlatColor) {
+          const pointOffset = i * pointStep;
+          const colorValue = packedColorReader(view, pointOffset);
+          colorConverter(tempColor, colorValue);
+        }
         colorAttribute.setXYZW(i, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
         if (settings.stixelsEnabled) {
           stixelColorAttribute.setXYZW(i * 2, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
