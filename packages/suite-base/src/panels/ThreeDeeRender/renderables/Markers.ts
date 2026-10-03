@@ -26,7 +26,6 @@ import {
   normalizeVector3s,
 } from "../normalizeMessages";
 import { Marker, MarkerArray, MARKER_ARRAY_DATATYPES, MARKER_DATATYPES } from "../ros";
-import { fieldLineWidth } from "../settings";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose } from "../transforms";
 
@@ -79,8 +78,13 @@ export class Markers extends SceneExtension<TopicMarkers> {
         fields: {
           color: { label: t("threeDee:color"), input: "rgba", value: config.color },
           lineWidth: {
-            ...fieldLineWidth(t("threeDee:lineWidth"), config.lineWidth, "From message"),
+            label: t("threeDee:lineWidth"),
+            input: "number",
+            value: config.lineWidth,
             min: 0.0001,
+            step: 0.005,
+            precision: 4,
+            placeholder: "From message",
             help: "Override line marker width in meters. Leave empty to use the published width.",
           },
           showOutlines: {
