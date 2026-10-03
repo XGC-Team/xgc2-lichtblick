@@ -135,15 +135,22 @@ export class RenderableMarker extends Renderable<MarkerUserData> {
   #renderMarker(marker: Marker): Marker {
     const settings = this.getSettings();
     const colorStr = settings?.color;
+    const markerScale = settings?.markerScale;
+    const overrideScale =
+      typeof markerScale === "number" &&
+      Number.isFinite(markerScale) &&
+      markerScale > 0 &&
+      markerScale !== 1;
+    const scaleX = overrideScale ? marker.scale.x * markerScale : marker.scale.x;
     const lineWidth = settings?.lineWidth;
     const overrideLineWidth =
       (marker.type === MarkerType.LINE_LIST || marker.type === MarkerType.LINE_STRIP) &&
       typeof lineWidth === "number" &&
       Number.isFinite(lineWidth) &&
       lineWidth > 0 &&
-      lineWidth !== marker.scale.x;
+      lineWidth !== scaleX;
 
-    if (colorStr == undefined && !overrideLineWidth) {
+    if (colorStr == undefined && !overrideScale && !overrideLineWidth) {
       return marker;
     }
 
@@ -153,8 +160,12 @@ export class RenderableMarker extends Renderable<MarkerUserData> {
       newMarker.color = stringToRgba(makeRgba(), colorStr);
       newMarker.colors = [];
     }
-    if (overrideLineWidth) {
-      newMarker.scale = { ...marker.scale, x: lineWidth };
+    if (overrideScale || overrideLineWidth) {
+      newMarker.scale = {
+        x: overrideLineWidth ? lineWidth : scaleX,
+        y: overrideScale ? marker.scale.y * markerScale : marker.scale.y,
+        z: overrideScale ? marker.scale.z * markerScale : marker.scale.z,
+      };
     }
     return newMarker;
   }

@@ -16,6 +16,8 @@ import { updatePose } from "../updatePose";
 
 export type LayerSettingsMarker = BaseSettings & {
   color: string | undefined;
+  /** Display-only multiplier for all marker scale dimensions. */
+  markerScale?: number;
   /** Display-only width in meters for LINE_LIST and LINE_STRIP markers. */
   lineWidth?: number;
   showOutlines: boolean | undefined;

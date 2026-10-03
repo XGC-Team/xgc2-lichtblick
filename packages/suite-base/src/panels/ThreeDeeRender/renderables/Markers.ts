@@ -77,6 +77,16 @@ export class Markers extends SceneExtension<TopicMarkers> {
         order: topic.name.toLocaleLowerCase(),
         fields: {
           color: { label: t("threeDee:color"), input: "rgba", value: config.color },
+          markerScale: {
+            label: "Marker size scale",
+            input: "number",
+            value: config.markerScale,
+            min: 0.0001,
+            step: 0.1,
+            precision: 4,
+            placeholder: "From message",
+            help: "Multiply marker dimensions for display only. Leave empty to use the published size.",
+          },
           lineWidth: {
             label: t("threeDee:lineWidth"),
             input: "number",

@@ -139,13 +139,36 @@ describe.each([
     const marker = makeMarker(type, 4);
     marker.colors = [{ r: 1, g: 0, b: 0, a: 0.5 }];
     const renderer = makeRenderer();
-    renderer.config.topics["/formation"] = { lineWidth: 0.01, color: "#00ff00ff" };
+    marker.scale.y = 0.04;
+    marker.scale.z = 0.06;
+    renderer.config.topics["/formation"] = {
+      markerScale: 0.5, lineWidth: 0.01, color: "#00ff00ff",
+    };
     const renderable = new Constructor("/formation", marker, 1n, renderer);
-    expect(renderable.userData.marker.scale.x).toBe(0.01);
+    expect(renderable.userData.marker.scale).toEqual({ x: 0.01, y: 0.02, z: 0.03 });
     expect(renderable.userData.marker.color).toEqual({ r: 0, g: 1, b: 0, a: 1 });
     expect(renderable.userData.marker.colors).toEqual([]);
     expect(marker.scale.x).toBe(0.02);
     expect(marker.colors).toEqual([{ r: 1, g: 0, b: 0, a: 0.5 }]);
+    renderable.dispose();
+  });
+
+  it("applies explicit line width last even when it equals the authored width", () => {
+    const marker = makeMarker(type, 4);
+    marker.scale = { x: 0.2, y: 0.04, z: 0.06 };
+    Object.freeze(marker.scale);
+    Object.freeze(marker);
+    const renderer = makeRenderer();
+    renderer.config.topics["/formation"] = { markerScale: 0.5, lineWidth: 0.2 };
+    const renderable = new Constructor("/formation", marker, 1n, renderer);
+    expect(renderable.userData.marker.scale).toEqual({ x: 0.2, y: 0.02, z: 0.03 });
+    expect(renderable.userData.marker.points).toBe(marker.points);
+    for (const line of renderable.children as LineSegments2[]) {
+      expect(line.material.uniforms["linewidth"]!.value).toBe(0.2);
+    }
+    const picking = renderable.children[1]!.userData.pickingMaterial as THREE.ShaderMaterial;
+    expect(picking.uniforms["linewidth"]!.value).toBeCloseTo(0.24);
+    expect(marker.scale).toEqual({ x: 0.2, y: 0.04, z: 0.06 });
     renderable.dispose();
   });
 
@@ -198,5 +221,72 @@ it.each([
   renderable.update(marker, 2n);
   expect(renderable.userData.marker).toBe(marker);
   expect(marker.scale.x).toBe(0.02);
+  renderable.dispose();
+});
+
+
+describe.each([
+  MarkerType.ARROW, MarkerType.CUBE, MarkerType.SPHERE, MarkerType.CYLINDER,
+  MarkerType.LINE_STRIP, MarkerType.LINE_LIST, MarkerType.CUBE_LIST, MarkerType.SPHERE_LIST,
+  MarkerType.POINTS, MarkerType.TEXT_VIEW_FACING, MarkerType.MESH_RESOURCE, MarkerType.TRIANGLE_LIST,
+])("display size for marker type %s", (type) => {
+  it.each([0.2, 2])("multiplies only the displayed scale by %s", (markerScale) => {
+    const marker = makeMarker(type, 4);
+    marker.scale = { x: 0.3, y: 0.3, z: 0.3 };
+    marker.colors = [{ r: 0, g: 1, b: 0, a: 0.5 }];
+    Object.freeze(marker.scale);
+    Object.freeze(marker);
+    const renderer = makeRenderer();
+    renderer.config.topics["/objects"] = { markerScale };
+    const renderable = new RenderableMarker("/objects", marker, 1n, renderer);
+    renderable.update(marker, 2n);
+    const displayed = renderable.userData.marker;
+    const expected = markerScale === 0.2 ? 0.06 : 0.6;
+    expect(displayed.scale).toEqual({ x: expected, y: expected, z: expected });
+    expect(displayed.pose).toBe(marker.pose);
+    expect(displayed.points).toBe(marker.points);
+    expect(displayed.colors).toBe(marker.colors);
+    expect(displayed.color).toBe(marker.color);
+    expect(displayed.header).toBe(marker.header);
+    expect(renderable.userData.originalMarker).toBe(marker);
+    expect(renderable.details()).toBe(marker);
+    expect(renderable.userData.pose).toBe(marker.pose);
+    expect(renderable.userData.messageTime).toBe(42000000007n);
+    expect(renderable.userData.receiveTime).toBe(2n);
+    expect(marker.scale).toEqual({ x: 0.3, y: 0.3, z: 0.3 });
+
+    // Reapply from the original message, then restore it without cumulative scaling.
+    renderable.update(marker, 3n);
+    expect(renderable.userData.marker.scale).toEqual(displayed.scale);
+    renderer.config.topics["/objects"] = {};
+    renderable.update(marker, 4n);
+    expect(renderable.userData.marker).toBe(marker);
+    renderable.dispose();
+  });
+});
+
+it.each([undefined, 1, 0, -1, NaN, Infinity, -Infinity])(
+  "preserves marker identity without a valid non-unit size multiplier (%s)",
+  (markerScale) => {
+    const marker = makeMarker(MarkerType.SPHERE, 2);
+    const renderer = makeRenderer();
+    renderer.config.topics["/objects"] = { markerScale };
+    const renderable = new RenderableMarker("/objects", marker, 1n, renderer);
+    renderable.update(marker, 2n);
+    expect(renderable.userData.marker).toBe(marker);
+    expect(renderable.userData.marker.scale).toBe(marker.scale);
+    renderable.dispose();
+  },
+);
+
+it("preserves nonuniform signed and zero dimensions when scaling", () => {
+  const marker = makeMarker(MarkerType.CUBE, 0);
+  marker.scale = { x: -2, y: 0, z: 4 };
+  const renderer = makeRenderer();
+  renderer.config.topics["/objects"] = { markerScale: 0.5 };
+  const renderable = new RenderableMarker("/objects", marker, 1n, renderer);
+  renderable.update(marker, 2n);
+  expect(renderable.userData.marker.scale).toEqual({ x: -1, y: 0, z: 2 });
+  expect(marker.scale).toEqual({ x: -2, y: 0, z: 4 });
   renderable.dispose();
 });
