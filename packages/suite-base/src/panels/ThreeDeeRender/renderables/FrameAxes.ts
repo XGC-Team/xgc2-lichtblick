@@ -100,6 +100,12 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
   #labelBackgroundColor = new THREE.Color();
   #lineGeometry: LineGeometry;
   #defaultRenderableSettings: LayerSettingsTransform;
+  /**
+   * Every coordinate frame this extension has seen. A frame owns scene nodes (axis, label, parent
+   * line) only once it is visible: a fleet's frames number in the thousands, almost all hidden, and
+   * every node costs a matrix update on each render of the panel whether or not it draws.
+   */
+  #knownFrames = new Set<string>();
 
   public constructor(
     renderer: IRenderer,
@@ -391,7 +397,7 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
       }
 
       this.renderer.updateConfig((draft) => {
-        for (const frameId of this.renderables.keys()) {
+        for (const frameId of this.#knownFrames) {
           const frameKeySanitized = frameId === "settings" ? "$settings" : `frame:${frameId}`;
           let draftTransforms = draft.transforms[frameKeySanitized];
           draftTransforms ??= {};
@@ -399,6 +405,12 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
           draft.transforms[frameKeySanitized] = draftTransforms;
         }
       });
+
+      if (value) {
+        for (const frameId of this.#knownFrames) {
+          this.#ensureFrameAxis(frameId);
+        }
+      }
 
       this.updateSettingsTree();
     };
@@ -445,15 +457,16 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
     } else {
       this.saveSetting(path, action.payload.value);
 
-      // Update the renderable
+      // Update the renderable, creating it when the frame has just been made visible
       const frameKey = path[1]!;
       const frameId = frameKey.replace(/^frame:/, "");
-      const renderable = this.renderables.get(frameId);
+      const settings = this.renderer.config.transforms[frameKey];
+      const renderable = this.#ensureFrameAxis(frameId);
       if (renderable) {
-        const settings = this.renderer.config.transforms[frameKey];
         renderable.userData.settings = this.#getRenderableSettingsWithDefaults(settings ?? {});
-
-        this.#updateFrameAxis(renderable);
+      }
+      if (this.#knownFrames.has(frameId)) {
+        this.#updateFrameOffsets(frameId);
       }
     }
   };
@@ -466,20 +479,46 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
 
   #handleTransformTreeUpdated = (): void => {
     for (const frameId of this.renderer.transformTree.frames().keys()) {
-      this.#addFrameAxis(frameId);
+      this.#registerFrame(frameId);
     }
     const config = this.renderer.config;
     if (config.scene.transforms?.editable === true) {
       this.#updateFrameAxes();
     }
-    this.updateSettingsTree();
+    // A burst of new frames (a fleet's first TF message) raises this event once per frame; the
+    // tree lists every frame, so rebuild it once for the whole burst.
+    this.scheduleSettingsTreeUpdate();
   };
 
-  #addFrameAxis(frameId: string): void {
-    if (this.renderables.has(frameId)) {
+  /** First sight of a frame: apply its offsets, and give it nodes only if it is visible. */
+  #registerFrame(frameId: string): void {
+    if (this.#knownFrames.has(frameId)) {
       return;
     }
+    this.#knownFrames.add(frameId);
+    this.#ensureFrameAxis(frameId);
+    this.#updateFrameOffsets(frameId);
+  }
 
+  /**
+   * The frame's renderable, created now if the frame is known, exists, and is configured visible.
+   * Hidden frames have none: nothing would draw, and each one is a subtree of per-render work.
+   */
+  #ensureFrameAxis(frameId: string): FrameAxisRenderable | undefined {
+    const existing = this.renderables.get(frameId);
+    if (existing) {
+      return existing;
+    }
+    if (!this.#knownFrames.has(frameId) || !this.renderer.transformTree.hasFrame(frameId)) {
+      return undefined;
+    }
+    const settings = this.#getRenderableSettingsWithDefaults(
+      this.renderer.config.transforms[`frame:${frameId}`] ?? {},
+    );
+    return settings.visible ? this.#addFrameAxis(frameId) : undefined;
+  }
+
+  #addFrameAxis(frameId: string): FrameAxisRenderable {
     const config = this.renderer.config;
     const frame = this.renderer.transformTree.frame(frameId);
     if (!frame) {
@@ -541,17 +580,18 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
     this.add(renderable);
     this.renderables.set(frameId, renderable);
 
-    this.#updateFrameAxis(renderable);
+    return renderable;
   }
 
   #updateFrameAxes(): void {
-    for (const renderable of this.renderables.values()) {
-      this.#updateFrameAxis(renderable);
+    for (const frameId of this.#knownFrames) {
+      this.#updateFrameOffsets(frameId);
     }
   }
 
-  #updateFrameAxis(renderable: FrameAxisRenderable): void {
-    const frame = this.renderer.transformTree.getOrCreateFrame(renderable.userData.frameId);
+  /** Offsets edit the frame itself, so they apply to hidden frames exactly as to visible ones. */
+  #updateFrameOffsets(frameId: string): void {
+    const frame = this.renderer.transformTree.getOrCreateFrame(frameId);
 
     // Check if TF editing is disabled
     const editable = this.renderer.config.scene.transforms?.editable ?? DEFAULT_EDITABLE;
@@ -561,7 +601,7 @@ export class FrameAxes extends SceneExtension<FrameAxisRenderable> {
       return;
     }
 
-    const frameKey = `frame:${renderable.userData.frameId}`;
+    const frameKey = `frame:${frameId}`;
     frame.offsetPosition = getOffset(this.renderer.config.transforms[frameKey]?.xyzOffset);
     frame.offsetEulerDegrees = getOffset(this.renderer.config.transforms[frameKey]?.rpyCoefficient);
   }

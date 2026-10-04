@@ -456,7 +456,7 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
 
   #handleTransformTreeUpdated = (): void => {
     this.#updateFollowFrameId();
-    this.updateSettingsTree();
+    this.scheduleSettingsTreeUpdate();
   };
 
   #updateFollowFrameId() {

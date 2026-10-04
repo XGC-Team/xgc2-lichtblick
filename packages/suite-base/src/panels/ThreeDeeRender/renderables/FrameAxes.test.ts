@@ -87,6 +87,15 @@ const fetchAsset = async (uri: string, options?: { signal?: AbortSignal }): Prom
   };
 };
 
+/** Frames only own scene nodes while visible; tests that inspect nodes make their frames visible. */
+function showFrames(renderer: Renderer, ...frameIds: string[]): void {
+  renderer.updateConfig((draft) => {
+    for (const frameId of frameIds) {
+      draft.transforms[`frame:${frameId}`] = { ...draft.transforms[`frame:${frameId}`], visible: true };
+    }
+  });
+}
+
 const defaultRendererProps = {
   config: defaultRendererConfig,
   interfaceMode: "3d" as const,
@@ -118,6 +127,7 @@ describe("FrameAxes", () => {
   describe("details()", () => {
     it("returns frame details with parent and fixed frame", () => {
       // Given: A frame with a parent
+      showFrames(renderer, "child");
       const parentFrame = renderer.transformTree.getOrCreateFrame("parent");
       const childFrame = renderer.transformTree.getOrCreateFrame("child");
       childFrame.setParent(parentFrame);
@@ -144,6 +154,7 @@ describe("FrameAxes", () => {
       renderer.updateConfig((draft) => {
         draft.scene.transforms = { axisScale: 1 };
       });
+      showFrames(renderer, "world");
       renderer.transformTree.getOrCreateFrame("world");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -190,6 +201,7 @@ describe("FrameAxes", () => {
   describe("dispose()", () => {
     it("releases label back to pool when disposed", () => {
       // Given: A frame axis with a label
+      showFrames(renderer, "test_frame");
       renderer.transformTree.getOrCreateFrame("test_frame");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -210,6 +222,7 @@ describe("FrameAxes", () => {
   describe("setColorScheme()", () => {
     it("sets labels to white foreground on dark background for dark theme", () => {
       // Given: FrameAxes extension with a frame
+      showFrames(renderer, "test_frame");
       renderer.transformTree.getOrCreateFrame("test_frame");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -230,6 +243,7 @@ describe("FrameAxes", () => {
 
     it("sets labels to black foreground on white background for light theme", () => {
       // Given: FrameAxes extension with a frame
+      showFrames(renderer, "test_frame");
       renderer.transformTree.getOrCreateFrame("test_frame");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -250,6 +264,7 @@ describe("FrameAxes", () => {
 
     it("adjusts foreground color based on custom background luminance", () => {
       // Given: FrameAxes extension with a frame
+      showFrames(renderer, "test_frame");
       renderer.transformTree.getOrCreateFrame("test_frame");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -304,6 +319,7 @@ describe("FrameAxes", () => {
       renderer.updateConfig((draft) => {
         draft.scene.transforms = { axisScale: 2.5 };
       });
+      showFrames(renderer, "test_frame");
       renderer.transformTree.getOrCreateFrame("test_frame");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -344,7 +360,7 @@ describe("FrameAxes", () => {
 
       // Verify initial visibility states
       expect(renderable1?.userData.settings.visible).toBe(true);
-      expect(renderable2?.userData.settings.visible).toBe(false);
+      expect(renderable2).toBeUndefined();
 
       // When: Sending reorder-node that would normally flip a visibility value
       const reorderAction: SettingsTreeAction = {
@@ -358,7 +374,7 @@ describe("FrameAxes", () => {
 
       // Then: Visibility states remain unchanged (early return prevented processing)
       expect(renderable1?.userData.settings.visible).toBe(true);
-      expect(renderable2?.userData.settings.visible).toBe(false);
+      expect(frameAxes.renderables.get("frame2")).toBeUndefined();
       expect(renderer.config.transforms["frame:frame2"]?.visible).toBe(false);
     });
 
@@ -381,10 +397,13 @@ describe("FrameAxes", () => {
       // When: Triggering show-all action
       frameAxes.handleSettingsAction(action);
 
-      // Then: All renderables should be visible
+      // Then: Every frame has a visible renderable, including frames that had none while hidden
+      expect([...frameAxes.renderables.keys()].sort()).toEqual(["frame1", "frame2"]);
       for (const renderable of frameAxes.renderables.values()) {
         expect(renderable.userData.settings.visible).toBe(true);
       }
+      expect(renderer.config.transforms["frame:frame1"]?.visible).toBe(true);
+      expect(renderer.config.transforms["frame:frame2"]?.visible).toBe(true);
     });
 
     it("hides all frames when hide-all action is triggered", () => {
@@ -406,14 +425,17 @@ describe("FrameAxes", () => {
       // When: Triggering hide-all action
       frameAxes.handleSettingsAction(action);
 
-      // Then: All renderables should be hidden
+      // Then: Every frame is configured hidden and none has a visible renderable
       for (const renderable of frameAxes.renderables.values()) {
         expect(renderable.userData.settings.visible).toBe(false);
       }
+      expect(renderer.config.transforms["frame:frame1"]?.visible).toBe(false);
+      expect(renderer.config.transforms["frame:frame2"]?.visible).toBe(false);
     });
 
     it("updates label size when labelSize setting is changed", () => {
       // Given: FrameAxes extension with a frame
+      showFrames(renderer, "test_frame");
       renderer.transformTree.getOrCreateFrame("test_frame");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -441,6 +463,7 @@ describe("FrameAxes", () => {
 
     it("updates axis scale when axisScale setting is changed", () => {
       // Given: FrameAxes extension with a frame
+      showFrames(renderer, "test_frame");
       renderer.transformTree.getOrCreateFrame("test_frame");
       renderer.emit("transformTreeUpdated", renderer);
 
@@ -490,6 +513,125 @@ describe("FrameAxes", () => {
 
       // Then: Config should be updated
       expect(renderer.config.transforms["frame:test_frame"]?.visible).toBe(false);
+    });
+  });
+
+  describe("hidden frames", () => {
+    const origin = { x: 0, y: 0, z: 0 };
+    const identity = { x: 0, y: 0, z: 0, w: 1 };
+
+    function addFleetFrames(count: number): void {
+      for (let i = 0; i < count; i++) {
+        renderer.addTransform("world", `robot_${i}/base_link`, 0n, origin, identity);
+      }
+    }
+
+    function countNodes(frameAxes: FrameAxes): number {
+      let nodes = 0;
+      frameAxes.traverse(() => {
+        nodes++;
+      });
+      return nodes;
+    }
+
+    it("keeps the scene node count constant while 500 hidden frames arrive", () => {
+      showFrames(renderer, "world");
+      renderer.addTransform("world", "robot_seed/base_link", 0n, origin, identity);
+      const frameAxes = renderer.sceneExtensions.get("foxglove.FrameAxes") as FrameAxes;
+      const baseline = countNodes(frameAxes);
+      expect(frameAxes.renderables.size).toBe(1);
+
+      addFleetFrames(500);
+
+      expect(renderer.transformTree.frames().size).toBe(502);
+      expect(frameAxes.renderables.size).toBe(1);
+      expect(countNodes(frameAxes)).toBe(baseline);
+    });
+
+    it("rebuilds the settings trees once for a burst of 500 new frames", async () => {
+      const frameAxes = renderer.sceneExtensions.get("foxglove.FrameAxes") as FrameAxes;
+      const grids = renderer.sceneExtensions.get("foxglove.Grids")!;
+      const frameAxesRebuilds = jest.spyOn(frameAxes, "settingsNodes");
+      const gridRebuilds = jest.spyOn(grids, "settingsNodes");
+      await Promise.resolve();
+      frameAxesRebuilds.mockClear();
+      gridRebuilds.mockClear();
+
+      addFleetFrames(500);
+      expect(frameAxesRebuilds).not.toHaveBeenCalled();
+      await Promise.resolve();
+
+      expect(frameAxesRebuilds).toHaveBeenCalledTimes(1);
+      expect(gridRebuilds).toHaveBeenCalledTimes(1);
+      // The one rebuild lists every frame, exactly what an eager rebuild per frame left behind.
+      const transforms = renderer.settings.tree()["transforms"];
+      // 500 robot frames plus their parent, `world`.
+      expect(Object.keys(transforms?.children ?? {}).filter((k) => k.startsWith("frame:"))).toHaveLength(
+        501,
+      );
+      expect(transforms?.label).toContain("(501)");
+
+      // A repeat sample of a known frame changes no tree; a later new frame is a new burst.
+      addFleetFrames(1);
+      await Promise.resolve();
+      expect(frameAxesRebuilds).toHaveBeenCalledTimes(1);
+      renderer.addTransform("world", "late/base_link", 0n, origin, identity);
+      await Promise.resolve();
+      expect(frameAxesRebuilds).toHaveBeenCalledTimes(2);
+    });
+
+    it("creates the nodes when a hidden frame is made visible and keeps them when hidden again", () => {
+      addFleetFrames(3);
+      const frameAxes = renderer.sceneExtensions.get("foxglove.FrameAxes") as FrameAxes;
+      expect(frameAxes.renderables.size).toBe(0);
+      const frameId = "robot_1/base_link";
+      // eslint-disable-next-line @lichtblick/no-boolean-parameters
+      const toggle = (value: boolean) => {
+        frameAxes.handleSettingsAction({
+          action: "update",
+          payload: { path: ["transforms", `frame:${frameId}`, "visible"], value, input: "boolean" },
+        });
+      };
+
+      toggle(true);
+      const renderable = frameAxes.renderables.get(frameId);
+      expect(renderable?.userData.settings.visible).toBe(true);
+      expect(frameAxes.renderables.size).toBe(1);
+      expect(renderable?.parent).toBe(frameAxes);
+
+      toggle(false);
+      expect(frameAxes.renderables.get(frameId)).toBe(renderable);
+      expect(renderable?.userData.settings.visible).toBe(false);
+      expect(renderer.config.transforms[`frame:${frameId}`]?.visible).toBe(false);
+    });
+
+    it("gives a frame that is visible in the layout nodes as soon as it arrives", () => {
+      showFrames(renderer, "robot_2/base_link");
+      addFleetFrames(4);
+      const frameAxes = renderer.sceneExtensions.get("foxglove.FrameAxes") as FrameAxes;
+
+      expect([...frameAxes.renderables.keys()]).toEqual(["robot_2/base_link"]);
+      expect(frameAxes.renderables.get("robot_2/base_link")?.userData.settings.visible).toBe(true);
+    });
+
+    it("applies editable offsets to frames that have no nodes", () => {
+      renderer.updateConfig((draft) => {
+        draft.scene.transforms = { editable: true };
+        draft.transforms["frame:robot_0/base_link"] = { xyzOffset: [1, 2, 3] };
+      });
+      addFleetFrames(2);
+      const frameAxes = renderer.sceneExtensions.get("foxglove.FrameAxes") as FrameAxes;
+      const frame = renderer.transformTree.frame("robot_0/base_link");
+
+      expect(frameAxes.renderables.size).toBe(0);
+      expect(frame?.offsetPosition).toEqual([1, 2, 3]);
+
+      frameAxes.handleSettingsAction({
+        action: "update",
+        payload: { path: ["transforms", "frame:robot_1/base_link", "xyzOffset"], value: [4, 5, 6], input: "vec3" },
+      });
+      expect(renderer.transformTree.frame("robot_1/base_link")?.offsetPosition).toEqual([4, 5, 6]);
+      expect(frameAxes.renderables.size).toBe(0);
     });
   });
 });

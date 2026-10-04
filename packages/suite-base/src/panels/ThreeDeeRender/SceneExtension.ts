@@ -59,6 +59,8 @@ export class SceneExtension<
    * renderable per topic.
    */
   public readonly renderables = new Map<string, TRenderable>();
+  #settingsTreeUpdateQueued = false;
+  #disposed = false;
 
   /**
    * @param extensionId A unique identifier for this SceneExtension, such as `foxglove.Markers`.
@@ -82,6 +84,7 @@ export class SceneExtension<
    * here. The base class implementation calls dispose() on all `renderables`.
    */
   public dispose(): void {
+    this.#disposed = true;
     for (const renderable of this.renderables.values()) {
       renderable.dispose();
     }
@@ -149,6 +152,25 @@ export class SceneExtension<
    */
   public updateSettingsTree(): void {
     this.renderer.settings.setNodesForKey(this.extensionId, this.settingsNodes());
+  }
+
+  /**
+   * `updateSettingsTree()` for callers that fire once per incoming item (a new coordinate frame, a
+   * new topic) and whose nodes list every item: all calls made while the current task is still
+   * running share one rebuild, which runs as soon as the task ends. Arrival triggers it; no timer
+   * delays it, and the tree read afterwards is exactly the one an eager rebuild would have left.
+   */
+  protected scheduleSettingsTreeUpdate(): void {
+    if (this.#settingsTreeUpdateQueued) {
+      return;
+    }
+    this.#settingsTreeUpdateQueued = true;
+    queueMicrotask(() => {
+      this.#settingsTreeUpdateQueued = false;
+      if (!this.#disposed) {
+        this.updateSettingsTree();
+      }
+    });
   }
 
   /**

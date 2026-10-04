@@ -260,7 +260,7 @@ export class Grids extends SceneExtension<GridRenderable> {
   };
 
   #handleTransformTreeUpdated = (): void => {
-    this.updateSettingsTree();
+    this.scheduleSettingsTreeUpdate();
   };
 
   #updateGrid(instanceId: string, settings: Partial<LayerSettingsGrid> | undefined): void {
