@@ -77,6 +77,7 @@ const mockRenderer = {
   canResetView: jest.fn(() => false),
   getContextMenuItems: jest.fn(() => []),
   fixedFrameId: undefined as string | undefined,
+  sceneExtensions: new Map<string, unknown>(),
 };
 
 jest.mock("./RendererContext", () => {
@@ -94,6 +95,7 @@ describe("<RendererOverlay /> hover wiring", () => {
     mockRendererEventCallbacks.clear();
     mockLastHoverTooltipProps = undefined;
     mockRenderer.fixedFrameId = undefined;
+    mockRenderer.sceneExtensions.clear();
     jest.clearAllMocks();
   });
 
@@ -135,6 +137,10 @@ describe("<RendererOverlay /> hover wiring", () => {
             onClickPublish={jest.fn()}
             onShowTopicSettings={jest.fn()}
             onTogglePerspective={jest.fn()}
+            onFollowRobot={jest.fn()}
+            onOverview={jest.fn()}
+            onGoal={jest.fn()}
+            followFrameId={undefined}
             perspective={false}
             publishActive={false}
             publishClickType="point"
@@ -167,6 +173,39 @@ describe("<RendererOverlay /> hover wiring", () => {
     expect(screen.getByRole("button", { name: "Cancel measuring" })).toBe(measure);
     expect(measure).toBeVisible();
     expect(onClickMeasure).not.toHaveBeenCalled();
+  });
+
+  it("exposes Goal, Follow robot and Overview through native input callbacks", () => {
+    mockRenderer.fixedFrameId = "world";
+    const robotFollowFrames = jest.fn(() => [
+      { label: "uav1", value: "xgc/robots/uav1/base_link" },
+    ]);
+    mockRenderer.sceneExtensions.set("foxglove.Urdfs", { robotFollowFrames });
+    const onGoal = jest.fn(),
+      onFollowRobot = jest.fn(),
+      onOverview = jest.fn();
+    renderOverlay(document.createElement("canvas"), {
+      canPublish: true,
+      onGoal,
+      onFollowRobot,
+      onOverview,
+    });
+    expect(robotFollowFrames).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Goal" }));
+    expect(onGoal).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Follow robot" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "uav1" }));
+    expect(onFollowRobot).toHaveBeenCalledWith("xgc/robots/uav1/base_link");
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    expect(onOverview).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Goal visible but disabled without publishing capability", () => {
+    mockRenderer.fixedFrameId = "world";
+    renderOverlay(document.createElement("canvas"));
+    expect(screen.getByRole("button", { name: "Goal" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Follow robot" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Overview" })).toBeVisible();
   });
 
   it("closes the portaled publish menu when host Tools hides overlay tools", () => {

@@ -223,6 +223,19 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     }
   }
 
+  /** Read the existing parsed robot roots on UI input; no TF-to-React forwarding. */
+  public robotFollowFrames(): { label: string; value: string }[] {
+    return Array.from(this.#rootFramesByInstanceId, ([instanceId, frameId]) => ({
+      label:
+        (
+          this.renderables.get(instanceId)?.userData.settings as
+            | Partial<LayerSettingsCustomUrdf>
+            | undefined
+        )?.label ?? instanceId,
+      value: frameId,
+    }));
+  }
+
   public constructor(renderer: IRenderer, name: string = Urdfs.extensionId) {
     super(name, renderer);
 

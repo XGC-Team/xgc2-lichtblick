@@ -114,6 +114,8 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   });
   const configRef = useLatest(config);
   const { cameraState } = config;
+  // Original run-scoped overview only; live TF/camera tracking stays native.
+  const [overviewCameraState] = useState(() => _.cloneDeep(config.cameraState) as CameraState);
   const backgroundColor = config.scene.backgroundColor;
   // Primitive rebuild key: the ObstacleScene extension reads the optional
   // overlay color once at renderer construction.
@@ -966,6 +968,55 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     }
   }, [publishActive, renderer]);
 
+  const onFollowRobot = useCallback(
+    (frameId: string) => {
+      renderer?.publishClickTool.stop();
+      actionHandler({
+        action: "update",
+        payload: { input: "select", path: ["general", "followTf"], value: frameId },
+      });
+      actionHandler({
+        action: "update",
+        payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
+      });
+    },
+    [actionHandler, renderer],
+  );
+
+  const onOverview = useCallback(() => {
+    if (!renderer) return;
+    renderer.publishClickTool.stop();
+    actionHandler({
+      action: "update",
+      payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
+    });
+    actionHandler({
+      action: "update",
+      payload: {
+        input: "select",
+        path: ["general", "followTf"],
+        value: renderer.fixedFrameId,
+      },
+    });
+    renderer.setCameraState(overviewCameraState);
+    renderer.updateConfig((draft) => {
+      draft.cameraState = _.cloneDeep(overviewCameraState);
+    });
+  }, [actionHandler, overviewCameraState, renderer]);
+
+  const onGoal = useCallback(() => {
+    if (!renderer) return;
+    if (publishActive && renderer.publishClickTool.publishClickType === "pose") {
+      renderer.publishClickTool.stop();
+      return;
+    }
+    // Publish in the configured overview/world frame, never a followed robot's frame.
+    onOverview();
+    renderer.measurementTool.stopMeasuring();
+    renderer.publishClickTool.setPublishClickType("pose");
+    renderer.publishClickTool.start();
+  }, [onOverview, publishActive, renderer]);
+
   const onTogglePerspective = useCallback(() => {
     const currentState = renderer?.getCameraState()?.perspective ?? false;
     actionHandler({
@@ -1023,6 +1074,10 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
             enableStats={config.scene.enableStats ?? false}
             perspective={config.cameraState.perspective}
             onTogglePerspective={onTogglePerspective}
+            onFollowRobot={onFollowRobot}
+            onOverview={onOverview}
+            onGoal={onGoal}
+            followFrameId={config.followMode === "follow-none" ? undefined : config.followTf}
             measureActive={measureActive}
             onClickMeasure={onClickMeasure}
             canPublish={canPublish}

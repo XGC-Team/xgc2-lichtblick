@@ -23,6 +23,7 @@ import RenderStateBuilder from "@lichtblick/suite-base/testing/builders/RenderSt
 
 import { Renderer } from "./Renderer";
 import { ThreeDeeRender } from "./ThreeDeeRender";
+import type { RendererOverlay } from "./RendererOverlay";
 import { DEFAULT_CAMERA_STATE } from "./camera";
 import type { InterfaceMode, ThreeDeeRenderProps } from "./types";
 
@@ -52,6 +53,7 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
     handleAllFramesMessages: jest.fn(),
     addMessageEvent: jest.fn(),
     setCameraState: jest.fn(),
+    updateConfig: jest.fn(),
     getCameraState: jest.fn().mockReturnValue(undefined),
     animationFrame: jest.fn(),
     addListener: jest.fn((event: string, listener: (...args: any[]) => void) => {
@@ -84,6 +86,7 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
     setCustomCameraModels: jest.fn(),
     setCameraSyncError: jest.fn(),
     followFrameId: "base_link",
+    fixedFrameId: "world",
     ros: false,
     currentTime: undefined,
     measurementTool: {
@@ -115,8 +118,12 @@ jest.mock("@lichtblick/suite-base/theme/ThemeProvider", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+let mockOverlayProps: React.ComponentProps<typeof RendererOverlay>;
 jest.mock("./RendererOverlay", () => ({
-  RendererOverlay: () => <div data-testid="renderer-overlay">Renderer Overlay</div>,
+  RendererOverlay: (props: React.ComponentProps<typeof RendererOverlay>) => {
+    mockOverlayProps = props;
+    return <div data-testid="renderer-overlay">Renderer Overlay</div>;
+  },
 }));
 
 const createMockContext = (
@@ -241,6 +248,40 @@ describe("ThreeDeeRender", () => {
 
     const { getByTestId } = render(<ThreeDeeRender {...props} />);
     expect(getByTestId("renderer-overlay")).toBeInTheDocument();
+  });
+
+  it("uses native follow state and the original goal click tool only on UI input", () => {
+    const props = setup(
+      {},
+      { initialState: { followTf: "xgc/robots/uav1/base_link", followMode: "follow-position" } },
+    );
+    render(<ThreeDeeRender {...props} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    act(() => mockOverlayProps.onFollowRobot("xgc/robots/uav1/base_link"));
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: {
+        input: "select",
+        path: ["general", "followTf"],
+        value: "xgc/robots/uav1/base_link",
+      },
+    });
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
+    });
+    act(() => mockOverlayProps.onGoal());
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: { input: "select", path: ["general", "followTf"], value: "world" },
+    });
+    expect(renderer.publishClickTool.setPublishClickType).toHaveBeenCalledWith("pose");
+    expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
+    expect(props.context.publish).not.toHaveBeenCalled();
+    expect(renderer.addListener).not.toHaveBeenCalledWith(
+      "transformTreeUpdated",
+      expect.any(Function),
+    );
   });
 
   it("initializes with default camera state when no initial state is provided", () => {

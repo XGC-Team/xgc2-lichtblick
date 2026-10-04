@@ -131,6 +131,7 @@ it("drains the real model and texture promise before an offline frame can settle
     nextTurn(resolve);
   });
   const child = [...extension.renderables.get("model")!.userData.renderables.values()][0]!;
+  expect(extension.robotFollowFrames()).toEqual([{ label: "Robot", value: "base_link" }]);
   expect(settled).toBe(false);
   expect(child.children).toHaveLength(0);
   manager.itemEnd("texture");
