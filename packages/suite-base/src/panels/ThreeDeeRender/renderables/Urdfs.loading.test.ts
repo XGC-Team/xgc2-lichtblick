@@ -13,6 +13,8 @@ import { setImmediate as nextTurn } from "timers";
 import { Urdfs } from "./Urdfs";
 import type { IRenderer } from "../IRenderer";
 import { ModelCache } from "../ModelCache";
+import { ObjectPool } from "@lichtblick/den/collection";
+import { Transform, TransformTree } from "../transforms";
 
 jest.mock("three/examples/jsm/libs/draco/draco_decoder.wasm", () => "draco.wasm");
 jest.mock("three/examples/jsm/libs/draco/draco_wasm_wrapper.js?raw", () => "");
@@ -53,7 +55,7 @@ const urdf =
 function asset(text: string, mediaType: string) {
   return { data: new TextEncoder().encode(text), mediaType };
 }
-function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml"))) {
+function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml")), instanceId = "model") {
   const fetchAsset = jest.fn().mockImplementation(async (url: string) => {
     if (url.endsWith(".urdf")) {
       return await urdfAsset;
@@ -85,12 +87,13 @@ function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml"))) {
     addCustomLayerAction: jest.fn(),
     config: {
       layers: {
-        model: {
+        [instanceId]: {
           layerId: "foxglove.Urdf",
           sourceType: "url",
           url: "https://models.invalid/robot.urdf",
           label: "Robot",
           framePrefix: "",
+          scale: 1,
         },
       },
       topics: {},
@@ -101,9 +104,11 @@ function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml"))) {
         add: jest.fn(),
         remove: jest.fn(),
         hasError: jest.fn(() => false),
+        clearPath: jest.fn(),
       },
     },
     updateConfig: jest.fn(),
+    transformTree: new TransformTree(new ObjectPool(Transform.Empty)),
     addCoordinateFrame: jest.fn(),
     addTransform: jest.fn(),
     removeTransform: jest.fn(),
@@ -202,5 +207,70 @@ it("preserves parked URDFs on seek and reuses the cache after layer disposal", a
   ).toHaveLength(1);
   extension.dispose();
   reloaded.dispose();
+  modelCache.dispose();
+});
+
+it("reconciles managed config or restored membership once while pose work continues", async () => {
+  const instanceId = "xgc2-urdf-test";
+  const { extension, renderer, modelCache } = setup(undefined, instanceId);
+  await extension.settleVideoDecodes();
+  const layer = renderer.config.layers[instanceId]!;
+  const readLayer = jest.fn(() => layer);
+  Object.defineProperty(renderer.config.layers, instanceId, {
+    configurable: true,
+    enumerable: true,
+    get: readLayer,
+  });
+  renderer.transformTree.addTransform(
+    "base_link",
+    "world",
+    0n,
+    new Transform([1, 0, 0], [0, 0, 0, 1]),
+  );
+  extension.startFrame(0n, "world", "world");
+  const child = [...extension.renderables.get(instanceId)!.userData.renderables.values()][0]!;
+  expect(child.position.x).toBeCloseTo(1);
+  readLayer.mockClear();
+  for (let frame = 1; frame <= 10; frame++) extension.startFrame(BigInt(frame), "world", "world");
+  expect(readLayer).not.toHaveBeenCalled();
+  renderer.transformTree.addTransform(
+    "base_link",
+    "world",
+    11n,
+    new Transform([2, 0, 0], [0, 0, 0, 1]),
+  );
+  extension.startFrame(11n, "world", "world");
+  expect(child.position.x).toBeCloseTo(2);
+  expect(readLayer).not.toHaveBeenCalled();
+  extension.removeAllRenderables();
+  extension.startFrame(12n, "world", "world");
+  expect(readLayer).toHaveBeenCalled();
+  readLayer.mockClear();
+  extension.startFrame(13n, "world", "world");
+  expect(readLayer).not.toHaveBeenCalled();
+
+  const generation = extension.renderables.get(instanceId)!.loadGeneration;
+  renderer.config.layers = {
+    ...renderer.config.layers,
+    [instanceId]: { ...layer, framePrefix: "next/", scale: 2 },
+  };
+  extension.startFrame(14n, "world", "world");
+  await extension.settleVideoDecodes();
+  expect(extension.renderables.get(instanceId)!.loadGeneration).toBeGreaterThan(generation);
+  expect(extension.robotFollowFrames()[0]?.value).toBe("next/base_link");
+  extension.startFrame(15n, "world", "world");
+  const keys = jest.spyOn(extension.renderables, "keys");
+  extension.startFrame(16n, "world", "world");
+  expect(keys).not.toHaveBeenCalled();
+  const disposed = jest.spyOn(extension.renderables.get(instanceId)!, "dispose");
+  renderer.config.layers = {};
+  extension.startFrame(17n, "world", "world");
+  expect(disposed).toHaveBeenCalledTimes(1);
+  expect(extension.renderables.size).toBe(0);
+  renderer.config.layers = { [instanceId]: layer };
+  extension.startFrame(18n, "world", "world");
+  await extension.settleVideoDecodes();
+  expect(extension.renderables.has(instanceId)).toBe(true);
+  extension.dispose();
   modelCache.dispose();
 });

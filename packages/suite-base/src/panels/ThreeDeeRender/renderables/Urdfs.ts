@@ -210,6 +210,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #textDecoder = new TextDecoder();
   #urdfsByTopic = new Map<string, string>();
   #pendingLoads = new Set<Promise<void>>();
+  #managedLayersIdentity: IRenderer["config"]["layers"] | undefined;
+  #managedMembershipDirty = true;
 
   #trackLoad(promise: Promise<void>): void {
     this.#pendingLoads.add(promise);
@@ -511,6 +513,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   }
 
   public override removeAllRenderables(): void {
+    this.#managedMembershipDirty = true;
     // Re-add coordinate frames and transforms since the scene has been cleared
     this.#refreshTransforms();
   }
@@ -986,6 +989,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       renderable.dispose();
       this.remove(renderable);
       this.renderables.delete(instanceId);
+      this.#managedMembershipDirty = true;
     }
 
     const transforms = this.#transformsByInstanceId.get(instanceId);
@@ -1006,6 +1010,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
   #syncManagedUrdfLayers(): void {
     const layers = this.renderer.config.layers;
+    if (layers === this.#managedLayersIdentity && !this.#managedMembershipDirty) return;
     for (const instanceId of [...this.renderables.keys()]) {
       if (!instanceId.startsWith(MANAGED_URDF_LAYER_PREFIX)) {
         continue;
@@ -1047,6 +1052,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         this.#loadUrdf({ instanceId, urdf: undefined });
       }
     }
+    // The synchronous reconcile owns its own add/delete mutations. Accepted async loads can
+    // dirty membership later, but this completed pass must not dirty itself on every frame.
+    this.#managedLayersIdentity = layers;
+    this.#managedMembershipDirty = false;
   }
 
   #loadUrdf(args: { instanceId: string; urdf?: string; forceReload?: boolean }): void {
@@ -1128,6 +1137,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       });
       this.add(renderable);
       this.renderables.set(instanceId, renderable);
+      this.#managedMembershipDirty = true;
     }
 
     const loadGeneration = ++renderable.loadGeneration;
@@ -1200,6 +1210,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
             return;
           }
           this.#loadRobot(loadedRenderable, parsed, baseUrl);
+          this.#managedMembershipDirty = true;
           this.renderer.settings.errors.remove(
             loadedRenderable.userData.settingsPath,
             PARSE_URDF_ERR,
