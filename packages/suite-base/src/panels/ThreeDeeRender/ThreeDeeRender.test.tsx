@@ -26,6 +26,7 @@ import { Renderer } from "./Renderer";
 import { ThreeDeeRender } from "./ThreeDeeRender";
 import type { RendererOverlay } from "./RendererOverlay";
 import { DEFAULT_CAMERA_STATE } from "./camera";
+import type { PublishClickEventMap } from "./renderables/PublishClickTool";
 import type { InterfaceMode, ThreeDeeRenderProps } from "./types";
 
 // three.js modules
@@ -320,6 +321,43 @@ describe("ThreeDeeRender", () => {
       "transformTreeUpdated",
       expect.any(Function),
     );
+  });
+
+  it("reports a synchronous Goal publish failure with the configured topic and reason", () => {
+    const failure = new Error("No advertised channel");
+    const enqueueSnackbarFromParent = jest.fn();
+    const logError = jest.fn();
+    const consoleError = jest.spyOn(console, "error").mockImplementation();
+    const props = setup(
+      { enqueueSnackbarFromParent, logError },
+      {
+        initialState: { publish: { poseTopic: "/chosen/goal" } },
+        publish: jest.fn(() => {
+          throw failure;
+        }),
+      },
+    );
+    render(<ThreeDeeRender {...props} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    const onSubmit = jest
+      .mocked(renderer.publishClickTool.addEventListener)
+      .mock.calls.find(([type]) => type === "foxglove.publish-submit")![1] as unknown as (
+      event: PublishClickEventMap["foxglove.publish-submit"],
+    ) => void;
+    const pose = { position: { x: 1, y: 2, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
+    act(() => onSubmit({ publishClickType: "pose", pose }));
+    expect(props.context.publish).toHaveBeenCalledTimes(1);
+    expect(props.context.publish).toHaveBeenCalledWith(
+      "/chosen/goal",
+      expect.objectContaining({
+        header: expect.objectContaining({ frame_id: "base_link" }),
+        pose,
+      }),
+    );
+    const message = "Failed to publish pose to /chosen/goal in base_link: No advertised channel";
+    expect(enqueueSnackbarFromParent).toHaveBeenCalledWith(message, "error");
+    expect(logError).toHaveBeenCalledWith(message, failure);
+    consoleError.mockRestore();
   });
 
   it("initializes with default camera state when no initial state is provided", () => {

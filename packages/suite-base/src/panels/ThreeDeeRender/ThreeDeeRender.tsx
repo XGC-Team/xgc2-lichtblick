@@ -947,7 +947,17 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           }
         }
       } catch (error) {
-        log.info(error);
+        const topic =
+          event.publishClickType === "point"
+            ? publishTopics.point
+            : event.publishClickType === "pose"
+              ? publishTopics.goal
+              : publishTopics.pose;
+        const reason = error instanceof Error ? error.message : String(error);
+        const message = `Failed to publish ${event.publishClickType} to ${topic} in ${frameId}: ${reason}`;
+        displayTemporaryError(message);
+        logError?.(message, error instanceof Error ? error : undefined);
+        log.error(message, error);
       }
     };
     const onEnd = () => {
@@ -963,7 +973,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     };
   }, [
     context,
+    displayTemporaryError,
     latestPublishConfig,
+    logError,
     publishTopics,
     renderer?.followFrameId,
     renderer?.publishClickTool,
