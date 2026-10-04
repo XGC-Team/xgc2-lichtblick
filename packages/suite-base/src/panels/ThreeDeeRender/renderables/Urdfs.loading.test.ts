@@ -11,6 +11,7 @@ import * as THREE from "three";
 import { setImmediate as nextTurn } from "timers";
 
 import { Urdfs } from "./Urdfs";
+import { MISSING_TRANSFORM } from "./transforms";
 import type { IRenderer } from "../IRenderer";
 import { ModelCache } from "../ModelCache";
 import { ObjectPool } from "@lichtblick/den/collection";
@@ -55,8 +56,14 @@ const urdf =
 function asset(text: string, mediaType: string) {
   return { data: new TextEncoder().encode(text), mediaType };
 }
-function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml")), instanceId = "model") {
+function setup(
+  urdfAsset = Promise.resolve(asset(urdf, "application/xml")),
+  instanceId = "model",
+  ownedAssets?: ReadonlyMap<string, ReturnType<typeof asset> | Promise<ReturnType<typeof asset>>>,
+) {
   const fetchAsset = jest.fn().mockImplementation(async (url: string) => {
+    const owned = ownedAssets?.get(url);
+    if (owned != undefined) return await owned;
     if (url.endsWith(".urdf")) {
       return await urdfAsset;
     }
@@ -84,6 +91,7 @@ function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml")), inst
     fetchAsset,
     modelCache,
     on: jest.fn(),
+    off: jest.fn(),
     addCustomLayerAction: jest.fn(),
     config: {
       layers: {
@@ -135,13 +143,15 @@ it("drains the real model and texture promise before an offline frame can settle
   await new Promise<void>((resolve) => {
     nextTurn(resolve);
   });
-  const child = [...extension.renderables.get("model")!.userData.renderables.values()][0]!;
-  expect(extension.robotFollowFrames()).toEqual([{ label: "Robot", value: "base_link" }]);
+  const owner = extension.renderables.get("model")!;
+  const child = [...owner.pendingVisual!.userData.renderables.values()][0]!;
+  expect(owner.userData.renderables.size).toBe(0);
   expect(settled).toBe(false);
   expect(child.children).toHaveLength(0);
   manager.itemEnd("texture");
   await ready;
   expect(child.children).toHaveLength(1);
+  expect(extension.robotFollowFrames()).toEqual([{ label: "Robot", value: "base_link" }]);
   extension.dispose();
   modelCache.dispose();
 });
@@ -159,8 +169,8 @@ it("settles a failed texture with an authoritative error, never a mesh", async (
   manager.itemError("texture");
   manager.itemEnd("texture");
   await ready;
-  const child = [...extension.renderables.get("model")!.userData.renderables.values()][0]!;
-  expect(child.children).toHaveLength(0);
+  expect(extension.renderables.get("model")!.userData.renderables.size).toBe(0);
+  expect(extension.renderables.get("model")!.pendingVisual).toBeUndefined();
   expect(renderer.settings.errors.add).toHaveBeenCalledWith(
     ["layers", "model"],
     "MESH_FETCH_FAILED",
@@ -192,7 +202,9 @@ it("preserves parked URDFs on seek and reuses the cache after layer disposal", a
   });
   const { extension, renderer, modelCache } = setup();
   const manager = await decoding.promise;
-  const removed = [...extension.renderables.get("model")!.userData.renderables.values()][0]!;
+  const removed = [
+    ...extension.renderables.get("model")!.pendingVisual!.userData.renderables.values(),
+  ][0]!;
   extension.removeAllRenderables();
   expect(extension.renderables.size).toBe(1);
   extension.dispose();
@@ -271,6 +283,240 @@ it("reconciles managed config or restored membership once while pose work contin
   extension.startFrame(18n, "world", "world");
   await extension.settleVideoDecodes();
   expect(extension.renderables.has(instanceId)).toBe(true);
+  extension.dispose();
+  modelCache.dispose();
+});
+
+it("loads only the declared selected visual, commits it atomically and restores the current absolute pose on re-entry", async () => {
+  const manifestUri = "package://test_description/modeling/visual_variants.json";
+  const xml = (mesh: string) =>
+    `<robot name="test"><xgc2_visual manifest="${manifestUri}"/><link name="base_link"><visual><geometry><mesh filename="${mesh}.dae"/></geometry></visual></link></robot>`;
+  const proxy = deferred<ReturnType<typeof asset>>();
+  const manifest = {
+    release_visual: "release",
+    variants: {
+      release: { urdf: "urdf/release.urdf" },
+      detail: { urdf: "urdf/detail.urdf" },
+      proxy: { urdf: "urdf/proxy.urdf" },
+    },
+    viewer_lod: {
+      reference: "detail",
+      metric: "sampled_surface_m",
+      errors: { detail: 0, release: 0.1, proxy: 0.2 },
+      link_roles: {},
+    },
+  };
+  mockParse.mockImplementation(() => {
+    const scene = new THREE.Group();
+    scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial()));
+    return { scene };
+  });
+  const owned = new Map<string, ReturnType<typeof asset> | Promise<ReturnType<typeof asset>>>([
+    [manifestUri, asset(JSON.stringify(manifest), "application/json")],
+    ["package://test_description/urdf/release.urdf", asset(xml("release"), "application/xml")],
+    ["package://test_description/urdf/proxy.urdf", proxy.promise],
+  ]);
+  const { extension, renderer, modelCache } = setup(
+    Promise.resolve(asset(xml("release"), "application/xml")),
+    "model",
+    owned,
+  );
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.updateMatrixWorld();
+  Object.assign(renderer, {
+    interfaceMode: "3d",
+    cameraHandler: { getActiveCamera: () => camera },
+    gl: { getDrawingBufferSize: (target: THREE.Vector2) => target.set(100, 100) },
+  });
+  await extension.settleVideoDecodes();
+  const owner = extension.renderables.get("model")!;
+  const original = [...owner.userData.renderables.values()][0]!;
+  expect(owner.visualLod?.current).toBe("release");
+  renderer.transformTree.addTransform(
+    "base_link",
+    "world",
+    0n,
+    new Transform([0, 0, -100], [0, 0, 0, 1]),
+  );
+  extension.startFrame(0n, "world", "world");
+  expect(owner.visualLod?.requested).toBe("proxy");
+  expect([...owner.userData.renderables.values()][0]).toBe(original);
+  expect(original.children).toHaveLength(1);
+  expect(renderer.fetchAsset.mock.calls.some(([url]) => String(url).endsWith("detail.urdf"))).toBe(
+    false,
+  );
+  proxy.resolve(asset(xml("proxy"), "application/xml"));
+  await extension.settleVideoDecodes();
+  const replacement = [...owner.userData.renderables.values()][0]!;
+  expect(owner.visualLod?.current).toBe("proxy");
+  expect(replacement).not.toBe(original);
+  expect(original.children).toHaveLength(0);
+  renderer.transformTree.addTransform(
+    "base_link",
+    "world",
+    10n,
+    new Transform([2, 0, -100], [0, 0, 0, 1]),
+  );
+  extension.startFrame(10n, "world", "world");
+  expect(replacement.position.x).toBeCloseTo(2);
+  renderer.transformTree.addTransform(
+    "base_link",
+    "world",
+    20n,
+    new Transform([10000, 0, -100], [0, 0, 0, 1]),
+  );
+  extension.startFrame(20n, "world", "world");
+  expect(owner.visible).toBe(false);
+  expect(replacement.matrixAutoUpdate).toBe(false);
+  renderer.transformTree.addTransform(
+    "base_link",
+    "world",
+    21n,
+    new Transform([3, 0, -100], [0, 0, 0, 1]),
+  );
+  extension.startFrame(21n, "world", "world");
+  expect(owner.visible).toBe(true);
+  expect(replacement.matrixAutoUpdate).toBe(true);
+  expect(replacement.position.x).toBeCloseTo(3);
+  extension.dispose();
+  modelCache.dispose();
+});
+
+it("keeps committed settings and LOD with old geometry while a requested scale fails", async () => {
+  const uri = "package://test_description/modeling/visual_variants.json";
+  const text = `<robot name="test"><xgc2_visual manifest="${uri}"/><link name="base_link"><visual><geometry><mesh filename="wheel.dae"/></geometry></visual></link></robot>`;
+  const manifest = {
+    release_visual: "release",
+    variants: { release: { urdf: "urdf/release.urdf" }, detail: { urdf: "urdf/detail.urdf" } },
+    viewer_lod: {
+      reference: "detail",
+      metric: "sampled_surface_m",
+      errors: { detail: 0 },
+      link_roles: {},
+    },
+  };
+  const assets = new Map<string, ReturnType<typeof asset> | Promise<ReturnType<typeof asset>>>([
+    [uri, asset(JSON.stringify(manifest), "application/json")],
+    ["package://test_description/urdf/release.urdf", asset(text, "application/xml")],
+  ]);
+  const { extension, renderer, modelCache } = setup(
+    Promise.resolve(asset(text, "application/xml")),
+    "model",
+    assets,
+  );
+  await extension.settleVideoDecodes();
+  const owner = extension.renderables.get("model")!;
+  const complete = owner.userData;
+  const lod = owner.visualLod;
+  const child = [...complete.renderables.values()][0]!;
+  const pending = deferred<ReturnType<typeof asset>>();
+  assets.set(uri, pending.promise);
+  renderer.config.layers.model = { ...renderer.config.layers.model, scale: 2 };
+  const node = extension
+    .settingsNodes()
+    .find((entry) => entry.path[0] === "layers" && entry.path[1] === "model")!;
+  node.node.handler!({
+    action: "update",
+    payload: { path: ["layers", "model", "scale"], input: "number", value: 2 },
+  } as never);
+  expect(owner.userData).toBe(complete);
+  expect(owner.userData.settings).toMatchObject({ scale: 1 });
+  expect(owner.visualLod).toBe(lod);
+  expect([...owner.userData.renderables.values()][0]).toBe(child);
+  pending.resolve(asset("{}", "application/json"));
+  await extension.settleVideoDecodes();
+  expect(owner.userData).toBe(complete);
+  expect(owner.visualLod).toBe(lod);
+  expect(renderer.settings.errors.add).toHaveBeenCalledWith(
+    ["layers", "model"],
+    "ParseUrdf",
+    expect.stringContaining("Invalid visual_variants manifest"),
+  );
+  const errors = jest.mocked(console.error).mock.calls;
+  expect(
+    errors.every((args) => args.map(String).join(" ").includes("Invalid visual_variants manifest")),
+  ).toBe(true);
+  jest.mocked(console.error).mockClear();
+  extension.dispose();
+  modelCache.dispose();
+});
+
+it("maintains missing child TF offscreen and does not cull legal live offsets outside XML origins", async () => {
+  const text =
+    '<robot name="test"><link name="root"/><link name="tip"><visual><geometry><mesh filename="wheel.dae"/></geometry></visual></link><joint name="joint" type="fixed"><parent link="root"/><child link="tip"/><origin xyz="0 0 0" rpy="0 0 0"/></joint></robot>';
+  const { extension, renderer, modelCache } = setup(
+    Promise.resolve(asset(text, "application/xml")),
+  );
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.updateMatrixWorld();
+  Object.assign(renderer, {
+    interfaceMode: "3d",
+    cameraHandler: { getActiveCamera: () => camera },
+    gl: { getDrawingBufferSize: (target: THREE.Vector2) => target.set(100, 100) },
+  });
+  await extension.settleVideoDecodes();
+  const owner = extension.renderables.get("model")!;
+  renderer.transformTree.addTransform(
+    "root",
+    "world",
+    0n,
+    new Transform([100, 0, -10], [0, 0, 0, 1]),
+  );
+  extension.startFrame(0n, "world", "world");
+  expect(renderer.settings.errors.add).toHaveBeenCalledWith(
+    ["layers", "model"],
+    MISSING_TRANSFORM,
+    expect.any(String),
+  );
+  renderer.transformTree.addTransform("tip", "root", 1n, new Transform([-100, 0, 0], [0, 0, 0, 1]));
+  extension.startFrame(1n, "world", "world");
+  const child = [...owner.userData.renderables.values()][0]!;
+  expect(child.position.x).toBeCloseTo(0);
+  expect(owner.visible).toBe(true);
+  expect(child.visible).toBe(true);
+  expect(renderer.settings.errors.remove).toHaveBeenCalledWith(
+    ["layers", "model"],
+    MISSING_TRANSFORM,
+  );
+  extension.dispose();
+  modelCache.dispose();
+});
+
+it("does not clear a newer generation error from a completed model continuation", async () => {
+  const { extension, renderer, modelCache } = setup();
+  await extension.settleVideoDecodes();
+  const owner = extension.renderables.get("model")!;
+  const next = deferred<void>();
+  let retiredAtCommit = false;
+  renderer.settings.setNodesForKey.mockImplementation(() => {
+    // saveSetting emits first while the old scale is still committed. Retire only the actual
+    // complete-model commit, after its userData changed to the requested scale.
+    if (
+      retiredAtCommit ||
+      !("scale" in owner.userData.settings) ||
+      owner.userData.settings.scale !== 2
+    )
+      return;
+    retiredAtCommit = true;
+    ++owner.loadGeneration; // The same synchronous source-retirement fence used by the owner.
+    renderer.settings.errors.add(["layers", "model"], "ParseUrdf", "New generation error");
+    renderer.settings.errors.remove.mockClear();
+    next.resolve();
+  });
+  renderer.config.layers.model = { ...renderer.config.layers.model, scale: 2 };
+  const node = extension
+    .settingsNodes()
+    .find((entry) => entry.path[0] === "layers" && entry.path[1] === "model")!;
+  node.node.handler!({
+    action: "update",
+    payload: { path: ["layers", "model", "scale"], input: "number", value: 2 },
+  } as never);
+  await next.promise;
+  await extension.settleVideoDecodes();
+  expect(renderer.settings.errors.remove).not.toHaveBeenCalledWith(
+    ["layers", "model"],
+    "ParseUrdf",
+  );
   extension.dispose();
   modelCache.dispose();
 });

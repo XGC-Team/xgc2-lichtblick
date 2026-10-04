@@ -38,6 +38,11 @@ export class RenderableMeshResource extends RenderableMarker {
     } while (loading !== this.#loading);
   }
 
+  /** The existing mesh owner has attached a complete, successfully loaded model. */
+  public hasLoadedModel(): boolean {
+    return this.#mesh != undefined;
+  }
+
   public constructor(
     topic: string,
     marker: Marker,

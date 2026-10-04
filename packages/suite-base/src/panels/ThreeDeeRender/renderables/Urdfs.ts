@@ -60,6 +60,17 @@ import {
 import { Pose, makePose, TransformTree } from "../transforms";
 import { updatePose } from "../updatePose";
 import { customUrdfLayerNeedsReload, urdfLayerDisplayScale } from "./customUrdfLayer";
+import { URDF_COARSEN_ERROR_PIXELS } from "../lod";
+import type { PickedRenderable } from "../Picker";
+import {
+  parseVisualManifest,
+  projectedVisualError,
+  selectVisualVariant,
+  visualKinematicIdentity,
+  visualManifestUri,
+  visualVariantUri,
+  type VisualVariantManifest,
+} from "./urdfVisualLod";
 
 const log = Logger.getLogger(__filename);
 
@@ -181,11 +192,34 @@ type JointPosition = {
   position: number;
 };
 
+type UrdfVisualLodState = {
+  manifest: VisualVariantManifest;
+  manifestUri: string;
+  kinematicIdentity: string;
+  current: string;
+  requested?: string;
+  failed?: string;
+};
+
+type UrdfVisualChild = Renderable & {
+  /** Existing renderable map key stays stable across different visual geometry types. */
+  visualRadius?: number;
+  parkedMatrices?: { object: THREE.Object3D; local: boolean; world: boolean }[];
+};
+
 export class UrdfRenderable extends Renderable<UrdfUserData> {
   public loadGeneration = 0;
+  public visualLod?: UrdfVisualLodState;
+  /** Source/settings request is separate from the last complete drawable combination. */
+  public requestedVisual?: UrdfUserData;
+  public jointInspection = false;
+  /** One detached in-progress model, owned/disposed by this same renderable. */
+  public pendingVisual?: UrdfRenderable;
 
   public override dispose(): void {
     ++this.loadGeneration;
+    this.pendingVisual?.dispose();
+    this.pendingVisual = undefined;
     this.userData.fetching?.control.abort();
     this.removeChildren();
     this.userData.urdf = undefined;
@@ -193,7 +227,9 @@ export class UrdfRenderable extends Renderable<UrdfUserData> {
   }
 
   public removeChildren(): void {
+    setVisualWork(this, "visible");
     for (const childRenderable of this.userData.renderables.values()) {
+      setVisualWork(childRenderable, "visible");
       childRenderable.dispose();
     }
     this.children.length = 0;
@@ -212,6 +248,24 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #pendingLoads = new Set<Promise<void>>();
   #managedLayersIdentity: IRenderer["config"]["layers"] | undefined;
   #managedMembershipDirty = true;
+  #selection: PickedRenderable | undefined;
+  readonly #viewProjection = new THREE.Matrix4();
+  readonly #frustum = new THREE.Frustum();
+  readonly #modelSphere = new THREE.Sphere();
+  readonly #visualBounds = new THREE.Box3();
+  readonly #boundsMin = new THREE.Vector3();
+  readonly #boundsMax = new THREE.Vector3();
+  readonly #drawingSize = new THREE.Vector2();
+  readonly #modelCenter = new THREE.Vector3();
+
+  #handleSelection = (selection: PickedRenderable | undefined): void => {
+    this.#selection = selection;
+  };
+
+  public override dispose(): void {
+    this.renderer.off("selectedRenderable", this.#handleSelection);
+    super.dispose();
+  }
 
   #trackLoad(promise: Promise<void>): void {
     this.#pendingLoads.add(promise);
@@ -242,6 +296,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     super(name, renderer);
 
     renderer.on("parametersChange", this.#handleParametersChange);
+    renderer.on("selectedRenderable", this.#handleSelection);
     renderer.addCustomLayerAction({
       layerId: LAYER_ID,
       label: i18next.t("threeDee:addURDF"),
@@ -540,15 +595,18 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       const path = renderable.userData.settingsPath;
       let missingFrameId: string | undefined;
 
-      renderable.visible = renderable.userData.settings.visible;
+      renderable.visible =
+        renderable.requestedVisual?.settings.visible ?? renderable.userData.settings.visible;
       if (!renderable.visible) {
+        setVisualWork(renderable, "parked");
         this.renderer.settings.errors.clearPath(path);
         continue;
       }
 
-      const scale = urdfLayerDisplayScale(
-        renderable.userData.settings as Partial<LayerSettingsCustomUrdf>,
-      );
+      const scale =
+        this.renderer.interfaceMode === "image"
+          ? 1
+          : urdfLayerDisplayScale(renderable.userData.settings as Partial<LayerSettingsCustomUrdf>);
       const rootFrameId =
         scale === 1
           ? undefined
@@ -556,6 +614,9 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       let scaledRootPose: Pose | undefined;
       let scaledRootResolved = false;
 
+      setVisualWork(renderable, "visible");
+      this.#visualBounds.makeEmpty();
+      let reliableBounds = true;
       // UrdfRenderables always stay at the origin. Their children renderables
       // are individually updated since each child exists in a different frame
       for (const childRenderable of renderable.userData.renderables.values()) {
@@ -593,8 +654,15 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
             srcTime,
           );
         }
-        if (!updated) {
-          missingFrameId = frameId;
+        if (!updated) missingFrameId = frameId;
+        const radius = (childRenderable as UrdfVisualChild).visualRadius;
+        if (!updated || radius == undefined || !Number.isFinite(radius)) reliableBounds = false;
+        else {
+          // Live absolute TF and generic frame offsets are legal even beyond XML joint origins.
+          this.#boundsMin.copy(childRenderable.position).addScalar(-radius);
+          this.#boundsMax.copy(childRenderable.position).addScalar(radius);
+          this.#visualBounds.expandByPoint(this.#boundsMin);
+          this.#visualBounds.expandByPoint(this.#boundsMax);
         }
       }
 
@@ -608,6 +676,76 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         );
       } else {
         this.renderer.settings.errors.remove(path, MISSING_TRANSFORM);
+      }
+
+      const camera = this.renderer.cameraHandler?.getActiveCamera();
+      const precise =
+        this.renderer.debugPicking ||
+        renderable.jointInspection ||
+        this.#selectionBelongsTo(renderable) ||
+        missingFrameId != undefined;
+      let estimate: (assetMetres: number) => number | undefined = () => undefined;
+      let projectionReady = false;
+      if (camera != undefined && reliableBounds && !this.#visualBounds.isEmpty()) {
+        camera.updateMatrixWorld();
+        this.renderer.gl.getDrawingBufferSize(this.#drawingSize);
+        projectionReady = true;
+        this.#visualBounds.getBoundingSphere(this.#modelSphere);
+        this.#modelCenter.copy(this.#modelSphere.center);
+        this.#viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        this.#frustum.setFromProjectionMatrix(this.#viewProjection);
+        if (!precise && !this.#frustum.intersectsSphere(this.#modelSphere)) {
+          renderable.visible = false;
+          setVisualWork(renderable, "parked");
+          continue;
+        }
+        const radius = this.#modelSphere.radius;
+        estimate = (metres) =>
+          projectedVisualError(
+            camera,
+            this.#drawingSize,
+            this.#modelCenter,
+            radius,
+            metres * scale,
+          );
+      }
+      const state = renderable.visualLod;
+      if (
+        state != undefined &&
+        renderable.requestedVisual == undefined &&
+        renderable.userData.settings.displayMode !== "collision"
+      ) {
+        const next = selectVisualVariant(state.manifest, state.current, estimate, precise);
+        if (next === state.current && state.requested != undefined) {
+          ++renderable.loadGeneration;
+          renderable.pendingVisual?.dispose();
+          renderable.pendingVisual = undefined;
+          state.requested = undefined;
+        } else if (next !== state.current && next !== state.requested && next !== state.failed) {
+          this.#loadVisualVariant(renderable, next);
+        }
+      }
+      const roles = state?.manifest.viewer_lod?.link_roles;
+      const prefix =
+        (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).framePrefix ?? "";
+      for (const child of renderable.userData.renderables.values()) {
+        const frame = child.userData.frameId;
+        const local = frame.startsWith(prefix) ? frame.slice(prefix.length) : frame;
+        const radius = (child as UrdfVisualChild).visualRadius;
+        const pixels =
+          !projectionReady || camera == undefined || radius == undefined
+            ? undefined
+            : projectedVisualError(camera, this.#drawingSize, child.position, radius, 2 * radius);
+        if (
+          !precise &&
+          child.visible &&
+          roles?.[local] === "decorative_rotation" &&
+          pixels != undefined &&
+          pixels <= URDF_COARSEN_ERROR_PIXELS
+        ) {
+          child.visible = false;
+          setVisualWork(child, "parked");
+        } else setVisualWork(child, "visible");
       }
     }
   }
@@ -762,6 +900,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         return;
       }
 
+      const inspected = this.renderables.get(instanceId);
+      if (inspected != undefined) inspected.jointInspection = true;
       const joint = transformData.joint;
       const frame = this.renderer.transformTree.getOrCreateFrame(transformData.child);
       const frameKey = `frame:${frame.id}`;
@@ -785,7 +925,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       this.saveSetting(path, action.payload.value);
       const [_layers, instanceId, field] = path as [string, string, string];
       const renderable = this.renderables.get(instanceId);
-      let urdf = renderable?.userData.urdf;
+      const sourceData = renderable?.requestedVisual ?? renderable?.userData;
+      let urdf = sourceData?.urdf;
 
       if (field === "url" || field === "filePath") {
         this.#debouncedLoadUrdf({ instanceId, urdf: undefined });
@@ -804,12 +945,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       } else if (field === "sourceType") {
         const sourceType = action.payload.value as LayerSettingsCustomUrdf["sourceType"];
         if (sourceType === "topic") {
-          urdf = renderable?.userData.topic
-            ? this.#urdfsByTopic.get(renderable.userData.topic)
-            : undefined;
+          urdf = sourceData?.topic ? this.#urdfsByTopic.get(sourceData.topic) : undefined;
         } else if (sourceType === "param") {
-          urdf = renderable?.userData.parameter
-            ? (this.renderer.parameters?.get(renderable.userData.parameter) as string | undefined)
+          urdf = sourceData?.parameter
+            ? (this.renderer.parameters?.get(sourceData.parameter) as string | undefined)
             : undefined;
         } else {
           urdf = undefined;
@@ -837,21 +976,20 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     }
 
     // Update custom layer URDFs that subscribe to this topic.
-    const subscribedInstanceIds = filterMap(this.renderables, ([instanceId, renderable]) =>
-      renderable.userData.sourceType === "topic" && renderable.userData.topic === topic
-        ? instanceId
-        : undefined,
-    );
+    const subscribedInstanceIds = filterMap(this.renderables, ([instanceId, renderable]) => {
+      const source = renderable.requestedVisual ?? renderable.userData;
+      return source.sourceType === "topic" && source.topic === topic ? instanceId : undefined;
+    });
     for (const instanceId of subscribedInstanceIds) {
       this.#loadUrdf({ instanceId, urdf: robotDescription });
     }
   };
 
   #shouldSubscribe = (topic: string): boolean => {
-    return Array.from(this.renderables.values()).some(
-      (renderable) =>
-        renderable.userData.sourceType === "topic" && renderable.userData.topic === topic,
-    );
+    return Array.from(this.renderables.values()).some((renderable) => {
+      const source = renderable.requestedVisual ?? renderable.userData;
+      return source.sourceType === "topic" && source.topic === topic;
+    });
   };
 
   #handleJointState = (messageEvent: PartialMessageEvent<JointState>): void => {
@@ -879,10 +1017,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
     // Update custom layer URDFs that use parameters.
     for (const [instanceId, renderable] of this.renderables.entries()) {
-      const sourceType = (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>)
-        .sourceType;
-      const paramName = (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>)
-        .parameter;
+      const sourceSettings = (renderable.requestedVisual ?? renderable.userData)
+        .settings as Partial<LayerSettingsCustomUrdf>;
+      const sourceType = sourceSettings.sourceType;
+      const paramName = sourceSettings.parameter;
       if (sourceType === "param" && paramName != undefined) {
         const urdf = parameters?.get(paramName);
         if (typeof urdf === "string") {
@@ -1042,7 +1180,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       ) {
         this.#loadUrdf({
           instanceId,
-          urdf: renderable.userData.urdf,
+          urdf:
+            renderable.requestedVisual != undefined
+              ? renderable.requestedVisual.urdf
+              : renderable.userData.urdf,
           forceReload: true,
         });
       }
@@ -1072,6 +1213,12 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     if (
       renderable &&
       urdf &&
+      renderable.userData.sourceType === sourceType &&
+      renderable.userData.topic === topic &&
+      (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).url === url &&
+      (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).filePath === filePath &&
+      renderable.userData.settings.displayMode === settings.displayMode &&
+      renderable.userData.settings.fallbackColor === settings.fallbackColor &&
       !customUrdfLayerNeedsReload(
         {
           urdf: renderable.userData.urdf,
@@ -1093,16 +1240,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       return;
     }
 
-    // Clear any previous parsed data for this instanceId
-    const transforms = this.#transformsByInstanceId.get(instanceId) ?? [];
-    for (const transform of transforms) {
-      this.renderer.removeTransform(transform.child, transform.parent, 0n);
-    }
-    this.#transformsByInstanceId.delete(instanceId);
-    this.#framesByInstanceId.delete(instanceId);
-    this.#rootFramesByInstanceId.delete(instanceId);
-    this.updateSettingsTree();
-
+    // Keep the previous complete drawable and its frames until a replacement commits.
     const isTopicOrParam = instanceId === TOPIC_NAME || instanceId === PARAM_KEY;
     const frameId = this.renderer.fixedFrameId ?? ""; // Unused
     const settingsPath = isTopicOrParam ? ["topics", instanceId] : ["layers", instanceId];
@@ -1141,17 +1279,20 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     }
 
     const loadGeneration = ++renderable.loadGeneration;
+    renderable.pendingVisual?.dispose();
+    renderable.pendingVisual = undefined;
     renderable.userData.fetching?.control.abort();
-    renderable.userData.urdf = urdf;
-    renderable.userData.sourceType = sourceType;
-    renderable.userData.topic = topic;
-    renderable.userData.parameter = parameter;
-    renderable.userData.settings = settings;
+    const requested: UrdfUserData = {
+      ...renderable.userData,
+      urdf,
+      sourceType,
+      topic,
+      parameter,
+      settings,
+      fetching: undefined,
+    };
+    renderable.requestedVisual = requested;
     renderable.userData.fetching = undefined;
-
-    if (!urdf || forceReload) {
-      renderable.removeChildren();
-    }
 
     if (!urdf) {
       const path = renderable.userData.settingsPath;
@@ -1201,15 +1342,26 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     // Parse the URDF
     const loadedRenderable = renderable;
     this.#trackLoad(
-      parseUrdf(urdf, async (uri) => await this.#getFileFetch(uri, baseUrl), framePrefix)
-        .then((parsed) => {
+      this.#parseVisualSource(urdf, baseUrl, framePrefix)
+        .then(async ({ parsed, lod, visualBaseUrl }) => {
           if (
             loadedRenderable.loadGeneration !== loadGeneration ||
             this.renderables.get(instanceId) !== loadedRenderable
           ) {
             return;
           }
-          this.#loadRobot(loadedRenderable, parsed, baseUrl);
+          if (
+            !(await this.#loadRobot(loadedRenderable, parsed, visualBaseUrl, loadGeneration, {
+              userData: requested,
+              visualLod: lod,
+            }))
+          )
+            return;
+          if (
+            loadedRenderable.loadGeneration !== loadGeneration ||
+            this.renderables.get(instanceId) !== loadedRenderable
+          )
+            return;
           this.#managedMembershipDirty = true;
           this.renderer.settings.errors.remove(
             loadedRenderable.userData.settingsPath,
@@ -1226,6 +1378,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           ) {
             return;
           }
+          loadedRenderable.pendingVisual?.dispose();
+          loadedRenderable.pendingVisual = undefined;
           const err = e as Error;
           log.error(`Failed to parse URDF: ${err.message}`);
           this.renderer.settings.errors.add(
@@ -1239,37 +1393,33 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
   #debouncedLoadUrdf = _.debounce(this.#loadUrdf.bind(this), 500);
 
-  #loadRobot(
+  async #loadRobot(
     renderable: UrdfRenderable,
-    { robot, frames, transforms }: ParsedUrdf,
+    parsed: ParsedUrdf,
     baseUrl: string | undefined,
-  ): void {
+    generation: number,
+    request: { userData: UrdfUserData; visualLod?: UrdfVisualLodState; visualOnly?: true },
+  ): Promise<boolean> {
+    const { robot, frames, transforms } = parsed;
     const renderer = this.renderer;
-    const settings = renderable.userData.settings;
+    const settings = request.userData.settings;
     const instanceId = settings.instanceId;
     const displayMode = settings.displayMode;
-    const scale = urdfLayerDisplayScale(settings as Partial<LayerSettingsCustomUrdf>);
+    const scale =
+      renderer.interfaceMode === "image"
+        ? 1
+        : urdfLayerDisplayScale(settings as Partial<LayerSettingsCustomUrdf>);
     const fallbackColor = settings.fallbackColor
       ? stringToRgba(makeRgba(), settings.fallbackColor)
       : undefined;
 
-    this.#loadFrames(instanceId, frames);
-    this.#loadTransforms(instanceId, transforms);
-    // The display-scale composition grows every link about this root frame;
-    // dynamic joint TF (rotors, wheels) is composed in startFrame, so scaling
-    // must anchor on the frame nothing in the URDF parents.
-    const childFrames = new Set(transforms.map((transform) => transform.child));
-    const rootFrame = frames.find((frame) => !childFrames.has(frame));
-    if (rootFrame) {
-      this.#rootFramesByInstanceId.set(instanceId, rootFrame);
-    } else {
-      this.#rootFramesByInstanceId.delete(instanceId);
-    }
-    this.updateSettingsTree();
-
-    // Dispose any existing renderables
-    renderable.removeChildren();
-
+    const staged = new UrdfRenderable(instanceId, renderer, {
+      ...request.userData,
+      fetching: undefined,
+      renderables: new Map(),
+    });
+    renderable.pendingVisual = staged;
+    const meshes: RenderableMeshResource[] = [];
     const createChild = (frameId: string, i: number, visual: UrdfVisual): void => {
       const childRenderable = createRenderable({
         visual,
@@ -1283,11 +1433,9 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       });
       // Set the childRenderable settingsPath so errors route to the correct place
       childRenderable.userData.settingsPath = renderable.userData.settingsPath;
-      if (childRenderable instanceof RenderableMeshResource) {
-        this.#trackLoad(childRenderable.settleLoading());
-      }
-      renderable.userData.renderables.set(childRenderable.name, childRenderable);
-      renderable.add(childRenderable);
+      if (childRenderable instanceof RenderableMeshResource) meshes.push(childRenderable);
+      staged.userData.renderables.set(`${frameId}/${i}`, childRenderable);
+      staged.add(childRenderable);
     };
 
     // Create a renderable for each link
@@ -1309,6 +1457,174 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         }
       }
     }
+    await Promise.all(meshes.map(async (mesh) => await mesh.settleLoading()));
+    if (
+      renderable.loadGeneration !== generation ||
+      this.renderables.get(instanceId) !== renderable
+    ) {
+      staged.dispose();
+      return false;
+    }
+    if (meshes.some((mesh) => !mesh.hasLoadedModel())) {
+      staged.dispose();
+      renderable.pendingVisual = undefined;
+      // Child asset errors share this layer path; a successful sibling may clear a mesh error.
+      renderer.settings.errors.add(
+        renderable.userData.settingsPath,
+        PARSE_URDF_ERR,
+        "Visual URDF did not finish loading; previous complete model retained",
+      );
+      return false;
+    }
+    storeVisualRadii(staged);
+    const selectedKey = [...renderable.userData.renderables].find(
+      ([, child]) => child === this.#selection?.renderable,
+    )?.[0];
+    const previousTransforms = this.#transformsByInstanceId.get(instanceId);
+    const sameFrames =
+      request.visualOnly === true ||
+      (previousTransforms != undefined &&
+        JSON.stringify(previousTransforms) === JSON.stringify(transforms));
+    if (!sameFrames) {
+      for (const transform of previousTransforms ?? [])
+        renderer.removeTransform(transform.child, transform.parent, 0n);
+    }
+    renderable.removeChildren();
+    const ownedChildren = renderable.userData.renderables;
+    renderable.userData = { ...staged.userData, renderables: ownedChildren, fetching: undefined };
+    renderable.visualLod = request.visualLod;
+    renderable.requestedVisual = undefined;
+    for (const [key, child] of staged.userData.renderables) {
+      renderable.userData.renderables.set(key, child);
+      renderable.add(child);
+    }
+    staged.userData.renderables.clear();
+    staged.dispose();
+    renderable.pendingVisual = undefined;
+    this.#loadFrames(instanceId, frames);
+    if (!sameFrames) this.#loadTransforms(instanceId, transforms);
+    const children = new Set(transforms.map((transform) => transform.child));
+    const rootFrame = frames.find((frame) => !children.has(frame));
+    if (rootFrame != undefined) this.#rootFramesByInstanceId.set(instanceId, rootFrame);
+    else this.#rootFramesByInstanceId.delete(instanceId);
+    if (selectedKey != undefined) {
+      const replacement = renderable.userData.renderables.get(selectedKey);
+      renderer.setSelectedRenderable(
+        replacement == undefined ? undefined : { renderable: replacement },
+      );
+    }
+    this.updateSettingsTree();
+    return true;
+  }
+
+  #selectionBelongsTo(renderable: UrdfRenderable): boolean {
+    if (this.#selection == undefined) return false;
+    const path = this.#selection.renderable.userData.settingsPath;
+    return (
+      path[0] === renderable.userData.settingsPath[0] &&
+      path[1] === renderable.userData.settings.instanceId
+    );
+  }
+
+  async #parseVisualSource(
+    text: string,
+    baseUrl: string | undefined,
+    prefix?: string,
+  ): Promise<{
+    parsed: ParsedUrdf;
+    lod?: UrdfVisualLodState;
+    visualBaseUrl?: string;
+  }> {
+    const source = await parseUrdf(
+      text,
+      async (uri) => await this.#getFileFetch(uri, baseUrl),
+      prefix,
+    );
+    const manifestUri = visualManifestUri(text);
+    if (manifestUri == undefined) return { parsed: source, visualBaseUrl: baseUrl };
+    const manifest = parseVisualManifest(await this.#getFileFetch(manifestUri, baseUrl));
+    const identity = visualKinematicIdentity(source.robot);
+    for (const link of Object.keys(manifest.viewer_lod?.link_roles ?? {})) {
+      if (!source.robot.links.has(`${prefix ?? ""}${link}`))
+        throw new Error(`Unknown visual link ${link}`);
+    }
+    const current = manifest.release_visual;
+    const uri = visualVariantUri(manifestUri, manifest, current);
+    const release =
+      uri === baseUrl
+        ? source
+        : await parseUrdf(
+            await this.#getFileFetch(uri, manifestUri),
+            async (asset) => await this.#getFileFetch(asset, uri),
+            prefix,
+          );
+    if (visualKinematicIdentity(release.robot) !== identity)
+      throw new Error("Visual variant changed kinematics/origins");
+    return {
+      parsed: release,
+      visualBaseUrl: uri,
+      lod: { manifest, manifestUri, current, kinematicIdentity: identity },
+    };
+  }
+
+  #loadVisualVariant(renderable: UrdfRenderable, variant: string): void {
+    const state = renderable.visualLod;
+    if (state == undefined) return;
+    const uri = visualVariantUri(state.manifestUri, state.manifest, variant);
+    const generation = ++renderable.loadGeneration;
+    renderable.pendingVisual?.dispose();
+    renderable.pendingVisual = undefined;
+    state.requested = variant;
+    const prefix = (renderable.userData.settings as Partial<LayerSettingsCustomUrdf>).framePrefix;
+    const committedState = { ...state, current: variant, requested: undefined };
+    this.#trackLoad(
+      this.#getFileFetch(uri, state.manifestUri)
+        .then(async (text) => {
+          if (renderable.loadGeneration !== generation || renderable.visualLod !== state) return;
+          const parsed = await parseUrdf(
+            text,
+            async (asset) => await this.#getFileFetch(asset, uri),
+            prefix,
+          );
+          if (renderable.loadGeneration !== generation || renderable.visualLod !== state) return;
+          if (visualKinematicIdentity(parsed.robot) !== state.kinematicIdentity) {
+            throw new Error("Visual variant changed kinematics/origins");
+          }
+          if (
+            !(await this.#loadRobot(renderable, parsed, uri, generation, {
+              userData: renderable.userData,
+              visualLod: committedState,
+              visualOnly: true,
+            }))
+          ) {
+            if (renderable.loadGeneration === generation && renderable.visualLod === state) {
+              state.failed = variant;
+              state.requested = undefined;
+            }
+            return;
+          }
+          if (
+            renderable.loadGeneration !== generation ||
+            this.renderables.get(renderable.userData.settings.instanceId) !== renderable ||
+            renderable.visualLod !== committedState
+          )
+            return;
+          this.renderer.settings.errors.remove(renderable.userData.settingsPath, PARSE_URDF_ERR);
+          this.renderer.queueAnimationFrame();
+        })
+        .catch((error: unknown) => {
+          if (renderable.loadGeneration !== generation || renderable.visualLod !== state) return;
+          renderable.pendingVisual?.dispose();
+          renderable.pendingVisual = undefined;
+          state.failed = variant;
+          state.requested = undefined;
+          this.renderer.settings.errors.add(
+            renderable.userData.settingsPath,
+            PARSE_URDF_ERR,
+            String(error),
+          );
+        }),
+    );
   }
 
   #loadFrames(instanceId: string, frames: string[]): void {
@@ -1339,6 +1655,41 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     } catch (err: unknown) {
       throw new Error(`Failed to fetch "${url}": ${err}`);
     }
+  }
+}
+
+/** Pause only this drawable hierarchy; the shared TF/joint state and producer are untouched. */
+function setVisualWork(renderable: UrdfVisualChild, work: "parked" | "visible"): void {
+  if (work === "parked") {
+    if (renderable.parkedMatrices != undefined) return;
+    const modes: NonNullable<UrdfVisualChild["parkedMatrices"]> = [];
+    renderable.traverse((object) => {
+      modes.push({ object, local: object.matrixAutoUpdate, world: object.matrixWorldAutoUpdate });
+      object.matrixAutoUpdate = false;
+      object.matrixWorldAutoUpdate = false;
+    });
+    renderable.parkedMatrices = modes;
+  } else if (renderable.parkedMatrices != undefined) {
+    for (const mode of renderable.parkedMatrices) {
+      mode.object.matrixAutoUpdate = mode.local;
+      mode.object.matrixWorldAutoUpdate = mode.world;
+      mode.object.matrixWorldNeedsUpdate = true;
+    }
+    renderable.parkedMatrices = undefined;
+  }
+}
+
+/** Cache only the loaded drawable's local extent; live transforms form the view envelope. */
+function storeVisualRadii(visual: UrdfRenderable): void {
+  for (const child of visual.userData.renderables.values()) {
+    const box = new THREE.Box3().setFromObject(child);
+    (child as UrdfVisualChild).visualRadius = box.isEmpty()
+      ? 0
+      : Math.hypot(
+          Math.max(Math.abs(box.min.x), Math.abs(box.max.x)),
+          Math.max(Math.abs(box.min.y), Math.abs(box.max.y)),
+          Math.max(Math.abs(box.min.z), Math.abs(box.max.z)),
+        );
   }
 }
 

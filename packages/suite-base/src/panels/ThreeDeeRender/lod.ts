@@ -13,6 +13,11 @@ export enum DetailLevel {
   High,
 }
 
+// Engineering starting policy in actual drawing-buffer pixels; not a visual acceptance result
+// or a certified asset-error bound. Both 3D and calibrated AR use their own active projection.
+export const URDF_COARSEN_ERROR_PIXELS = 0.5;
+export const URDF_REFINE_ERROR_PIXELS = 1.0;
+
 /** Returns the number of samples used for Multi-Sample Anti-Aliasing (MSAA) */
 export function msaaSamples(capabilities: WebGLCapabilities): number {
   // NOTE: Type definition workaround

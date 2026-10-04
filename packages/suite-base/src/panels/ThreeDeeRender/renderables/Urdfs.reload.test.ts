@@ -3,6 +3,13 @@
 
 /** @jest-environment node */
 
+import * as THREE from "three";
+import {
+  parseVisualManifest,
+  projectedVisualError,
+  selectVisualVariant,
+  visualVariantUri,
+} from "./urdfVisualLod";
 import { customUrdfLayerNeedsReload, urdfLayerDisplayScale } from "./customUrdfLayer";
 
 describe("urdfLayerDisplayScale", () => {
@@ -100,5 +107,69 @@ describe("customUrdfLayerNeedsReload", () => {
         },
       ),
     ).toBe(true);
+  });
+});
+
+describe("declared visual URDF screen policy", () => {
+  const manifest = {
+    release_visual: "release",
+    variants: {
+      detail: { urdf: "urdf/detail.urdf" },
+      release: { urdf: "urdf/release.urdf" },
+      proxy: { urdf: "urdf/proxy.urdf" },
+    },
+    viewer_lod: {
+      reference: "detail",
+      metric: "sampled_surface_m" as const,
+      errors: { detail: 0, release: 0.3, proxy: 0.8 },
+      link_roles: {},
+    },
+  };
+  it("keeps unmeasured release errors unknown and resolves only the explicit package table", () => {
+    const value = parseVisualManifest(
+      JSON.stringify({
+        ...manifest,
+        viewer_lod: { ...manifest.viewer_lod, errors: { detail: 0 } },
+      }),
+    );
+    expect(selectVisualVariant(value, "release", (metres) => metres, false)).toBe("release");
+    expect(selectVisualVariant(value, "release", () => undefined, true)).toBe("detail");
+    expect(
+      visualVariantUri("package://description/modeling/visual_variants.json", value, "release"),
+    ).toBe("package://description/urdf/release.urdf");
+    expect(() =>
+      parseVisualManifest(
+        JSON.stringify({
+          ...manifest,
+          viewer_lod: { ...manifest.viewer_lod, errors: { detail: 0, foreign: 0 } },
+        }),
+      ),
+    ).toThrow();
+  });
+  it("uses separate engineering refinement/coarsening thresholds without distance or fleet branches", () => {
+    expect(selectVisualVariant(manifest, "release", (metres) => metres * 2, false)).toBe("release");
+    expect(selectVisualVariant(manifest, "release", (metres) => metres * 0.5, false)).toBe("proxy");
+    expect(selectVisualVariant(manifest, "proxy", (metres) => metres * 2, false)).toBe("detail");
+    expect(selectVisualVariant(manifest, "proxy", () => undefined, false)).toBe("detail");
+  });
+  it("uses the actual drawing pixels and view projection, with unreliable near-plane estimates rejected", () => {
+    const camera = new THREE.OrthographicCamera(-2, 2, 2, -2, 0.1, 100);
+    camera.updateMatrixWorld();
+    const center = new THREE.Vector3(0, 0, -10);
+    const low = projectedVisualError(camera, new THREE.Vector2(400, 400), center, 1, 0.001)!;
+    const high = projectedVisualError(camera, new THREE.Vector2(800, 800), center, 1, 0.001)!;
+    expect(high).toBeCloseTo(low * 2);
+    expect(projectedVisualError(camera, new THREE.Vector2(400, 400), center, 1, 0.002)).toBeCloseTo(
+      low * 2,
+    );
+    expect(
+      projectedVisualError(
+        camera,
+        new THREE.Vector2(400, 400),
+        new THREE.Vector3(0, 0, -0.2),
+        1,
+        0.001,
+      ),
+    ).toBeUndefined();
   });
 });
