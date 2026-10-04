@@ -45,7 +45,8 @@ export type ToWorkerMessage =
     }
   | { type: "close"; data: undefined }
   | { type: "data"; data: string | ArrayBuffer | ArrayBufferView }
-  | { type: "ack" };
+  | { type: "ack" }
+  | { type: "sampling"; topics: string[] };
 
 export interface MessageWriter {
   writeMessage(message: unknown): Uint8Array;

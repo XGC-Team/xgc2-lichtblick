@@ -82,13 +82,14 @@ describe("mergeSubscriptions", () => {
     ]);
   });
 
-  it("keeps sampling when all subscribers are compatible and at least one is sampling-authorized", () => {
+  it("keeps sampling when every subscriber is sampling-authorized", () => {
     // Given
     const subs: InternalSubscribePayload[] = [
       {
         topic: "a",
         preloadType: "partial",
         samplingRequest: { mode: "latest-per-render-tick" },
+        samplingAuthorized: true,
       },
       {
         topic: "a",
@@ -112,7 +113,7 @@ describe("mergeSubscriptions", () => {
     ]);
   });
 
-  it("keeps sampling regardless of subscription order when approval is present", () => {
+  it("drops sampling when even one subscriber lacks authorization", () => {
     // Given
     const subs: InternalSubscribePayload[] = [
       {
@@ -132,14 +133,7 @@ describe("mergeSubscriptions", () => {
     const result = mergeSubscriptions(subs);
 
     // Then
-    expect(result).toEqual([
-      {
-        topic: "a",
-        preloadType: "partial",
-        samplingRequest: { mode: "latest-per-render-tick" },
-        samplingAuthorized: true,
-      },
-    ]);
+    expect(result).toEqual([{ topic: "a", preloadType: "partial" }]);
   });
 
   it("drops sampling when no merged subscriber is sampling-authorized", () => {
@@ -211,6 +205,22 @@ describe("subscription accumulator compatibility", () => {
     expect(mergeSubscriptions([{ topic: "__proto__" }, { topic: "constructor" }])).toEqual([
       { topic: "__proto__" },
       { topic: "constructor" },
+    ]);
+  });
+});
+
+describe("full history topic veto", () => {
+  it("strips sampling before copying an authorized full request into the partial group", () => {
+    const request: InternalSubscribePayload = {
+      topic: "/cloud",
+      preloadType: "full",
+      samplingRequest: { mode: "latest-per-render-tick" },
+      samplingAuthorized: true,
+    };
+    const merged = mergeSubscriptions([request, { ...request, preloadType: "partial" }]);
+    expect(merged.map((item) => [item.preloadType, item.samplingRequest])).toEqual([
+      ["full", undefined],
+      ["partial", undefined],
     ]);
   });
 });

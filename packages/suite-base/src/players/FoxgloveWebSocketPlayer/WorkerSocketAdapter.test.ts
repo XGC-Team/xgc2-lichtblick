@@ -42,6 +42,14 @@ describe("WorkerSocketAdapter", () => {
     });
   });
 
+  it("forwards merged complete-cloud sampling consent through the existing worker", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    socket.setLatestSnapshotTopics(["/cloud"]);
+    expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "sampling", topics: ["/cloud"] });
+    socket.setLatestSnapshotTopics([]);
+    expect(workerMock.postMessage).toHaveBeenLastCalledWith({ type: "sampling", topics: [] });
+  });
+
   it("WorkerSocketAdapter should handle an error", () => {
     workerMock.onmessage?.({
       data: { type: "error", error: "Something went wrong" },

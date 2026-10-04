@@ -68,6 +68,10 @@ export default class WorkerSocketAdapter implements IWebSocket {
     };
   }
 
+  public setLatestSnapshotTopics(topics: string[]): void {
+    if (!this.#connectionClosed) this.#sendToWorker({ type: "sampling", topics });
+  }
+
   public close(): void {
     if (!this.#connectionClosed) {
       this.#sendToWorker({

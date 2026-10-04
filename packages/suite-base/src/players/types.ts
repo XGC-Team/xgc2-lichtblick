@@ -323,8 +323,8 @@ export type SubscribePayload = {
  * Internal MessagePipeline variant of SubscribePayload.
  *
  * `samplingAuthorized` is intentionally not available on public SubscribePayload.
- * Trusted pipeline code may set this flag to indicate that at least one subscriber path is
- * verified as safe for sampling.
+ * Trusted pipeline code may set this flag when the subscriber path is verified as safe for
+ * sampling. Every same-topic subscriber must retain authorization during merge.
  *
  * During merge, MessagePipeline removes sampling requests unless this flag is present on the
  * merged subscription.

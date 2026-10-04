@@ -63,3 +63,21 @@ describe("samplingGuard", () => {
     expect(result).toEqual(input);
   });
 });
+
+describe("full preload sampling guard", () => {
+  it("keeps full history despite an authorized latest request", () => {
+    expect(
+      applySamplingGuardToSubscription({
+        topic: "/cloud",
+        preloadType: "full" as const,
+        samplingRequest: { mode: "latest-per-render-tick" as const },
+        samplingAuthorized: true as const,
+      }),
+    ).toEqual({
+      topic: "/cloud",
+      preloadType: "full",
+      samplingRequest: undefined,
+      samplingAuthorized: undefined,
+    });
+  });
+});

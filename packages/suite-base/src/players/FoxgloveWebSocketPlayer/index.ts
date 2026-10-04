@@ -41,6 +41,7 @@ import {
 import { ParameterValue } from "@lichtblick/suite";
 import { Asset } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import PlayerAlertManager from "@lichtblick/suite-base/players/PlayerAlertManager";
+import { applySamplingGuardToSubscriptions } from "@lichtblick/suite-base/players/samplingGuard";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
 import { estimateObjectSize } from "@lichtblick/suite-base/players/messageMemoryEstimation";
 import {
@@ -58,7 +59,10 @@ import {
 } from "@lichtblick/suite-base/players/types";
 import { HIGH_FREQUENCY_ALERT } from "@lichtblick/suite-base/players/utils/constants";
 import { isTopicHighFrequency } from "@lichtblick/suite-base/players/utils/isTopicHighFrequency";
-import { COMPRESSED_VIDEO_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
+import {
+  COMPRESSED_VIDEO_DATATYPES,
+  POINTCLOUD_SNAPSHOT_DATATYPES,
+} from "@lichtblick/suite-base/util/foxgloveSchemas";
 import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosDatatypesToMessageDefinition";
 
 import { JsonMessageWriter } from "./JsonMessageWriter";
@@ -77,7 +81,6 @@ import {
 import { dataTypeToFullName, statusLevelToAlertSeverity } from "./helpers";
 import {
   inspectAnnexBVideoFrame,
-  isTransformSchemaName,
   LiveMessageQueue,
   LiveMessageRetention,
 } from "./liveMessageQueue";
@@ -115,9 +118,20 @@ export default class FoxgloveWebSocketPlayer implements Player {
   // the next #emitState mints a fresh Map identity for consumers.
   #topicsStatsChanged = false;
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
-  #parsedMessages = new LiveMessageQueue<MessageEvent>(
-    PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes,
-  );
+  #workerSocket?: WorkerSocketAdapter;
+  #latestSnapshotTopics = new Set<string>();
+  #messageGeneration = 0;
+  #parsedMessages = new LiveMessageQueue<
+    | MessageEvent
+    | {
+        kind: "serialized-pointcloud";
+        data: ArrayBufferView;
+        channel: ResolvedChannel;
+        subscriptionId: SubscriptionId;
+        generation: number;
+        receiveTime: Time;
+      }
+  >(PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes);
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
   #presence: PlayerPresence = PlayerPresence.INITIALIZING;
@@ -204,15 +218,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
     const subprotocols = [FoxgloveClient.SUPPORTED_SUBPROTOCOL, "foxglove.sdk.v1"];
 
+    this.#workerSocket =
+      typeof Worker !== "undefined"
+        ? new WorkerSocketAdapter(
+            this.#url,
+            subprotocols,
+            PLAYER_MEMORY_CAPS.workerQueueMaximumSizeBytes,
+          )
+        : undefined;
+    this.#workerSocket?.setLatestSnapshotTopics([...this.#latestSnapshotTopics]);
     this.#client = new FoxgloveClient({
-      ws:
-        typeof Worker !== "undefined"
-          ? new WorkerSocketAdapter(
-              this.#url,
-              subprotocols,
-              PLAYER_MEMORY_CAPS.workerQueueMaximumSizeBytes,
-            )
-          : (new WebSocket(this.#url, subprotocols) as IWebSocket),
+      ws: this.#workerSocket ?? (new WebSocket(this.#url, subprotocols) as IWebSocket),
     });
 
     this.#client.on("open", () => {
@@ -248,6 +264,15 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
     this.#client.on("error", (err) => {
       log.error(err);
+      const workerError = (err as unknown as { error?: unknown })?.error;
+      if (workerError instanceof Error && workerError.message.includes("bounded worker queue")) {
+        this.#alerts.addAlert("ws:queue-overflow", {
+          severity: "error",
+          message: workerError.message,
+          error: workerError,
+        });
+        this.#emitState();
+      }
 
       if (
         (err as unknown as undefined | { message?: string })?.message != undefined &&
@@ -267,12 +292,15 @@ export default class FoxgloveWebSocketPlayer implements Player {
     // Note: We've observed closed being called not only when an already open connection is closed
     // but also when a new connection fails to open
     //
-    // Note: We explicitly avoid clearing state like start/end times, datatypes, etc to preserve
-    // this during a disconnect event. Any necessary state clearing is handled once a new connection
-    // is established
+    // Preserve source metadata during disconnect, but invalidate the pending generation and
+    // render dependency state before reconnecting; a lost delta must not leave a silent old scene.
     this.#client.on("close", (event) => {
       log.info("Connection closed:", event);
       this.#presence = PlayerPresence.RECONNECTING;
+      // No later decode/TF-dependent render may use entries from a disconnected generation.
+      this.#parsedMessages.clear();
+      this.#messageGeneration++;
+      this.#numTimeSeeks++;
 
       if (this.#getParameterInterval != undefined) {
         clearInterval(this.#getParameterInterval);
@@ -514,6 +542,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         }
         for (const [subId, { channel }] of this.#resolvedSubscriptionsById) {
           if (channel.id === id) {
+            this.#parsedMessages.removeKey(channel.topic);
             this.#resolvedSubscriptionsById.delete(subId);
             this.#resolvedSubscriptionsByTopic.delete(channel.topic);
             this.#client?.unsubscribe(subId);
@@ -545,52 +574,88 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#receivedBytes += data.byteLength;
         const receiveTime = this.#getCurrentTime();
         const topic = chanInfo.channel.topic;
-        const deserializedMessage = chanInfo.parsedChannel.deserialize(data);
-
-        // Lookup the size estimate for this topic or compute it if not found in the cache.
-        let msgSizeEstimate = this.#messageSizeEstimateByTopic[topic];
-        if (msgSizeEstimate == undefined) {
-          msgSizeEstimate = estimateObjectSize(deserializedMessage);
-          this.#messageSizeEstimateByTopic[topic] = msgSizeEstimate;
-        }
-
-        const sizeInBytes = Math.max(data.byteLength, msgSizeEstimate);
-        const parsedMessage: MessageEvent = {
-          topic,
-          receiveTime,
-          message: deserializedMessage,
-          sizeInBytes,
-          schemaName: chanInfo.channel.schemaName,
-        };
-        const isVideo = COMPRESSED_VIDEO_DATATYPES.has(parsedMessage.schemaName);
-        const videoData = isVideo ? (deserializedMessage as { data?: unknown }).data : undefined;
-        const retention: LiveMessageRetention = isVideo
-          ? "video"
-          : topic === "/tf" ||
-              topic === "/tf_static" ||
-              isTransformSchemaName(parsedMessage.schemaName)
-            ? "protected"
-            : "replaceable";
-        const enqueueResult = this.#parsedMessages.enqueue({
-          value: parsedMessage,
-          sizeInBytes,
-          key: topic,
-          retention,
-          protectedPriority: topic === "/tf_static" ? "high" : "normal",
-          isVideoRecoveryPoint:
+        const independentCloud = POINTCLOUD_SNAPSHOT_DATATYPES.has(chanInfo.channel.schemaName);
+        const latestSnapshot = independentCloud && this.#latestSnapshotTopics.has(topic);
+        // This one existing queue owns serialized complete clouds until the render barrier opens.
+        // Retain the original view/backing bytes without another copy or pending buffer.
+        let queued:
+          | MessageEvent
+          | {
+              kind: "serialized-pointcloud";
+              data: ArrayBufferView;
+              channel: ResolvedChannel;
+              subscriptionId: SubscriptionId;
+              generation: number;
+              receiveTime: Time;
+            };
+        let sizeInBytes: number;
+        let retention: LiveMessageRetention;
+        let isVideoRecoveryPoint: boolean | undefined;
+        if (latestSnapshot) {
+          queued = {
+            kind: "serialized-pointcloud",
+            data,
+            channel: chanInfo,
+            subscriptionId,
+            generation: this.#messageGeneration,
+            receiveTime,
+          };
+          sizeInBytes = data.buffer.byteLength;
+          retention = "replaceable";
+        } else {
+          const deserializedMessage = chanInfo.parsedChannel.deserialize(data);
+          let estimate = this.#messageSizeEstimateByTopic[topic];
+          if (estimate == undefined) {
+            estimate = estimateObjectSize(deserializedMessage);
+            this.#messageSizeEstimateByTopic[topic] = estimate;
+          }
+          sizeInBytes = Math.max(data.byteLength, estimate);
+          queued = {
+            topic,
+            receiveTime,
+            message: deserializedMessage,
+            sizeInBytes,
+            schemaName: chanInfo.channel.schemaName,
+          };
+          const isVideo = COMPRESSED_VIDEO_DATATYPES.has(queued.schemaName);
+          const videoData = isVideo ? (deserializedMessage as { data?: unknown }).data : undefined;
+          retention = isVideo
+            ? "video"
+            : independentCloud
+              ? "replaceable"
+              : "protected";
+          isVideoRecoveryPoint =
             isVideo && videoData instanceof Uint8Array
               ? inspectAnnexBVideoFrame(videoData).isRecoveryPoint
-              : undefined,
-        });
-        if (enqueueResult.droppedEntries > 0 || enqueueResult.sizeLimitExceeded) {
+              : undefined;
+        }
+        const enqueueResult = this.#parsedMessages.enqueue(
+          {
+            value: queued,
+            sizeInBytes,
+            key: topic,
+            retention,
+            protectedPriority: topic === "/tf_static" ? "high" : "normal",
+            isVideoRecoveryPoint,
+          },
+          { supersedeReplaceable: latestSnapshot },
+        );
+        if ((enqueueResult.capacityDroppedEntries ?? 0) > 0 || enqueueResult.sizeLimitExceeded) {
           this.#alerts.addAlert(`webSocketPlayer:parsedMessageCacheFull`, {
             severity: "error",
             message: `WebSocketPlayer maximum frame size (${(
               PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes / 1_000_000
             ).toFixed(
               2,
-            )}MB) reached. Dropping stale telemetry or complete video GOPs; sustained pressure may also drop the oldest transforms. Individually oversized messages are rejected. This accumulation can occur if the browser tab has been inactive.`,
+            )}MB) reached. Dropping authorized snapshots or complete video GOPs; dependency-bearing losses invalidate the connection. Individually oversized messages are rejected. This accumulation can occur if the browser tab has been inactive.`,
           });
+        }
+
+        if ((enqueueResult.droppedProtectedEntries ?? 0) > 0) {
+          this.#parsedMessages.clear();
+          this.#numTimeSeeks++;
+          this.#client?.close();
+          return;
         }
 
         // Update the message count for this topic. Count in place: #emitState
@@ -638,6 +703,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       const time = fromNanoSec(timestamp);
       if (this.#clockTime != undefined && isLessThan(time, this.#clockTime)) {
         this.#numTimeSeeks++;
+        this.#messageGeneration++;
         this.#parsedMessages.clear();
       }
 
@@ -950,7 +1016,34 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#topicsStatsChanged = false;
     }
 
-    const messages = this.#parsedMessages.drain();
+    const messages: MessageEvent[] = [];
+    for (const queued of this.#parsedMessages.drain()) {
+      if (!("kind" in queued)) {
+        messages.push(queued);
+        continue;
+      }
+      if (
+        queued.generation !== this.#messageGeneration ||
+        this.#resolvedSubscriptionsById.get(queued.subscriptionId) !== queued.channel
+      )
+        continue;
+      try {
+        const message = queued.channel.parsedChannel.deserialize(queued.data);
+        messages.push({
+          topic: queued.channel.channel.topic,
+          receiveTime: queued.receiveTime,
+          schemaName: queued.channel.channel.schemaName,
+          message,
+          sizeInBytes: Math.max(queued.data.byteLength, estimateObjectSize(message)),
+        });
+      } catch (error) {
+        this.#alerts.addAlert(`message:${queued.channel.channel.topic}`, {
+          severity: "error",
+          message: `Failed to parse message on ${queued.channel.channel.topic}`,
+          error,
+        });
+      }
+    }
     return this.#listener({
       name: this.#name,
       presence: this.#presence,
@@ -1000,6 +1093,20 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   public setSubscriptions(subscriptions: SubscribePayload[]): void {
+    const fullTopics = new Set(
+      subscriptions.filter((item) => item.preloadType === "full").map((item) => item.topic),
+    );
+    this.#latestSnapshotTopics = new Set(
+      applySamplingGuardToSubscriptions(subscriptions)
+        .filter(
+          (subscription) =>
+            subscription.samplingRequest?.mode === "latest-per-render-tick" &&
+            !fullTopics.has(subscription.topic) &&
+            subscription.fields == undefined,
+        )
+        .map((subscription) => subscription.topic),
+    );
+    this.#workerSocket?.setLatestSnapshotTopics([...this.#latestSnapshotTopics]);
     const newTopics = new Set(subscriptions.map(({ topic }) => topic));
 
     if (!this.#client || this.#closed) {
@@ -1018,6 +1125,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     const topicStats = new Map(this.#topicsStats);
     for (const [topic, subId] of this.#resolvedSubscriptionsByTopic) {
       if (!newTopics.has(topic)) {
+        this.#parsedMessages.removeKey(topic);
         this.#client.unsubscribe(subId);
         this.#resolvedSubscriptionsByTopic.delete(topic);
         this.#resolvedSubscriptionsById.delete(subId);
@@ -1366,6 +1474,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   #resetSessionState(): void {
+    this.#messageGeneration++;
     this.#startTime = undefined;
     this.#endTime = undefined;
     this.#clockTime = undefined;

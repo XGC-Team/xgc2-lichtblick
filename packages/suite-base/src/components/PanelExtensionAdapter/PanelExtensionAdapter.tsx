@@ -64,6 +64,7 @@ import {
 import { PanelConfig, SaveConfig } from "@lichtblick/suite-base/types/panels";
 import { assertNever } from "@lichtblick/suite-base/util/assertNever";
 import { maybeCast } from "@lichtblick/suite-base/util/maybeCast";
+import { POINTCLOUD_SNAPSHOT_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
 
 import { PanelConfigVersionError } from "./PanelConfigVersionError";
 import { RenderStateConfig, initRenderStateBuilder } from "./renderState";
@@ -540,9 +541,8 @@ function PanelExtensionAdapter(
             return { topic: item.topic, preloadType };
           }
 
-          // Sampling is only allowed if the converter explicitly declares it supports
-          // latest-per-render-tick sampling.
-          // Native/direct paths are denied by default.
+          // Native complete point clouds opt in only from their history-free consumer.
+          // Other native paths remain denied; converters keep their explicit declaration.
           // If allowed, we set both the sampling request and the internal authorization bit.
           // MessagePipeline merge logic strips sampling requests unless authorization is present.
           const converter = getConverterForSubscription(
@@ -555,7 +555,7 @@ function PanelExtensionAdapter(
             item.convertTo == undefined ||
             (topicSchemaName != undefined && topicSchemaName === item.convertTo);
           const samplingAllowed = isNativePath
-            ? false
+            ? topicSchemaName != undefined && POINTCLOUD_SNAPSHOT_DATATYPES.has(topicSchemaName)
             : converter?.supportsLatestPerRenderTick === true;
 
           return {

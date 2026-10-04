@@ -58,7 +58,8 @@ function accumulate(groups: Record<string, Accumulator>, subscription: Subscript
   group.samplingRequest = sameSamplingMode ? group.samplingRequest : undefined;
   group.samplingAuthorized =
     sameSamplingMode &&
-    (group.samplingAuthorized === true || subscription.samplingAuthorized === true)
+    group.samplingAuthorized === true &&
+    subscription.samplingAuthorized === true
       ? true
       : undefined;
 }
@@ -93,8 +94,10 @@ export function mergeSubscriptions(
   const partial: Record<string, Accumulator> = Object.create(null);
   for (const subscription of subscriptions) {
     if (subscription.preloadType === "full") {
-      accumulate(full, subscription);
-      accumulate(partial, { ...subscription, preloadType: "partial" });
+      const unsampled = applySamplingGuardToSubscription(subscription);
+      accumulate(full, unsampled);
+      // Full history also vetoes its derived live request before changing preloadType.
+      accumulate(partial, { ...unsampled, preloadType: "partial" });
     } else {
       accumulate(partial, subscription);
     }

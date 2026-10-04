@@ -284,21 +284,22 @@ describe("FoxgloveWebSocketPlayer worker", () => {
         { type: "message", data: asset, requiresAck: false },
         [asset],
       );
-      expect(socket?.close).not.toHaveBeenCalled();
+      expect(MockWebSocket.lastInstance?.close).not.toHaveBeenCalled();
       postMessageMock.mockClear();
 
       dispatch({ type: "ack" });
       expect(postMessageMock).toHaveBeenCalledWith({ type: "message", data: queued }, [queued]);
     });
 
-    it("should keep only the latest queued telemetry frame for each subscription", () => {
+    it("should keep only the latest jointly authorized complete cloud frame", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl } });
       // Map sub 1/2 to ordinary (non-exempt) topics so supersede applies.
       establishTopicMapping([
         { subId: 1, channelId: 10, topic: "/camera/image" },
-        { subId: 2, channelId: 20, topic: "/lidar/points" },
+        { subId: 2, channelId: 20, topic: "/lidar/points", schemaName: "sensor_msgs/PointCloud2" },
       ]);
+      dispatch({ type: "sampling", topics: ["/lidar/points"] });
       postMessageMock.mockClear();
 
       const inFlight = messageData(1);
@@ -322,14 +323,49 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       expect(postMessageMock.mock.calls[0]?.[1]?.[0]).toBe(latest);
     });
 
+    it("drops an oversized non-opted-in complete cloud with an error without reconnecting", () => {
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 512 } });
+      establishTopicMapping([
+        { subId: 1, channelId: 10, topic: "/cloud", schemaName: "sensor_msgs/PointCloud2" },
+      ]);
+      postMessageMock.mockClear();
+      MockWebSocket.lastInstance?.onmessage?.({ data: messageData(1, 1024) } as MessageEvent);
+      expect(postMessageMock).toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+      expect(MockWebSocket.lastInstance?.close).not.toHaveBeenCalled();
+    });
+
+    it("preserves SceneUpdate deletions and Marker deltas even if their topics request sampling", () => {
+      dispatch({ type: "open", data: { wsUrl } });
+      establishTopicMapping([
+        { subId: 1, channelId: 10, topic: "/scene", schemaName: "foxglove.SceneUpdate" },
+        { subId: 2, channelId: 20, topic: "/marker", schemaName: "visualization_msgs/MarkerArray" },
+      ]);
+      dispatch({ type: "sampling", topics: ["/scene", "/marker"] });
+      const inFlight = messageData(1),
+        deletion = messageData(1),
+        fullOtherEntity = messageData(1);
+      const markerDelete = messageData(2),
+        markerAdd = messageData(2);
+      for (const data of [inFlight, deletion, fullOtherEntity, markerDelete, markerAdd]) {
+        MockWebSocket.lastInstance?.onmessage?.({ data } as MessageEvent);
+      }
+      postMessageMock.mockClear();
+      for (const expected of [deletion, fullOtherEntity, markerDelete, markerAdd]) {
+        dispatch({ type: "ack" });
+        expect(postMessageMock.mock.calls.at(-1)?.[0].data).toBe(expected);
+      }
+      expect(MockWebSocket.lastInstance?.close).not.toHaveBeenCalled();
+    });
+
     it("should evict old telemetry when the raw queue exceeds its memory limit", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl } });
       establishTopicMapping([
-        { subId: 1, channelId: 10, topic: "/camera/image" },
-        { subId: 2, channelId: 20, topic: "/lidar/points" },
-        { subId: 3, channelId: 30, topic: "/camera/depth" },
+        { subId: 1, channelId: 10, topic: "/camera/image", schemaName: "sensor_msgs/PointCloud2" },
+        { subId: 2, channelId: 20, topic: "/lidar/points", schemaName: "sensor_msgs/PointCloud2" },
+        { subId: 3, channelId: 30, topic: "/camera/depth", schemaName: "sensor_msgs/PointCloud2" },
       ]);
+      dispatch({ type: "sampling", topics: ["/camera/image", "/lidar/points", "/camera/depth"] });
       postMessageMock.mockClear();
 
       const inFlight = messageData(1);
@@ -359,11 +395,12 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl } });
       establishTopicMapping([
-        { subId: 1, channelId: 10, topic: "/camera/image" },
+        { subId: 1, channelId: 10, topic: "/camera/image", schemaName: "sensor_msgs/PointCloud2" },
         { subId: 2, channelId: 20, topic: "/tf" },
         { subId: 3, channelId: 30, topic: "/tf_static" },
-        { subId: 4, channelId: 40, topic: "/lidar/points" },
+        { subId: 4, channelId: 40, topic: "/lidar/points", schemaName: "sensor_msgs/PointCloud2" },
       ]);
+      dispatch({ type: "sampling", topics: ["/camera/image", "/lidar/points"] });
       postMessageMock.mockClear();
 
       const inFlight = messageData(1);
@@ -401,7 +438,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       expect(delivered).toContain(tfStatic);
     });
 
-    it("drops oldest dynamic transforms before /tf_static and protocol control messages", () => {
+    it("invalidates the stream when bounded protected congestion loses a transform dependency", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 700 } });
       establishTopicMapping([
@@ -422,9 +459,14 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       MockWebSocket.lastInstance?.onmessage?.({ data: tfNew } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: control } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: tfStatic } as MessageEvent);
+      expect(postMessageMock).toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+      expect(MockWebSocket.lastInstance?.close).toHaveBeenCalledWith(
+        4000,
+        "bounded control queue overflow",
+      );
       postMessageMock.mockClear();
 
-      // When — drain the hard-bounded queue.
+      // A gap is terminal for this generation, including already-queued protocol survivors.
       const delivered: unknown[] = [];
       for (let i = 0; i < 5; i++) {
         dispatch({ type: "ack" });
@@ -436,12 +478,8 @@ describe("FoxgloveWebSocketPlayer worker", () => {
         postMessageMock.mockClear();
       }
 
-      // Then — under exceptional protected-only congestion, dynamic TF degrades first. Static TF
-      // and protocol control are preferred, but the queue implementation still ultimately permits
-      // their oldest entries to be dropped if no lower-priority data remains.
-      expect(delivered).not.toContain(tfOld);
-      expect(delivered).not.toContain(tfNew);
-      expect(delivered).toEqual([control, tfStatic]);
+      expect(delivered).toEqual([]);
+      expect(postMessageMock).not.toHaveBeenCalled();
     });
 
     it("should protect transform messages by datatype on custom topic names", () => {
@@ -460,7 +498,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
           topic: "/xgc/camera/world/tf",
           schemaName: "geometry_msgs/TransformStamped",
         },
-        { subId: 3, channelId: 30, topic: "/camera/image" },
+        { subId: 3, channelId: 30, topic: "/cloud", schemaName: "sensor_msgs/PointCloud2" },
       ]);
       postMessageMock.mockClear();
 
@@ -529,7 +567,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
 
     it("should discard an overflowing GOP and reject deltas until the next IDR/SPS", () => {
       // Given
-      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 100 } });
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 512 } });
       establishTopicMapping([
         {
           subId: 1,
@@ -540,11 +578,12 @@ describe("FoxgloveWebSocketPlayer worker", () => {
         },
         { subId: 2, channelId: 20, topic: "/camera/image" },
       ]);
+      expect(MockWebSocket.lastInstance?.close).not.toHaveBeenCalled();
       postMessageMock.mockClear();
 
       const inFlight = messageData(2);
-      const oldIdr = compressedVideoData(1, H264_KEYFRAME, 30);
-      const overflowingDelta = compressedVideoData(1, H264_DELTA_FRAME, 30);
+      const oldIdr = compressedVideoData(1, H264_KEYFRAME, 250);
+      const overflowingDelta = compressedVideoData(1, H264_DELTA_FRAME, 250);
       const rejectedDelta = compressedVideoData(1, H264_DELTA_FRAME);
       // An Annex-B-looking byte pattern in wrapper metadata must not be mistaken for an IDR.
       new Uint8Array(rejectedDelta, 13, 5).set([0, 0, 0, 1, 0x65]);
@@ -555,6 +594,8 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       MockWebSocket.lastInstance?.onmessage?.({ data: overflowingDelta } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: rejectedDelta } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: nextIdr } as MessageEvent);
+      expect(postMessageMock).toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+      expect(MockWebSocket.lastInstance?.close).not.toHaveBeenCalled();
       postMessageMock.mockClear();
 
       // When
@@ -569,7 +610,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
 
     it("should reject an oversized video frame and resume only at a fitting IDR/SPS", () => {
       // Given
-      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 100 } });
+      dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 512 } });
       establishTopicMapping([
         {
           subId: 1,
@@ -580,10 +621,11 @@ describe("FoxgloveWebSocketPlayer worker", () => {
         },
         { subId: 2, channelId: 20, topic: "/camera/image" },
       ]);
+      expect(MockWebSocket.lastInstance?.close).not.toHaveBeenCalled();
       postMessageMock.mockClear();
 
       const inFlight = messageData(2);
-      const oversizedIdr = compressedVideoData(1, H264_KEYFRAME, 100);
+      const oversizedIdr = compressedVideoData(1, H264_KEYFRAME, 512);
       const rejectedDelta = compressedVideoData(1, H264_DELTA_FRAME);
       const fittingIdr = compressedVideoData(1, H264_KEYFRAME, 10);
 
@@ -591,6 +633,8 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       MockWebSocket.lastInstance?.onmessage?.({ data: oversizedIdr } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: rejectedDelta } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: fittingIdr } as MessageEvent);
+      expect(postMessageMock).toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+      expect(MockWebSocket.lastInstance?.close).not.toHaveBeenCalled();
       postMessageMock.mockClear();
 
       // When
@@ -677,7 +721,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       expect(delivered).toContain(unmappedB);
     });
 
-    it("should keep only the latest unsent TIME frame", () => {
+    it("keeps unsent TIME frames ordered rather than superseding clock history", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl } });
       const inFlight = messageData(1);
@@ -698,14 +742,14 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       postMessageMock.mockClear();
       dispatch({ type: "ack" });
 
-      // Then — only the latest TIME is delivered; no further messages
-      expect(firstAfterAck).toBe(timeNew);
-      expect(secondAfterAck).toBeUndefined();
+      // Both clock samples preserve the original order; no generic latest policy applies.
+      expect(firstAfterAck).toBe(timeOld);
+      expect(secondAfterAck).toBe(timeNew);
       expect(postMessageMock).not.toHaveBeenCalled();
       expect(timeOld).not.toBe(timeNew);
     });
 
-    it("should reject a single oversized telemetry frame without evicting queued control", () => {
+    it("invalidates queued control after an oversized unknown dependency instead of continuing a gap", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl } });
       establishTopicMapping([{ subId: 1, channelId: 10, topic: "/camera/image" }]);
@@ -719,15 +763,17 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       MockWebSocket.lastInstance?.onmessage?.({ data: inFlight } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: protocolMsg } as MessageEvent);
       MockWebSocket.lastInstance?.onmessage?.({ data: oversized } as MessageEvent);
+      expect(postMessageMock).toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
       postMessageMock.mockClear();
 
-      // When
-      dispatch({ type: "ack" });
-      expect(postMessageMock).toHaveBeenCalledWith({ type: "message", data: protocolMsg });
+      // Loss of an unknown dependency requires an error and closes this generation.
+      expect(MockWebSocket.lastInstance?.close).toHaveBeenCalledWith(
+        4000,
+        "bounded control queue overflow",
+      );
       postMessageMock.mockClear();
       dispatch({ type: "ack" });
-
-      // Then — existing high-priority control survives and the oversized item fails closed.
+      dispatch({ type: "ack" });
       expect(postMessageMock).not.toHaveBeenCalled();
     });
 

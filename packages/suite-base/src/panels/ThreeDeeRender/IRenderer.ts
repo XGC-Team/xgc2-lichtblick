@@ -197,6 +197,8 @@ export type RendererConfig = {
 export type RendererSubscription<T = unknown> = {
   /** Preload the full history of topic messages as a best effort */
   preload?: boolean;
+  /** Opt-in only when this handler needs an independent latest full snapshot, not history. */
+  supportsLatestPerRenderTick?: (topic: string) => boolean;
   /**
    * By default, topic subscriptions are only created when the topic visibility
    * has been toggled on by the user in the settings sidebar. Override this

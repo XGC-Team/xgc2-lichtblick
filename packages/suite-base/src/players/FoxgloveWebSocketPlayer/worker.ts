@@ -7,7 +7,10 @@ import {
   FromWorkerMessage,
   ToWorkerMessage,
 } from "@lichtblick/suite-base/players/FoxgloveWebSocketPlayer/types";
-import { COMPRESSED_VIDEO_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
+import {
+  COMPRESSED_VIDEO_DATATYPES,
+  POINTCLOUD_SNAPSHOT_DATATYPES,
+} from "@lichtblick/suite-base/util/foxgloveSchemas";
 
 import { WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES } from "./constants";
 import {
@@ -19,6 +22,7 @@ import {
 
 let ws: WebSocket | undefined = undefined;
 let messageInFlight = false;
+let streamHasGap = false;
 const messageQueue = new LiveMessageQueue<unknown>(WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES);
 const CONTROL_QUEUE_OVERFLOW_CLOSE_CODE = 4000;
 
@@ -32,6 +36,7 @@ type ChannelMetadata = {
 const channelIdToMetadata = new Map<number, ChannelMetadata>();
 /** Client subscriptionId → channelId (from outbound subscribe / unsubscribe). */
 const subscriptionIdToChannelId = new Map<number, number>();
+let latestSnapshotTopics = new Set<string>();
 
 const send: (message: FromWorkerMessage) => void = self.postMessage;
 const sendWithTransfer: (message: FromWorkerMessage, transfer: Transferable[]) => void =
@@ -40,6 +45,7 @@ const sendWithTransfer: (message: FromWorkerMessage, transfer: Transferable[]) =
 function clearTopicMaps(): void {
   channelIdToMetadata.clear();
   subscriptionIdToChannelId.clear();
+  latestSnapshotTopics.clear();
 }
 
 function isLossExemptChannel(channel: ChannelMetadata): boolean {
@@ -188,7 +194,7 @@ function isVideoRecoveryPoint(data: unknown, encoding: string | undefined): bool
 }
 
 function sendNextMessage(): void {
-  if (messageInFlight) {
+  if (messageInFlight || streamHasGap) {
     return;
   }
   const next = messageQueue.shift();
@@ -205,16 +211,22 @@ function sendNextMessage(): void {
 }
 
 function enqueueMessage(data: unknown): void {
+  if (streamHasGap) return;
   const subscriptionId = getSubscriptionId(data);
   const isTime = isTimeMessage(data);
   const lossExempt = subscriptionId != undefined ? isLossExemptSubscription(subscriptionId) : false;
   const isVideo = subscriptionId != undefined && isVideoSubscription(subscriptionId);
   const channel = subscriptionId != undefined ? channelForSubscription(subscriptionId) : undefined;
+  const independentCloud =
+    !lossExempt &&
+    channel?.schemaName != undefined &&
+    POINTCLOUD_SNAPSHOT_DATATYPES.has(channel.schemaName);
+  const latestSnapshot = independentCloud && latestSnapshotTopics.has(channel!.topic);
   const retention: LiveMessageRetention = isVideo
     ? "video"
-    : lossExempt || (subscriptionId == undefined && !isTime)
-      ? "protected"
-      : "replaceable";
+    : independentCloud
+      ? "replaceable"
+      : "protected";
   const key =
     subscriptionId != undefined ? `subscription:${subscriptionId}` : isTime ? "time" : undefined;
   const protectedPriority =
@@ -236,23 +248,33 @@ function enqueueMessage(data: unknown): void {
       protectedPriority,
       isVideoRecoveryPoint: isVideo ? isVideoRecoveryPoint(data, channel?.encoding) : undefined,
     },
-    // Ordinary telemetry remains live-first/latest-only. Video is never superseded: if memory
-    // pressure requires a drop, LiveMessageQueue discards the dependency chain as one unit.
-    { supersedeReplaceable: retention === "replaceable" },
+    // Only jointly authorized complete clouds may replace one another, never deltas by exclusion.
+    { supersedeReplaceable: latestSnapshot },
   );
-  if ((enqueueResult.droppedCriticalEntries ?? 0) > 0) {
-    // The worker has already applied inbound advertise/unadvertise metadata locally. Continuing
-    // after the renderer misses a protocol control frame would split their protocol state. Abort
+  if ((enqueueResult.droppedProtectedEntries ?? 0) > 0) {
+    // Protocol control, transforms and incremental streams cannot lose a dependency silently.
+    // Continuing after an eviction could retain deleted entities or stale transforms. Abort
     // this connection so the normal reconnect path can rebuild both sides from one clean stream.
+    streamHasGap = true;
     messageQueue.clear();
     send({
       type: "error",
-      error: new Error("WebSocket control message exceeded the bounded worker queue"),
+      error: new Error(
+        (enqueueResult.droppedCriticalEntries ?? 0) > 0
+          ? "WebSocket control message exceeded the bounded worker queue"
+          : "WebSocket dependency-bearing message exceeded the bounded worker queue",
+      ),
     });
     // Browser clients may only initiate WebSocket.close with 1000 or an application-defined
     // 3000–4999 code. RFC server-error code 1011 throws InvalidAccessError in this worker.
     ws?.close(CONTROL_QUEUE_OVERFLOW_CLOSE_CODE, "bounded control queue overflow");
     return;
+  }
+  if ((enqueueResult.capacityDroppedEntries ?? 0) > 0 || enqueueResult.sizeLimitExceeded) {
+    send({
+      type: "error",
+      error: new Error("WebSocket live message exceeded the bounded worker queue"),
+    });
   }
   sendNextMessage();
 }
@@ -285,7 +307,13 @@ function trackInboundControlMessage(data: unknown): void {
         ) {
           const schemaName = (channel as { schemaName?: unknown }).schemaName;
           const encoding = (channel as { encoding?: unknown }).encoding;
-          channelIdToMetadata.set((channel as { id: number }).id, {
+          const id = (channel as { id: number }).id;
+          if (channelIdToMetadata.has(id)) {
+            for (const [subId, channelId] of subscriptionIdToChannelId) {
+              if (channelId === id) messageQueue.removeKey(`subscription:${subId}`);
+            }
+          }
+          channelIdToMetadata.set(id, {
             encoding: typeof encoding === "string" ? encoding : undefined,
             topic: (channel as { topic: string }).topic,
             schemaName: typeof schemaName === "string" ? schemaName : undefined,
@@ -296,6 +324,9 @@ function trackInboundControlMessage(data: unknown): void {
       for (const channelId of msg.channelIds) {
         if (typeof channelId === "number") {
           channelIdToMetadata.delete(channelId);
+          for (const [subId, subscribedChannelId] of subscriptionIdToChannelId) {
+            if (subscribedChannelId === channelId) messageQueue.removeKey(`subscription:${subId}`);
+          }
         }
       }
     }
@@ -363,6 +394,7 @@ self.onmessage = (event: MessageEvent<ToWorkerMessage>) => {
         messageQueue.clear();
         messageQueue.setMaximumSize(queueLimitBytes);
         messageInFlight = false;
+        streamHasGap = false;
         clearTopicMaps();
         ws = new WebSocket(data.wsUrl, data.protocols);
         ws.binaryType = "arraybuffer";
@@ -382,6 +414,7 @@ self.onmessage = (event: MessageEvent<ToWorkerMessage>) => {
           send({ type: "close", data: JSON.parse(JSON.stringify(wsEvent) ?? "{}") });
         };
         ws.onmessage = (wsEvent: MessageEvent) => {
+          if (streamHasGap) return;
           if (isAssetResponse(wsEvent.data)) {
             // Assets are finite request/response payloads which the renderer must materialize in
             // full. Large meshes legitimately exceed the live telemetry queue cap; transfer their
@@ -411,6 +444,9 @@ self.onmessage = (event: MessageEvent<ToWorkerMessage>) => {
     case "data":
       trackOutboundControlMessage(event.data.data);
       ws?.send(event.data.data as string | BufferSource);
+      break;
+    case "sampling":
+      latestSnapshotTopics = new Set(event.data.topics);
       break;
     case "ack":
       messageInFlight = false;

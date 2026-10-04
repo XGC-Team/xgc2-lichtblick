@@ -633,8 +633,10 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         }
       }
       if (shouldSubscribe) {
+        const nativePath = convertTo == undefined || convertTo === topic.schemaName;
         const sampling =
-          rendererSubscription.preload === true
+          rendererSubscription.preload === true ||
+          (nativePath && rendererSubscription.supportsLatestPerRenderTick?.(topic.name) !== true)
             ? undefined
             : { mode: "latest-per-render-tick" as const };
         newSubscriptions.push({

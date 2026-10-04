@@ -9,7 +9,7 @@ import { InternalSubscribePayload } from "@lichtblick/suite-base/players/types";
 
 type SamplingGuardInput = Pick<
   InternalSubscribePayload,
-  "topic" | "samplingRequest" | "samplingAuthorized"
+  "topic" | "samplingRequest" | "samplingAuthorized" | "preloadType"
 >;
 
 /**
@@ -21,7 +21,7 @@ type SamplingGuardInput = Pick<
 export function applySamplingGuardToSubscription<T extends SamplingGuardInput>(subscription: T): T {
   if (
     subscription.samplingRequest?.mode === "latest-per-render-tick" &&
-    subscription.samplingAuthorized !== true
+    (subscription.samplingAuthorized !== true || subscription.preloadType === "full")
   ) {
     return {
       ...subscription,

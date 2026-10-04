@@ -749,6 +749,46 @@ describe("PanelExtensionAdapter", () => {
     await sig;
   });
 
+  it("authorizes an explicitly requested native complete cloud but not preload history", async () => {
+    const ready = signal();
+    const initPanel = (context: PanelExtensionContext) =>
+      context.subscribe([
+        { topic: "/cloud", sampling: { mode: "latest-per-render-tick" } },
+        { topic: "/history", preload: true, sampling: { mode: "latest-per-render-tick" } },
+      ]);
+    render(
+      <ThemeProvider isDark>
+        <MockPanelContextProvider>
+          <PanelSetup
+            fixture={{
+              topics: [
+                { name: "/cloud", schemaName: "sensor_msgs/PointCloud2" },
+                { name: "/history", schemaName: "sensor_msgs/PointCloud2" },
+              ],
+              setSubscriptions: (_id, payload) => {
+                if (payload.length === 0) return;
+                expect(payload).toEqual([
+                  {
+                    topic: "/cloud",
+                    preloadType: "partial",
+                    samplingRequest: { mode: "latest-per-render-tick" },
+                    samplingAuthorized: true,
+                  },
+                  { topic: "/history", preloadType: "full" },
+                ]);
+                ready.resolve();
+              },
+            }}
+          >
+            <PanelExtensionAdapter config={{}} saveConfig={() => {}} initPanel={initPanel} />
+          </PanelSetup>
+        </MockPanelContextProvider>
+      </ThemeProvider>,
+    );
+    await act(async () => undefined);
+    await ready;
+  });
+
   it("should disable sampling for native subscriptions by default", async () => {
     const sig = signal();
     const initPanel = (context: PanelExtensionContext) => {

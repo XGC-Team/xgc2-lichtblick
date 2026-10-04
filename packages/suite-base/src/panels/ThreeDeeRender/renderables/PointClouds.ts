@@ -742,6 +742,9 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
         subscription: {
           handler: this.#handleRosPointCloud,
           filterQueue: this.#processMessageQueue.bind(this),
+          supportsLatestPerRenderTick: (topic) =>
+            (((this.renderer.config.topics[topic] ?? {}) as Partial<LayerSettingsPointClouds>)
+              .decayTime ?? DEFAULT_SETTINGS.decayTime) === 0,
         },
       },
       {
@@ -750,6 +753,9 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
         subscription: {
           handler: this.#handleFoxglovePointCloud,
           filterQueue: this.#processMessageQueue.bind(this),
+          supportsLatestPerRenderTick: (topic) =>
+            (((this.renderer.config.topics[topic] ?? {}) as Partial<LayerSettingsPointClouds>)
+              .decayTime ?? DEFAULT_SETTINGS.decayTime) === 0,
         },
       },
     ];

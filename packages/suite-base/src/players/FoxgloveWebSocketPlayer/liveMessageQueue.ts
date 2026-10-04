@@ -32,12 +32,17 @@ type LiveMessageEnqueueResult = {
   droppedEntries: number;
   /** Present when protocol-critical protected entries were dropped. */
   droppedCriticalEntries?: number;
+  /** Protected dependency-bearing entries lost to the hard cap, requiring stream invalidation. */
+  droppedProtectedEntries?: number;
+  /** Pressure losses only, excluding intentional same-key latest snapshot replacement. */
+  capacityDroppedEntries?: number;
   /** True when the incoming entry (or its indivisible video chain) could not fit under the cap. */
   sizeLimitExceeded: boolean;
 };
 
 type TrimPlan<T> = {
   criticalEntriesDropped: number;
+  protectedEntriesDropped: number;
   droppedEntries: number;
   entries: LiveMessageQueueEntry<T>[];
   sizeInBytes: bigint;
@@ -134,6 +139,8 @@ export class LiveMessageQueue<T> {
         accepted: false,
         droppedEntries: 1,
         sizeLimitExceeded: true,
+        capacityDroppedEntries: 1,
+        droppedProtectedEntries: entry.retention === "protected" ? 1 : 0,
         droppedCriticalEntries:
           entry.retention === "protected" && entry.protectedPriority === "critical" ? 1 : 0,
       });
@@ -256,6 +263,8 @@ export class LiveMessageQueue<T> {
       droppedEntries: plan.droppedEntries,
       sizeLimitExceeded: !accepted,
       droppedCriticalEntries: plan.criticalEntriesDropped,
+      droppedProtectedEntries: plan.protectedEntriesDropped,
+      capacityDroppedEntries: plan.droppedEntries - supersededEntries,
     });
   }
 
@@ -352,7 +361,13 @@ export class LiveMessageQueue<T> {
     }
     this.#append(queuedEntry);
     this.#compact();
-    return this.#enqueueResult({ accepted: true, droppedEntries, sizeLimitExceeded: false });
+    return this.#enqueueResult({
+      accepted: true,
+      droppedEntries,
+      sizeLimitExceeded: false,
+      droppedProtectedEntries: droppedEntries,
+      capacityDroppedEntries: droppedEntries,
+    });
   }
 
   #hasOnlyNormalProtectedEntries(): boolean {
@@ -413,6 +428,7 @@ export class LiveMessageQueue<T> {
   ): TrimPlan<T> {
     let droppedEntries = 0;
     let criticalEntriesDropped = 0;
+    let protectedEntriesDropped = 0;
     let sizeInBytes = initialSizeInBytes;
     const maximumSize = BigInt(maximumSizeBytes);
     const removeAt = (index: number): void => {
@@ -422,6 +438,7 @@ export class LiveMessageQueue<T> {
       }
       sizeInBytes -= BigInt(removed.sizeInBytes);
       droppedEntries++;
+      if (removed.retention === "protected") protectedEntriesDropped++;
       if (removed.retention === "protected" && removed.protectedPriority === "critical") {
         criticalEntriesDropped++;
       }
@@ -503,6 +520,7 @@ export class LiveMessageQueue<T> {
 
     return {
       criticalEntriesDropped,
+      protectedEntriesDropped,
       droppedEntries,
       entries,
       sizeInBytes,
@@ -538,6 +556,8 @@ export class LiveMessageQueue<T> {
   #enqueueResult(options: {
     accepted: boolean;
     droppedCriticalEntries?: number;
+    droppedProtectedEntries?: number;
+    capacityDroppedEntries?: number;
     droppedEntries: number;
     sizeLimitExceeded: boolean;
   }): LiveMessageEnqueueResult {
@@ -546,6 +566,12 @@ export class LiveMessageQueue<T> {
       droppedEntries: options.droppedEntries,
       ...(options.droppedCriticalEntries != undefined && options.droppedCriticalEntries > 0
         ? { droppedCriticalEntries: options.droppedCriticalEntries }
+        : {}),
+      ...(options.droppedProtectedEntries != undefined && options.droppedProtectedEntries > 0
+        ? { droppedProtectedEntries: options.droppedProtectedEntries }
+        : {}),
+      ...(options.capacityDroppedEntries != undefined && options.capacityDroppedEntries > 0
+        ? { capacityDroppedEntries: options.capacityDroppedEntries }
         : {}),
       sizeLimitExceeded: options.sizeLimitExceeded,
     };

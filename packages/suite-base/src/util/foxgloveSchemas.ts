@@ -37,3 +37,11 @@ export function addFoxgloveSchema(output: Set<string>, dataType: string): Set<st
 // and the player-side seek backfill.
 export const COMPRESSED_VIDEO_DATATYPES = new Set<string>();
 addFoxgloveSchema(COMPRESSED_VIDEO_DATATYPES, "foxglove.CompressedVideo");
+
+// Complete point-cloud snapshots only; no SceneUpdate/Marker/TF inference by exclusion.
+export const POINTCLOUD_SNAPSHOT_DATATYPES = new Set<string>([
+  "sensor_msgs/PointCloud2",
+  "sensor_msgs/msg/PointCloud2",
+  "ros.sensor_msgs.PointCloud2",
+]);
+addFoxgloveSchema(POINTCLOUD_SNAPSHOT_DATATYPES, "foxglove.PointCloud");

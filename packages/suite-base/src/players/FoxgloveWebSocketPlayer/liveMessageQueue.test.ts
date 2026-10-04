@@ -51,6 +51,8 @@ describe("LiveMessageQueue", () => {
     expect(result).toEqual({
       accepted: true,
       droppedEntries: 1,
+      droppedProtectedEntries: 1,
+      capacityDroppedEntries: 1,
       sizeLimitExceeded: false,
     });
     expect(queue.getSizeInBytes()).toBeLessThanOrEqual(10);
@@ -196,6 +198,8 @@ describe("LiveMessageQueue", () => {
     expect(result).toEqual({
       accepted: false,
       droppedEntries: 1,
+      capacityDroppedEntries: 1,
+      ...(retention === "protected" ? { droppedProtectedEntries: 1 } : {}),
       sizeLimitExceeded: true,
     });
     expect(queue.getSizeInBytes()).toBe(5);
@@ -230,6 +234,7 @@ describe("LiveMessageQueue", () => {
     expect(oversizedRecovery).toEqual({
       accepted: false,
       droppedEntries: 1,
+      capacityDroppedEntries: 1,
       sizeLimitExceeded: true,
     });
     expect(rejectedDelta).toEqual({
@@ -476,6 +481,8 @@ describe("LiveMessageQueue", () => {
       accepted: true,
       droppedEntries: 1,
       droppedCriticalEntries: 1,
+      droppedProtectedEntries: 1,
+      capacityDroppedEntries: 1,
       sizeLimitExceeded: false,
     });
     expect(queue.drain()).toEqual(["advertise-new"]);
