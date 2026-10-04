@@ -187,6 +187,16 @@ function isVideoRecoveryPoint(data: unknown, encoding: string | undefined): bool
   return frameData != undefined && inspectAnnexBVideoFrame(frameData).isRecoveryPoint;
 }
 
+/**
+ * Post what is queued to the main thread, if the previous post has been acknowledged. One post is
+ * in flight at a time, as before; what changed is that a post carries everything that has queued
+ * up since the last one, in arrival order, instead of a single message. Under load the main thread
+ * used to pay one task wake-up, one structured clone and one acknowledgement round trip per
+ * message, which capped throughput at the rate of main-thread turns. A batch is whatever arrived
+ * while the previous one was being processed: nothing waits for a timer, a lone message goes out
+ * immediately, and the queue's bounds and its drop and supersede policy apply before a message is
+ * posted exactly as they did.
+ */
 function sendNextMessage(): void {
   if (messageInFlight) {
     return;
@@ -197,11 +207,19 @@ function sendNextMessage(): void {
   }
   messageInFlight = true;
 
-  if (next.value instanceof ArrayBuffer) {
-    sendWithTransfer({ type: "message", data: next.value }, [next.value]);
-  } else {
-    send({ type: "message", data: next.value });
+  const more = messageQueue.drain();
+  if (more.length === 0) {
+    if (next.value instanceof ArrayBuffer) {
+      sendWithTransfer({ type: "message", data: next.value }, [next.value]);
+    } else {
+      send({ type: "message", data: next.value });
+    }
+    return;
   }
+
+  const batch = [next.value, ...more];
+  const transfer = batch.filter((value): value is ArrayBuffer => value instanceof ArrayBuffer);
+  sendWithTransfer({ type: "messages", data: batch }, transfer);
 }
 
 function enqueueMessage(data: unknown): void {

@@ -66,6 +66,60 @@ describe("WorkerSocketAdapter", () => {
     expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "ack" });
   });
 
+  describe("batched messages", () => {
+    function deliverBatch(data: unknown[]): void {
+      workerMock.onmessage?.({ data: { type: "messages", data } });
+    }
+
+    it("hands over each message in order as the single message it used to be", () => {
+      const socket = new WorkerSocketAdapter(wsUrl);
+      const received: unknown[] = [];
+      socket.onmessage = jest.fn((event) => received.push(event));
+      workerMock.postMessage.mockClear();
+      const batch = [BasicBuilder.string(), new ArrayBuffer(8), BasicBuilder.string()];
+
+      deliverBatch(batch);
+
+      expect(received).toEqual(batch.map((data) => ({ type: "message", data })));
+    });
+
+    it("acknowledges the batch once, after its last message", () => {
+      const socket = new WorkerSocketAdapter(wsUrl);
+      const events: string[] = [];
+      socket.onmessage = jest.fn(() => events.push("message"));
+      workerMock.postMessage.mockClear();
+      workerMock.postMessage.mockImplementation(() => events.push("ack"));
+
+      deliverBatch(["a", "b", "c"]);
+
+      expect(events).toEqual(["message", "message", "message", "ack"]);
+      expect(workerMock.postMessage).toHaveBeenCalledTimes(1);
+      expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "ack" });
+    });
+
+    it("delivers the rest of the batch and still acknowledges once when a listener throws", () => {
+      const socket = new WorkerSocketAdapter(wsUrl);
+      const received: unknown[] = [];
+      const failure = new Error(BasicBuilder.string());
+      socket.onmessage = jest.fn((event: unknown) => {
+        const { data } = event as { data: unknown };
+        received.push(data);
+        if (data === "b") {
+          throw failure;
+        }
+      });
+      workerMock.postMessage.mockClear();
+
+      expect(() => {
+        deliverBatch(["a", "b", "c"]);
+      }).toThrow(failure);
+
+      expect(received).toEqual(["a", "b", "c"]);
+      expect(workerMock.postMessage).toHaveBeenCalledTimes(1);
+      expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "ack" });
+    });
+  });
+
   it("WorkerSocketAdapter should not acknowledge a directly transferred asset response", () => {
     const socket = new WorkerSocketAdapter(wsUrl);
     socket.onmessage = jest.fn();

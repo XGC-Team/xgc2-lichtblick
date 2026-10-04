@@ -36,6 +36,14 @@ export type FromWorkerMessage =
        * protocol because they were never admitted to that queue.
        */
       requiresAck?: boolean;
+    }
+  | {
+      /**
+       * Everything that was queued when the worker was last free to post, in arrival order. The
+       * whole batch is acknowledged once, after its last message has been handled.
+       */
+      type: "messages";
+      data: unknown[];
     };
 
 export type ToWorkerMessage =

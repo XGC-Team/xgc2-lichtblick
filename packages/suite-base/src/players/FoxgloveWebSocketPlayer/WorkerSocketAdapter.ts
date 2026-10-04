@@ -64,6 +64,32 @@ export default class WorkerSocketAdapter implements IWebSocket {
             }
           }
           break;
+        case "messages": {
+          // Hand over the batch message by message, in order, so a listener sees exactly the stream
+          // it saw when each message travelled alone. One failing listener call does not cost the
+          // rest of the batch its delivery; the first failure still surfaces once the batch is
+          // done. The batch is acknowledged once, after its last message.
+          let failed = false;
+          let failure: unknown;
+          try {
+            for (const data of event.data.data) {
+              try {
+                this.onmessage?.({ type: "message", data });
+              } catch (error) {
+                if (!failed) {
+                  failed = true;
+                  failure = error;
+                }
+              }
+            }
+          } finally {
+            this.#sendToWorker({ type: "ack" });
+          }
+          if (failed) {
+            throw failure;
+          }
+          break;
+        }
       }
     };
   }

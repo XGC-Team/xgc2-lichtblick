@@ -42,6 +42,19 @@ function dispatch(data: ToWorkerMessage): void {
   onmessage({ data } as MessageEvent<ToWorkerMessage>);
 }
 
+/** Every message the worker posted, in post order, whether it travelled alone or in a batch. */
+function postedMessageData(): unknown[] {
+  const delivered: unknown[] = [];
+  for (const [message] of postMessageMock.mock.calls) {
+    if (message?.type === "message") {
+      delivered.push(message.data);
+    } else if (message?.type === "messages") {
+      delivered.push(...(message.data as unknown[]));
+    }
+  }
+  return delivered;
+}
+
 function messageData(subscriptionId: number, payloadSize = 0): ArrayBuffer {
   const buffer = new ArrayBuffer(13 + payloadSize);
   const view = new DataView(buffer);
@@ -264,6 +277,139 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       expect(postMessageMock).toHaveBeenCalledWith({ type: "message", data: second }, [second]);
     });
 
+    describe("batched posts", () => {
+      function openWithMapping(): void {
+        dispatch({ type: "open", data: { wsUrl } });
+        establishTopicMapping([
+          { subId: 1, channelId: 10, topic: "/camera/image" },
+          { subId: 2, channelId: 20, topic: "/xgc/tf", schemaName: "tf2_msgs/TFMessage" },
+          { subId: 3, channelId: 30, topic: "/lidar/points" },
+        ]);
+        postMessageMock.mockClear();
+      }
+      const receive = (data: unknown): void => {
+        MockWebSocket.lastInstance?.onmessage?.({ data } as MessageEvent);
+      };
+
+      it("posts a lone message at once and what queued behind a busy post as one ordered batch", () => {
+        openWithMapping();
+        const first = messageData(2, 8);
+        receive(first);
+        expect(postMessageMock).toHaveBeenCalledTimes(1);
+        expect(postMessageMock).toHaveBeenLastCalledWith({ type: "message", data: first }, [first]);
+        postMessageMock.mockClear();
+
+        // The post is unacknowledged: these queue, in order, and nothing is posted.
+        const queued = [messageData(2, 8), messageData(2, 16), messageData(2, 24), messageData(2, 32)];
+        queued.forEach(receive);
+        expect(postMessageMock).not.toHaveBeenCalled();
+
+        dispatch({ type: "ack" });
+
+        expect(postMessageMock).toHaveBeenCalledTimes(1);
+        const [message, transfer] = postMessageMock.mock.calls[0] as [
+          { type: string; data: unknown[] },
+          ArrayBuffer[],
+        ];
+        expect(message.type).toBe("messages");
+        expect(message.data).toEqual(queued);
+        message.data.forEach((data, index) => {
+          expect(data).toBe(queued[index]);
+        });
+        expect(transfer).toEqual(queued);
+      });
+
+      it("keeps the one-post-in-flight rule: nothing more is posted until the batch is acknowledged", () => {
+        openWithMapping();
+        receive(messageData(2));
+        receive(messageData(2, 1));
+        receive(messageData(2, 2));
+        dispatch({ type: "ack" });
+        postMessageMock.mockClear();
+
+        const during = messageData(2, 3);
+        receive(during);
+        expect(postMessageMock).not.toHaveBeenCalled();
+
+        dispatch({ type: "ack" });
+        expect(postMessageMock).toHaveBeenCalledTimes(1);
+        // A batch of one is posted as the single message it always was.
+        expect(postMessageMock).toHaveBeenCalledWith({ type: "message", data: during }, [during]);
+      });
+
+      it("takes the whole queue even when it holds mixed control frames and telemetry, in order", () => {
+        openWithMapping();
+        receive(messageData(2));
+        const tfA = messageData(2, 4);
+        const status = JSON.stringify({ op: "status", level: 0, message: "ok" });
+        const tfB = messageData(2, 8);
+        [tfA, status, tfB].forEach(receive);
+        postMessageMock.mockClear();
+
+        dispatch({ type: "ack" });
+
+        expect(postedMessageData()).toEqual([tfA, status, tfB]);
+        // Only the binary frames are transferred; the string is copied.
+        expect(postMessageMock.mock.calls[0]?.[1]).toEqual([tfA, tfB]);
+      });
+
+      it("still keeps only the latest queued frame per ordinary telemetry subscription", () => {
+        openWithMapping();
+        receive(messageData(1));
+        const tf = messageData(2, 4);
+        const oldCamera = messageData(1, 4);
+        const lidar = messageData(3, 4);
+        const newCamera = messageData(1, 8);
+        [tf, oldCamera, lidar, newCamera].forEach(receive);
+        postMessageMock.mockClear();
+
+        dispatch({ type: "ack" });
+
+        // The superseded camera frame is gone; the others keep their arrival order.
+        expect(postedMessageData()).toEqual([tf, lidar, newCamera]);
+      });
+
+      it("posts nothing for an acknowledgement with nothing queued and stays ready for the next message", () => {
+        openWithMapping();
+        receive(messageData(2));
+        postMessageMock.mockClear();
+
+        dispatch({ type: "ack" });
+        expect(postMessageMock).not.toHaveBeenCalled();
+
+        const next = messageData(2, 4);
+        receive(next);
+        expect(postMessageMock).toHaveBeenCalledWith({ type: "message", data: next }, [next]);
+      });
+
+      it("hands every message to the main thread exactly once across many batches", () => {
+        openWithMapping();
+        const sent: ArrayBuffer[] = [];
+        const got: unknown[] = [];
+        for (let round = 0; round < 40; round++) {
+          // Bursts of varying size arrive while the previous post is outstanding.
+          const burst = 1 + ((round * 7) % 9);
+          for (let i = 0; i < burst; i++) {
+            const data = messageData(2, sent.length);
+            sent.push(data);
+            receive(data);
+          }
+          got.push(...postedMessageData());
+          postMessageMock.mockClear();
+          dispatch({ type: "ack" });
+          got.push(...postedMessageData());
+          postMessageMock.mockClear();
+        }
+        dispatch({ type: "ack" });
+        got.push(...postedMessageData());
+
+        expect(got).toHaveLength(sent.length);
+        got.forEach((data, index) => {
+          expect(data).toBe(sent[index]);
+        });
+      });
+    });
+
     it("should transfer an oversized asset response outside the bounded telemetry queue", () => {
       // Given
       dispatch({ type: "open", data: { wsUrl, queueLimitBytes: 100 } });
@@ -383,15 +529,10 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       postMessageMock.mockClear();
 
       // When — drain the entire remaining queue
-      const delivered: ArrayBuffer[] = [];
+      const delivered: unknown[] = [];
       for (let i = 0; i < 10; i++) {
         dispatch({ type: "ack" });
-        for (const call of postMessageMock.mock.calls) {
-          const deliveredData: unknown = call[0]?.data;
-          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
-            delivered.push(deliveredData);
-          }
-        }
+        delivered.push(...postedMessageData());
         postMessageMock.mockClear();
       }
 
@@ -428,11 +569,7 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       const delivered: unknown[] = [];
       for (let i = 0; i < 5; i++) {
         dispatch({ type: "ack" });
-        for (const call of postMessageMock.mock.calls) {
-          if (call[0]?.type === "message") {
-            delivered.push(call[0].data);
-          }
-        }
+        delivered.push(...postedMessageData());
         postMessageMock.mockClear();
       }
 
@@ -478,15 +615,10 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       postMessageMock.mockClear();
 
       // When
-      const delivered: ArrayBuffer[] = [];
+      const delivered: unknown[] = [];
       for (let i = 0; i < 10; i++) {
         dispatch({ type: "ack" });
-        for (const call of postMessageMock.mock.calls) {
-          const deliveredData: unknown = call[0]?.data;
-          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
-            delivered.push(deliveredData);
-          }
-        }
+        delivered.push(...postedMessageData());
         postMessageMock.mockClear();
       }
 
@@ -519,12 +651,11 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       MockWebSocket.lastInstance?.onmessage?.({ data: deltaB } as MessageEvent);
       postMessageMock.mockClear();
 
-      // When / Then — unlike ordinary telemetry, the first delta frame is not superseded.
+      // When / Then — unlike ordinary telemetry, the first delta frame is not superseded, and the
+      // chain keeps its order inside the one batch the acknowledgement releases.
       dispatch({ type: "ack" });
-      expect(postMessageMock.mock.calls[0]?.[0].data).toBe(deltaA);
-      postMessageMock.mockClear();
-      dispatch({ type: "ack" });
-      expect(postMessageMock.mock.calls[0]?.[0].data).toBe(deltaB);
+      expect(postMessageMock).toHaveBeenCalledTimes(1);
+      expect(postedMessageData()).toEqual([deltaA, deltaB]);
     });
 
     it("should discard an overflowing GOP and reject deltas until the next IDR/SPS", () => {
@@ -628,15 +759,10 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       postMessageMock.mockClear();
 
       // When — drain the queue
-      const delivered: ArrayBuffer[] = [];
+      const delivered: unknown[] = [];
       for (let i = 0; i < 10; i++) {
         dispatch({ type: "ack" });
-        for (const call of postMessageMock.mock.calls) {
-          const deliveredData: unknown = call[0]?.data;
-          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
-            delivered.push(deliveredData);
-          }
-        }
+        delivered.push(...postedMessageData());
         postMessageMock.mockClear();
       }
 
@@ -660,15 +786,10 @@ describe("FoxgloveWebSocketPlayer worker", () => {
       postMessageMock.mockClear();
 
       // When
-      const delivered: ArrayBuffer[] = [];
+      const delivered: unknown[] = [];
       for (let i = 0; i < 10; i++) {
         dispatch({ type: "ack" });
-        for (const call of postMessageMock.mock.calls) {
-          const deliveredData: unknown = call[0]?.data;
-          if (call[0]?.type === "message" && deliveredData instanceof ArrayBuffer) {
-            delivered.push(deliveredData);
-          }
-        }
+        delivered.push(...postedMessageData());
         postMessageMock.mockClear();
       }
 
