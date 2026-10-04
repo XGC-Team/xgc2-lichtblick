@@ -1098,7 +1098,16 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   ]);
   useEffect(() => {
     if (!embeddedPanelId || interfaceMode !== "3d" || window.parent === window) return;
-    return () =>
+    return () => {
+      // createSyncRoot can retire this root after its same-panel replacement has mounted.
+      // The existing native route identifies that connected replacement; do not withdraw it.
+      const current = document.querySelectorAll(`[${EMBEDDED_3D_PANEL_ATTRIBUTE}]`);
+      if (
+        Array.from(current).some(
+          (element) => element.getAttribute(EMBEDDED_3D_PANEL_ATTRIBUTE) === embeddedPanelId,
+        )
+      )
+        return;
       window.parent.postMessage(
         {
           channel: XGC2_EMBED_CHANNEL,
@@ -1113,6 +1122,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         },
         window.location.origin,
       );
+    };
   }, [embeddedPanelId, interfaceMode]);
   useEffect(() => {
     const element = navigationElement.current;

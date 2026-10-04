@@ -323,6 +323,47 @@ describe("ThreeDeeRender", () => {
     );
   });
 
+  it("does not withdraw a connected replacement native panel when the old root retires late", () => {
+    const originalParent = Object.getOwnPropertyDescriptor(window, "parent")!;
+    const postMessage = jest.fn();
+    Object.defineProperty(window, "parent", { configurable: true, value: { postMessage } });
+    const embeddedPanelId = "ThreeDeeRender!replacement";
+    try {
+      const old = render(<ThreeDeeRender {...setup({ embeddedPanelId })} />);
+      // Adapter removes the old container synchronously; nested root.unmount runs later.
+      old.container.remove();
+      const current = render(<ThreeDeeRender {...setup({ embeddedPanelId })} />);
+      expect(postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: "navigation-state",
+          panelId: embeddedPanelId,
+          available: true,
+        }),
+        window.location.origin,
+      );
+      postMessage.mockClear();
+      old.unmount();
+      expect(postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "navigation-state",
+          available: false,
+        }),
+        expect.any(String),
+      );
+      current.unmount();
+      expect(postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: "navigation-state",
+          panelId: embeddedPanelId,
+          available: false,
+        }),
+        window.location.origin,
+      );
+    } finally {
+      Object.defineProperty(window, "parent", originalParent);
+    }
+  });
+
   it("reports a synchronous Goal publish failure with the configured topic and reason", () => {
     const failure = new Error("No advertised channel");
     const enqueueSnackbarFromParent = jest.fn();
