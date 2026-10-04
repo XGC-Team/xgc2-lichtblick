@@ -10,6 +10,7 @@
 import "@testing-library/jest-dom";
 import { act, render, waitFor } from "@testing-library/react";
 
+import { EMBEDDED_NAVIGATION_EVENT } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { Topic } from "@lichtblick/suite";
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
@@ -118,10 +119,8 @@ jest.mock("@lichtblick/suite-base/theme/ThemeProvider", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-let mockOverlayProps: React.ComponentProps<typeof RendererOverlay>;
 jest.mock("./RendererOverlay", () => ({
-  RendererOverlay: (props: React.ComponentProps<typeof RendererOverlay>) => {
-    mockOverlayProps = props;
+  RendererOverlay: (_props: React.ComponentProps<typeof RendererOverlay>) => {
     return <div data-testid="renderer-overlay">Renderer Overlay</div>;
   },
 }));
@@ -250,14 +249,46 @@ describe("ThreeDeeRender", () => {
     expect(getByTestId("renderer-overlay")).toBeInTheDocument();
   });
 
-  it("uses native follow state and the original goal click tool only on UI input", () => {
-    const props = setup(
-      {},
-      { initialState: { followTf: "xgc/robots/uav1/base_link", followMode: "follow-position" } },
+  it("uses native navigation and reads robot roots only when Follow opens", () => {
+    const frames = [{ label: "uav1", value: "xgc/robots/uav1/base_link" }];
+    const robotFollowFrames = jest.fn().mockReturnValue(frames);
+    mockedRenderer.mockImplementationOnce(
+      () =>
+        createMockRenderer({
+          sceneExtensions: new Map([["foxglove.Urdfs", { robotFollowFrames }]]),
+        }) as unknown as Renderer,
     );
-    render(<ThreeDeeRender {...props} />);
+    const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
+    const props = setup(
+      { embeddedPanelId: "ThreeDeeRender!native-test" },
+      {
+        dataSourceIsLive: true,
+        initialState: { followTf: "xgc/robots/uav1/base_link", followMode: "follow-position" },
+      },
+    );
+    const view = render(<ThreeDeeRender {...props} />);
     const renderer = mockedRenderer.mock.results[0]!.value;
-    act(() => mockOverlayProps.onFollowRobot("xgc/robots/uav1/base_link"));
+    const element = view.container.querySelector("[data-xgc-native-3d-panel-id]")!;
+    const navigate = (action: string, frameId?: string) =>
+      act(() =>
+        element.dispatchEvent(
+          new CustomEvent(EMBEDDED_NAVIGATION_EVENT, {
+            detail: { panelId: "ThreeDeeRender!native-test", action, frameId },
+          }),
+        ),
+      );
+    expect(robotFollowFrames).not.toHaveBeenCalled();
+    navigate("robot-frames");
+    expect(robotFollowFrames).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "robot-frames",
+        panelId: "ThreeDeeRender!native-test",
+        frames,
+      }),
+      window.location.origin,
+    );
+    navigate("follow", "xgc/robots/uav1/base_link");
     expect(renderer.settings.handleAction).toHaveBeenCalledWith({
       action: "update",
       payload: {
@@ -270,7 +301,7 @@ describe("ThreeDeeRender", () => {
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
     });
-    act(() => mockOverlayProps.onGoal());
+    navigate("goal");
     expect(renderer.settings.handleAction).toHaveBeenCalledWith({
       action: "update",
       payload: { input: "select", path: ["general", "followTf"], value: "world" },
@@ -278,6 +309,13 @@ describe("ThreeDeeRender", () => {
     expect(renderer.publishClickTool.setPublishClickType).toHaveBeenCalledWith("pose");
     expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
     expect(props.context.publish).not.toHaveBeenCalled();
+    navigate("overview");
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
+    });
+    expect(robotFollowFrames).toHaveBeenCalledTimes(1);
+    postMessage.mockRestore();
     expect(renderer.addListener).not.toHaveBeenCalledWith(
       "transformTreeUpdated",
       expect.any(Function),

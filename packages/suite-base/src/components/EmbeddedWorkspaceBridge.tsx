@@ -46,6 +46,41 @@ export type Xgc2EmbeddedReadyMessage = {
   visibleSurfaces: readonly Xgc2EmbeddedSurface[];
 };
 
+// Navigation remains on this authenticated embed channel and names one native panel.
+export const EMBEDDED_NAVIGATION_EVENT = "xgc2.lichtblick.native-navigation";
+export const EMBEDDED_3D_PANEL_ATTRIBUTE = "data-xgc-native-3d-panel-id";
+export type EmbeddedNavigationCommand = {
+  channel: typeof XGC2_EMBED_CHANNEL;
+  version: typeof XGC2_EMBED_VERSION;
+  sender: "xgc2";
+  type: "navigation";
+  panelId: string;
+  action: "goal" | "overview" | "robot-frames" | "follow";
+  frameId?: string;
+};
+
+export function isEmbeddedNavigationCommand(value: unknown): value is EmbeddedNavigationCommand {
+  if (
+    !isPlainObject(value) ||
+    value.channel !== XGC2_EMBED_CHANNEL ||
+    value.version !== XGC2_EMBED_VERSION ||
+    value.sender !== "xgc2" ||
+    value.type !== "navigation" ||
+    typeof value.panelId !== "string" ||
+    !value.panelId
+  )
+    return false;
+  const keys = ["channel", "version", "sender", "type", "panelId", "action"];
+  if (value.action === "follow") {
+    keys.push("frameId");
+    if (typeof value.frameId !== "string" || !value.frameId) return false;
+  } else if (!["goal", "overview", "robot-frames"].includes(String(value.action))) return false;
+  return (
+    Object.keys(value).length === keys.length &&
+    Object.keys(value).every((key) => keys.includes(key))
+  );
+}
+
 const HOST_COMMAND_KEYS = ["channel", "version", "sender", "type", "surface"] as const;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -113,13 +148,24 @@ export default function EmbeddedWorkspaceBridge(): null {
     const expectedOrigin = window.location.origin;
 
     const handleMessage = (event: MessageEvent<unknown>) => {
-      if (
-        event.origin !== expectedOrigin ||
-        event.source !== parentWindow ||
-        !isXgc2EmbeddedHostCommand(event.data)
-      ) {
+      if (event.origin !== expectedOrigin || event.source !== parentWindow) {
         return;
       }
+
+      if (isEmbeddedNavigationCommand(event.data)) {
+        const panelId = event.data.panelId;
+        const targets = [
+          ...document.querySelectorAll<HTMLElement>(`[${EMBEDDED_3D_PANEL_ATTRIBUTE}]`),
+        ].filter((element) => element.getAttribute(EMBEDDED_3D_PANEL_ATTRIBUTE) === panelId);
+        // Duplicate/unknown identities are unavailable, never broadcast to all renderers.
+        if (targets.length === 1) {
+          targets[0]!.dispatchEvent(
+            new CustomEvent(EMBEDDED_NAVIGATION_EVENT, { detail: event.data }),
+          );
+        }
+        return;
+      }
+      if (!isXgc2EmbeddedHostCommand(event.data)) return;
 
       switch (event.data.surface) {
         case "panel-settings":

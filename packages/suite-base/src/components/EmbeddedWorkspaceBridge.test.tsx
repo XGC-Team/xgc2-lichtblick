@@ -10,6 +10,8 @@ import { useWorkspaceStore } from "@lichtblick/suite-base/context/Workspace/Work
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
 import EmbeddedWorkspaceBridge, {
+  EMBEDDED_NAVIGATION_EVENT,
+  isEmbeddedNavigationCommand,
   isXgc2EmbeddedHostCommand,
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_SURFACES,
@@ -293,6 +295,38 @@ describe("EmbeddedWorkspaceBridge", () => {
     { ...hostCommand("topics"), unexpected: true },
   ])("rejects a malformed or non-whitelisted host message: %p", (message) => {
     expect(isXgc2EmbeddedHostCommand(message)).toBe(false);
+  });
+
+  it("routes authenticated navigation only to the named native 3D panel", () => {
+    jest.spyOn(window.parent, "postMessage").mockImplementation();
+    render(<EmbeddedWorkspaceBridge />);
+    const a = document.createElement("div"),
+      b = document.createElement("div");
+    a.setAttribute("data-xgc-native-3d-panel-id", "ThreeDeeRender!a");
+    b.setAttribute("data-xgc-native-3d-panel-id", "ThreeDeeRender!b");
+    document.body.append(a, b);
+    const first = jest.fn(),
+      second = jest.fn();
+    a.addEventListener(EMBEDDED_NAVIGATION_EVENT, first);
+    b.addEventListener(EMBEDDED_NAVIGATION_EVENT, second);
+    const message = {
+      channel: XGC2_EMBED_CHANNEL,
+      version: XGC2_EMBED_VERSION,
+      sender: "xgc2",
+      type: "navigation",
+      panelId: "ThreeDeeRender!b",
+      action: "goal",
+    };
+    expect(isEmbeddedNavigationCommand(message)).toBe(true);
+    act(() => dispatchHostMessage(message, { origin: "https://wrong.invalid" }));
+    expect(second).not.toHaveBeenCalled();
+    act(() => dispatchHostMessage(message));
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(isEmbeddedNavigationCommand({ ...message, frameId: "extra" })).toBe(false);
+    expect(isEmbeddedNavigationCommand({ ...message, action: "follow" })).toBe(false);
+    a.remove();
+    b.remove();
   });
 
   it("removes its message listener when unmounted", () => {

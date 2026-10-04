@@ -24,6 +24,13 @@ import {
   Subscription,
   Topic,
 } from "@lichtblick/suite";
+import {
+  EMBEDDED_3D_PANEL_ATTRIBUTE,
+  EMBEDDED_NAVIGATION_EVENT,
+  XGC2_EMBED_CHANNEL,
+  XGC2_EMBED_VERSION,
+  type EmbeddedNavigationCommand,
+} from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import { DEFAULT_SCENE_EXTENSION_CONFIG } from "@lichtblick/suite-base/panels/ThreeDeeRender/SceneExtensionConfig";
@@ -50,6 +57,7 @@ import {
   makePoseEstimateMessage,
   makePoseMessage,
 } from "./publish";
+import type { Urdfs } from "./renderables/Urdfs";
 import type { LayerSettingsTransform } from "./renderables/FrameAxes";
 import { PublishClickEventMap } from "./renderables/PublishClickTool";
 import { DEFAULT_PUBLISH_SETTINGS } from "./renderables/PublishSettings";
@@ -63,6 +71,7 @@ const log = Logger.getLogger(__filename);
 export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.Element {
   const {
     context,
+    embeddedPanelId,
     interfaceMode,
     testOptions,
     customSceneExtensions,
@@ -76,6 +85,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     unstable_fetchAsset: fetchAsset,
     unstable_setMessagePathDropConfig: setMessagePathDropConfig,
   } = context;
+  const navigationElement = useRef<HTMLDivElement | ReactNull>(ReactNull);
   const analytics = useAnalytics();
   const { classes } = useStyles();
 
@@ -1045,9 +1055,109 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     context.dataSourceProfile === "ros1" || context.dataSourceProfile === "ros2";
   const canPublish = context.publish != undefined && isRosDataSource;
 
+  const navigationAvailable =
+    interfaceMode === "3d" && embeddedPanelId != undefined && renderer != undefined;
+  const goalAvailable = canPublish && renderer?.fixedFrameId != undefined;
+  useEffect(() => {
+    if (!embeddedPanelId || interfaceMode !== "3d" || window.parent === window) return;
+    window.parent.postMessage(
+      {
+        channel: XGC2_EMBED_CHANNEL,
+        version: XGC2_EMBED_VERSION,
+        sender: "lichtblick",
+        type: "navigation-state",
+        panelId: embeddedPanelId,
+        available: navigationAvailable,
+        canGoal: goalAvailable,
+        goalActive: publishActive && renderer?.publishClickTool.publishClickType === "pose",
+        followFrameId: config.followMode === "follow-none" ? undefined : config.followTf,
+      },
+      window.location.origin,
+    );
+  }, [
+    embeddedPanelId,
+    interfaceMode,
+    navigationAvailable,
+    goalAvailable,
+    publishActive,
+    renderer,
+    config.followMode,
+    config.followTf,
+  ]);
+  useEffect(() => {
+    if (!embeddedPanelId || interfaceMode !== "3d" || window.parent === window) return;
+    return () =>
+      window.parent.postMessage(
+        {
+          channel: XGC2_EMBED_CHANNEL,
+          version: XGC2_EMBED_VERSION,
+          sender: "lichtblick",
+          type: "navigation-state",
+          panelId: embeddedPanelId,
+          available: false,
+          canGoal: false,
+          goalActive: false,
+          followFrameId: undefined,
+        },
+        window.location.origin,
+      );
+  }, [embeddedPanelId, interfaceMode]);
+  useEffect(() => {
+    const element = navigationElement.current;
+    if (!element || !navigationAvailable) return;
+    const handleNavigation = (event: Event) => {
+      const command = (event as CustomEvent<EmbeddedNavigationCommand>).detail;
+      if (command.panelId !== embeddedPanelId) return;
+      switch (command.action) {
+        case "goal":
+          if (goalAvailable) onGoal();
+          break;
+        case "overview":
+          onOverview();
+          break;
+        case "follow":
+          if (command.frameId) onFollowRobot(command.frameId);
+          break;
+        case "robot-frames": {
+          // Read existing robot roots once, only when the host opens Follow.
+          const urdfs = renderer?.sceneExtensions.get("foxglove.Urdfs") as Urdfs | undefined;
+          window.parent.postMessage(
+            {
+              channel: XGC2_EMBED_CHANNEL,
+              version: XGC2_EMBED_VERSION,
+              sender: "lichtblick",
+              type: "robot-frames",
+              panelId: embeddedPanelId,
+              frames: urdfs?.robotFollowFrames() ?? [],
+            },
+            window.location.origin,
+          );
+          break;
+        }
+      }
+    };
+    element.addEventListener(EMBEDDED_NAVIGATION_EVENT, handleNavigation);
+    return () => element.removeEventListener(EMBEDDED_NAVIGATION_EVENT, handleNavigation);
+  }, [
+    embeddedPanelId,
+    navigationAvailable,
+    goalAvailable,
+    onGoal,
+    onFollowRobot,
+    onOverview,
+    renderer,
+  ]);
+
   return (
     <ThemeProvider isDark={colorScheme === "dark"}>
-      <div style={PANEL_STYLE} onKeyDown={onKeyDown}>
+      <div
+        ref={navigationElement}
+        style={PANEL_STYLE}
+        onKeyDown={onKeyDown}
+        {...(interfaceMode === "3d" && embeddedPanelId
+          ? { [EMBEDDED_3D_PANEL_ATTRIBUTE]: embeddedPanelId }
+          : {})}
+      >
         <canvas
           ref={setCanvas}
           style={{
@@ -1074,10 +1184,6 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
             enableStats={config.scene.enableStats ?? false}
             perspective={config.cameraState.perspective}
             onTogglePerspective={onTogglePerspective}
-            onFollowRobot={onFollowRobot}
-            onOverview={onOverview}
-            onGoal={onGoal}
-            followFrameId={config.followMode === "follow-none" ? undefined : config.followTf}
             measureActive={measureActive}
             onClickMeasure={onClickMeasure}
             canPublish={canPublish}

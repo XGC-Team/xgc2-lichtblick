@@ -39,6 +39,7 @@ import { InitPanelArgs, InterfaceMode } from "./types";
 function initPanel(args: InitPanelArgs, context: BuiltinPanelExtensionContext) {
   const {
     crash,
+    embeddedPanelId,
     forwardedAnalytics,
     forwardedEmbeddedControls,
     interfaceMode,
@@ -54,6 +55,7 @@ function initPanel(args: InitPanelArgs, context: BuiltinPanelExtensionContext) {
         <ForwardEmbeddedWorkspaceControls store={forwardedEmbeddedControls}>
           <ThreeDeeRender
             context={context}
+            embeddedPanelId={embeddedPanelId}
             interfaceMode={interfaceMode}
             testOptions={testOptions}
             customSceneExtensions={customSceneExtensions}
@@ -111,6 +113,7 @@ function ThreeDeeRenderAdapter(interfaceMode: InterfaceMode, props: Props) {
     () =>
       initPanel.bind(undefined, {
         crash,
+        embeddedPanelId: panelContext?.id,
         forwardedAnalytics,
         forwardedEmbeddedControls,
         interfaceMode,
@@ -139,6 +142,7 @@ function ThreeDeeRenderAdapter(interfaceMode: InterfaceMode, props: Props) {
       customCameraModels,
       enqueueSnackbar,
       panelContext?.logError,
+      panelContext?.id,
     ],
   );
 

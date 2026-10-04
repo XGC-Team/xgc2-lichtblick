@@ -47,7 +47,6 @@ import { useRenderer, useRendererEvent } from "./RendererContext";
 import { Stats } from "./Stats";
 import { MouseEventObject } from "./camera";
 import { PublishClickType } from "./renderables/PublishClickTool";
-import type { Urdfs } from "./renderables/Urdfs";
 import { InterfaceMode } from "./types";
 
 const PublishClickIcons: Record<PublishClickType, React.ReactNode> = {
@@ -75,11 +74,6 @@ const useStyles = makeStyles()((theme) => ({
   },
   toolsHidden: {
     display: "none",
-  },
-  navigationTools: {
-    display: "flex",
-    alignItems: "center",
-    pointerEvents: "auto",
   },
   iconButton: {
     position: "relative",
@@ -129,10 +123,6 @@ type Props = {
   onClickPublish: () => void;
   onShowTopicSettings: (topic: string) => void;
   onTogglePerspective: () => void;
-  onFollowRobot: (frameId: string) => void;
-  onOverview: () => void;
-  onGoal: () => void;
-  followFrameId: string | undefined;
   perspective: boolean;
   publishActive: boolean;
   publishClickType: PublishClickType;
@@ -369,17 +359,6 @@ export function RendererOverlay(props: Props): React.JSX.Element {
   const publickClickButtonRef = useRef<HTMLButtonElement>(ReactNull);
   const [publishMenuExpanded, setPublishMenuExpanded] = useState(false);
   const selectedPublishClickIcon = PublishClickIcons[props.publishClickType];
-  const [followMenuAnchor, setFollowMenuAnchor] = useState<HTMLElement | ReactNull>(ReactNull);
-  // These native model roots are read when this menu opens, not on every TF sample.
-  const robotFrames = useMemo(
-    () =>
-      followMenuAnchor
-        ? ((
-            renderer?.sceneExtensions.get("foxglove.Urdfs") as Urdfs | undefined
-          )?.robotFollowFrames() ?? [])
-        : [],
-    [followMenuAnchor, renderer],
-  );
 
   const onLongPressPublish = useCallback(() => {
     setPublishMenuExpanded(true);
@@ -491,7 +470,6 @@ export function RendererOverlay(props: Props): React.JSX.Element {
   useEffect(() => {
     if (!threeDToolsVisible) {
       setPublishMenuExpanded(false);
-      setFollowMenuAnchor(ReactNull);
     }
   }, [threeDToolsVisible]);
 
@@ -505,73 +483,6 @@ export function RendererOverlay(props: Props): React.JSX.Element {
             [classes.toolsHidden]: props.interfaceMode === "3d" && !threeDToolsVisible,
           })}
         >
-          {props.interfaceMode === "3d" && (
-            <Paper elevation={4} className={classes.navigationTools}>
-              <Tooltip
-                title={
-                  showPublishControl
-                    ? "Click position, then direction"
-                    : "Connect a publishing ROS source and select a display frame"
-                }
-              >
-                <span>
-                  <Button
-                    size="small"
-                    startIcon={<PublishGoalIcon fontSize="small" />}
-                    disabled={!showPublishControl}
-                    color={
-                      props.publishActive && props.publishClickType === "pose" ? "info" : "inherit"
-                    }
-                    onClick={props.onGoal}
-                    data-xgc-role="lichtblick-goal-tool"
-                  >
-                    {props.publishActive && props.publishClickType === "pose"
-                      ? "Cancel goal"
-                      : "Goal"}
-                  </Button>
-                </span>
-              </Tooltip>
-              <Button
-                size="small"
-                color="inherit"
-                disabled={!renderer}
-                onClick={(event) => setFollowMenuAnchor(event.currentTarget)}
-                data-xgc-role="lichtblick-follow-robot-tool"
-              >
-                Follow robot
-              </Button>
-              <Button
-                size="small"
-                color="inherit"
-                disabled={!renderer}
-                onClick={props.onOverview}
-                data-xgc-role="lichtblick-overview-tool"
-              >
-                Overview
-              </Button>
-              <Menu
-                anchorEl={followMenuAnchor}
-                open={followMenuAnchor != ReactNull}
-                onClose={() => setFollowMenuAnchor(ReactNull)}
-              >
-                {robotFrames.length === 0 && (
-                  <MenuItem disabled>No robot frames available</MenuItem>
-                )}
-                {robotFrames.map((frame) => (
-                  <MenuItem
-                    key={frame.value}
-                    selected={props.followFrameId === frame.value}
-                    onClick={() => {
-                      props.onFollowRobot(frame.value);
-                      setFollowMenuAnchor(ReactNull);
-                    }}
-                  >
-                    {frame.label}
-                  </MenuItem>
-                ))}
-              </Menu>
-            </Paper>
-          )}
           {
             // Only show on hover for image panel
             (props.interfaceMode === "3d" || mousePresent) && (
