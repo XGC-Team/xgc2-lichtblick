@@ -9,10 +9,8 @@
 
 import { mat4, quat, vec3, vec4 } from "gl-matrix";
 
-import { ArrayMap } from "@lichtblick/den/collection";
-import { ObjectPool } from "@lichtblick/den/collection/ObjectPool";
-
 import { Transform } from "./Transform";
+import { TransformHistory } from "./TransformHistory";
 import { Pose, mat4Identity } from "./geometry";
 import { Duration, interpolate, percentOf, Time } from "./time";
 
@@ -24,12 +22,15 @@ export const MAX_CAPACITY_EVICT_PORTION = 0.25;
 
 const DEG2RAD = Math.PI / 180;
 
-const tempLower: TimeAndTransform = [0n, Transform.Identity()];
-const tempUpper: TimeAndTransform = [0n, Transform.Identity()];
 const tempVec4: vec4 = [0, 0, 0, 0];
 const temp2Vec4: vec4 = [0, 0, 0, 0];
 const tempTransform = Transform.Identity();
 const tempMatrix = mat4Identity();
+const tempPositionA: vec3 = [0, 0, 0];
+const tempRotationA: quat = [0, 0, 0, 1];
+const tempPositionB: vec3 = [0, 0, 0];
+const tempRotationB: quat = [0, 0, 0, 1];
+const tempNormalized: quat = [0, 0, 0, 1];
 
 const FALLBACK_FRAME_ID = Symbol("FALLBACK_FRAME_ID");
 export type FallbackFrameId = typeof FALLBACK_FRAME_ID;
@@ -56,9 +57,8 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
   public offsetPosition: vec3 | undefined;
   public offsetEulerDegrees: vec3 | undefined;
 
-  #transformPool: ObjectPool<Transform>;
   #parent?: CoordinateFrame;
-  #transforms: ArrayMap<Time, Transform>;
+  #transforms = new TransformHistory();
   /**
    * Monotonic counter bumped on every history or topology mutation that can
    * change the result of transforming a pose through this frame. Used by
@@ -71,7 +71,6 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
     parent: CoordinateFrame | undefined, // fallback frame not allowed as parent
     maxStorageTime: Duration,
     maxCapacity: number,
-    transformPool: ObjectPool<Transform>,
   ) {
     if (parent) {
       this.#parent = parent;
@@ -79,8 +78,6 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
     this.id = id;
     this.maxStorageTime = maxStorageTime;
     this.maxCapacity = maxCapacity;
-    this.#transforms = new ArrayMap<Time, Transform>();
-    this.#transformPool = transformPool;
   }
 
   public static assertUserFrame(
@@ -150,10 +147,7 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
    */
   public setParent(parent: CoordinateFrame): void {
     if (this.#parent && this.#parent !== parent) {
-      const removed = this.#transforms.clear();
-      for (const [, tf] of removed) {
-        this.#transformPool.release(tf);
-      }
+      this.#transforms.clear();
     }
     if (this.#parent !== parent) {
       this.#version++;
@@ -187,10 +181,21 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
    * If a transform with an identical timestamp already exists, it is replaced.
    */
   public addTransform(time: Time, transform: Transform): void {
-    const oldTf = this.#transforms.set(time, transform);
-    if (oldTf) {
-      this.#transformPool.release(oldTf);
-    }
+    this.#store(time, transform.position(), transform.rotation());
+  }
+
+  /**
+   * `addTransform()` for a transform given as bare values, which is how transforms arrive from the
+   * wire: the rotation is normalized on the way in, exactly as `Transform.setPositionRotation()`
+   * does, and no transform object is built for the sample.
+   */
+  public addTransformValues(time: Time, position: vec3, rotation: quat): void {
+    quat.normalize(tempNormalized, rotation);
+    this.#store(time, position, tempNormalized);
+  }
+
+  #store(time: Time, position: Readonly<vec3>, rotation: Readonly<quat>): void {
+    this.#transforms.set(time, position, rotation);
     this.#version++;
 
     // Remove transforms that are too old
@@ -201,7 +206,7 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
       // remove a quarter of old transforms
       const removeBeforeIndex = Math.floor(this.maxCapacity * MAX_CAPACITY_EVICT_PORTION);
       // guaranteed to be more than minKey
-      let removeBeforeTime = this.#transforms.at(removeBeforeIndex)![0];
+      let removeBeforeTime = this.#transforms.timeAt(removeBeforeIndex);
       const endTime = this.#transforms.maxKey()!;
       // not guaranteed to be more than minKey
       const startTime = endTime - this.maxStorageTime;
@@ -209,29 +214,20 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
       // we can't afford to check maxStorageTime every time we add a transform, so we only check it when capacity is full
       removeBeforeTime = startTime > removeBeforeTime ? startTime : removeBeforeTime;
 
-      const entriesRemoved = this.#transforms.removeBefore(removeBeforeTime);
-      for (const [, tf] of entriesRemoved) {
-        this.#transformPool.release(tf);
-      }
+      this.#transforms.removeBefore(removeBeforeTime);
     }
   }
 
   /** Remove all transforms with timestamps greater than the given timestamp. */
   public removeTransformsAfter(time: Time): void {
-    const removed = this.#transforms.removeAfter(time);
-    for (const [, tf] of removed) {
-      this.#transformPool.release(tf);
-    }
-    if (removed.length > 0) {
+    if (this.#transforms.removeAfter(time) > 0) {
       this.#version++;
     }
   }
 
   /** Removes a transform with a specific timestamp */
   public removeTransformAt(time: Time): void {
-    const tf = this.#transforms.remove(time);
-    if (tf?.[1]) {
-      this.#transformPool.release(tf[1]);
+    if (this.#transforms.remove(time)) {
       this.#version++;
     }
   }
@@ -257,62 +253,55 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
     maxDelta: Duration,
   ): boolean {
     // perf-sensitive: function params instead of options object to avoid allocations
-    const transformCount = this.#transforms.size;
-    if (transformCount === 0) {
-      return false;
-    } else if (transformCount === 1) {
-      // If only a single transform exists, check if `time` is before or equal to
-      // `latestTime + maxDelta`
-      const [latestTime, latestTf] = this.#transforms.maxEntry()!;
-      if (time <= latestTime + maxDelta) {
-        outLower[0] = outUpper[0] = latestTime;
-        outLower[1] = outUpper[1] = latestTf;
-        return true;
-      }
+    const history = this.#transforms;
+    if (!history.locate(time, maxDelta)) {
       return false;
     }
-
-    const index = this.#transforms.binarySearch(time);
-    if (index >= 0) {
-      // If the time is exactly on an existing transform, return it
-      const [, tf] = this.#transforms.at(index)!;
-      outLower[0] = outUpper[0] = time;
-      outLower[1] = outUpper[1] = tf;
+    const { lowerIndex, upperIndex } = history;
+    history.read(lowerIndex, tempPositionA, tempRotationA);
+    outLower[0] = history.timeAt(lowerIndex);
+    outLower[1].setPositionRotationUnit(tempPositionA, tempRotationA);
+    if (upperIndex === lowerIndex) {
+      outUpper[0] = outLower[0];
+      outUpper[1].copy(outLower[1]);
       return true;
     }
+    history.read(upperIndex, tempPositionB, tempRotationB);
+    outUpper[0] = history.timeAt(upperIndex);
+    outUpper[1].setPositionRotationUnit(tempPositionB, tempRotationB);
+    return true;
+  }
 
-    const greaterThanIndex = ~index;
-    if (greaterThanIndex >= this.#transforms.size) {
-      // If the time is greater than all existing transforms, return the last
-      // transform
-      const [latestTime, latestTf] = this.#transforms.maxEntry()!;
-      if (time <= latestTime + maxDelta) {
-        outLower[0] = outUpper[0] = latestTime;
-        outLower[1] = outUpper[1] = latestTf;
-        return true;
-      }
+  /**
+   * Set `out` to this frame's transform to its parent at `time`: the stored sample on a hit or a
+   * clamp, otherwise the interpolation between the two samples around `time`. This is
+   * `findClosestTransforms()` followed by `InterpolateTransform()` computed straight from the
+   * stored values, so no per-sample transform has to exist.
+   * @returns False when `time` is outside the history by more than `maxDelta`
+   */
+  #interpolateInto(out: Transform, time: Time, maxDelta: Duration): boolean {
+    const history = this.#transforms;
+    if (!history.locate(time, maxDelta)) {
       return false;
     }
-
-    const lessThanIndex = greaterThanIndex - 1;
-    if (lessThanIndex < 0) {
-      // If the time is less than all existing transforms, return the first
-      // transform
-      const [earliestTime, earliestTf] = this.#transforms.minEntry()!;
-      if (earliestTime + maxDelta >= time) {
-        outLower[0] = outUpper[0] = earliestTime;
-        outLower[1] = outUpper[1] = earliestTf;
-        return true;
-      }
-      return false;
+    const { lowerIndex, upperIndex } = history;
+    history.read(upperIndex, tempPositionB, tempRotationB);
+    const upperTime = history.timeAt(upperIndex);
+    const lowerTime = history.timeAt(lowerIndex);
+    if (lowerTime === upperTime) {
+      out.setPositionRotationUnit(tempPositionB, tempRotationB);
+      return true;
     }
-
-    const [lteTime, lteTf] = this.#transforms.at(lessThanIndex)!;
-    const [gtTime, gtTf] = this.#transforms.at(greaterThanIndex)!;
-    outLower[0] = lteTime;
-    outLower[1] = lteTf;
-    outUpper[0] = gtTime;
-    outUpper[1] = gtTf;
+    history.read(lowerIndex, tempPositionA, tempRotationA);
+    const fraction = Math.max(0, Math.min(1, percentOf(lowerTime, upperTime, time)));
+    Transform.InterpolateValues(
+      out,
+      tempPositionA,
+      tempRotationA,
+      tempPositionB,
+      tempRotationB,
+      fraction,
+    );
     return true;
   }
 
@@ -512,10 +501,9 @@ export class CoordinateFrame<ID extends AnyFrameId = UserFrameId> {
 
     let curFrame = childFrame;
     while (curFrame !== parentFrame) {
-      if (!curFrame.findClosestTransforms(tempLower, tempUpper, time, maxDelta)) {
+      if (!curFrame.#interpolateInto(tempTransform, time, maxDelta)) {
         return false;
       }
-      CoordinateFrame.InterpolateTransform(tempTransform, tempLower, tempUpper, time);
 
       if (curFrame.offsetEulerDegrees) {
         const quaternion = tempTransform.rotation();

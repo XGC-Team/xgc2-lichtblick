@@ -78,6 +78,18 @@ export class Transform {
   }
 
   /**
+   * Set position and rotation from values whose rotation is already a unit quaternion (as one read
+   * back from a stored transform is), without normalizing it again. Normalizing a unit quaternion
+   * a second time can still change its last bits.
+   */
+  public setPositionRotationUnit(position: ReadonlyVec3, rotation: ReadonlyQuat): this {
+    vec3.copy(this.#position, position);
+    quat.copy(this.#rotation, rotation);
+    mat4.fromRotationTranslation(this.#matrix, this.#rotation, this.#position);
+    return this;
+  }
+
+  /**
    * Update position and rotation from a Pose object
    */
   public setPose(pose: Readonly<Pose>): this {
@@ -144,8 +156,27 @@ export class Transform {
    * @returns A reference to `out`
    */
   public static Interpolate(out: Transform, a: Transform, b: Transform, t: number): Transform {
-    vec3.lerp(out.#position, a.position(), b.position(), t);
-    quat.slerp(out.#rotation, a.rotation(), b.rotation(), t);
+    return Transform.InterpolateValues(
+      out,
+      a.position(),
+      a.rotation(),
+      b.position(),
+      b.rotation(),
+      t,
+    );
+  }
+
+  /** `Interpolate` for transforms given as bare position and rotation values. */
+  public static InterpolateValues(
+    out: Transform,
+    aPosition: ReadonlyVec3,
+    aRotation: ReadonlyQuat,
+    bPosition: ReadonlyVec3,
+    bRotation: ReadonlyQuat,
+    t: number,
+  ): Transform {
+    vec3.lerp(out.#position, aPosition, bPosition, t);
+    quat.slerp(out.#rotation, aRotation, bRotation, t);
     out.setPositionRotation(out.#position, out.#rotation);
     return out;
   }

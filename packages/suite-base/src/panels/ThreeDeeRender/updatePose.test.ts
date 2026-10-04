@@ -7,7 +7,6 @@
 
 import * as THREE from "three";
 
-import { ObjectPool } from "@lichtblick/den/collection";
 
 import { makePose } from "./transforms";
 import { Transform } from "./transforms/Transform";
@@ -20,7 +19,7 @@ function translation(x: number, y: number, z: number): Transform {
 
 /** world <- odom(1,0,0) <- base_link(0,2,0), all stamped at 0n */
 function makeTree(): TransformTree {
-  const tree = new TransformTree(new ObjectPool(Transform.Empty));
+  const tree = new TransformTree();
   tree.addTransform("odom", "world", 0n, translation(1, 0, 0));
   tree.addTransform("base_link", "odom", 0n, translation(0, 2, 0));
   return tree;
@@ -121,7 +120,7 @@ describe("updatePose", () => {
   });
 
   it("keeps interpolating at the source time while the destination time clamps", () => {
-    const tree = new TransformTree(new ObjectPool(Transform.Empty));
+    const tree = new TransformTree();
     tree.addTransform("odom", "world", 0n, translation(1, 0, 0));
     tree.addTransform("base_link", "odom", 0n, translation(0, 0, 0));
     tree.addTransform("base_link", "odom", 100n, translation(0, 10, 0));
@@ -163,7 +162,7 @@ describe("updatePose", () => {
     // not a numeric summary. Here base_link moves from parent a to parent b
     // while the summed frame versions stay identical (a=4 + base=2 before,
     // b=2 + base=4 after).
-    const tree = new TransformTree(new ObjectPool(Transform.Empty));
+    const tree = new TransformTree();
     tree.addTransform("a", "world", 0n, translation(1, 0, 0)); // a: v2
     tree.addTransform("a", "world", 1n, translation(1, 0, 0)); // a: v3
     tree.addTransform("a", "world", 2n, translation(1, 0, 0)); // a: v4

@@ -5,7 +5,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { ObjectPool } from "@lichtblick/den/collection";
+import { quat, vec3 } from "gl-matrix";
 
 import { CoordinateFrame, FallbackFrameId, AnyFrameId } from "./CoordinateFrame";
 import { Transform } from "./Transform";
@@ -116,16 +116,13 @@ export class TransformTree {
   #frames = new Map<string, CoordinateFrame>();
   #maxStorageTime: Duration;
   #maxCapacityPerFrame: number;
-  #transformPool: ObjectPool<Transform>;
 
   public defaultRootFrame: CoordinateFrame<FallbackFrameId>;
 
   public constructor(
-    transformPool: ObjectPool<Transform>,
     maxStorageTime = liveTfHistory.maxStorageTime,
     maxCapacityPerFrame = liveTfHistory.maxCapacityPerFrame,
   ) {
-    this.#transformPool = transformPool;
     this.#maxStorageTime = maxStorageTime;
     this.#maxCapacityPerFrame = maxCapacityPerFrame;
     this.defaultRootFrame = new CoordinateFrame(
@@ -133,7 +130,6 @@ export class TransformTree {
       undefined,
       this.#maxStorageTime,
       this.#maxCapacityPerFrame,
-      this.#transformPool,
     );
     this.defaultRootFrame.addTransform(0n, Transform.Identity());
   }
@@ -144,9 +140,40 @@ export class TransformTree {
     time: Time,
     transform: Transform,
   ): AddTransformResult {
+    const result = this.#attach(frameId, parentFrameId);
+    if (result !== AddTransformResult.CYCLE_DETECTED) {
+      this.#attached!.addTransform(time, transform);
+    }
+    return result;
+  }
+
+  /**
+   * `addTransform()` for a transform given as bare position and rotation values (the rotation need
+   * not be normalized). Nothing is allocated for the sample.
+   */
+  public addTransformValues(
+    frameId: string,
+    parentFrameId: string,
+    time: Time,
+    position: vec3,
+    rotation: quat,
+  ): AddTransformResult {
+    const result = this.#attach(frameId, parentFrameId);
+    if (result !== AddTransformResult.CYCLE_DETECTED) {
+      this.#attached!.addTransformValues(time, position, rotation);
+    }
+    return result;
+  }
+
+  /** The frame `#attach()` last found or created. */
+  #attached: CoordinateFrame | undefined;
+
+  /** Create `frameId` if needed and hang it under `parentFrameId`, without adding a sample. */
+  #attach(frameId: string, parentFrameId: string): AddTransformResult {
     let updated = !this.hasFrame(frameId);
     let cycleDetected = false;
     const frame = this.getOrCreateFrame(frameId);
+    this.#attached = frame;
     const curParentFrame = frame.parent();
     if (curParentFrame?.id !== parentFrameId) {
       cycleDetected = this.#checkParentForCycle(frameId, parentFrameId);
@@ -156,10 +183,6 @@ export class TransformTree {
         frame.setParent(this.getOrCreateFrame(parentFrameId));
         updated = true;
       }
-    }
-
-    if (!cycleDetected) {
-      frame.addTransform(time, transform);
     }
 
     return cycleDetected
@@ -273,7 +296,6 @@ export class TransformTree {
         undefined,
         this.#maxStorageTime,
         this.#maxCapacityPerFrame,
-        this.#transformPool,
       );
       this.#frames.set(id, frame);
     }
@@ -395,11 +417,7 @@ export class TransformTree {
   }
 
   public static Clone(tree: TransformTree): TransformTree {
-    const newTree = new TransformTree(
-      tree.#transformPool,
-      tree.#maxStorageTime,
-      tree.#maxCapacityPerFrame,
-    );
+    const newTree = new TransformTree(tree.#maxStorageTime, tree.#maxCapacityPerFrame);
     newTree.#frames = tree.#frames;
     return newTree;
   }

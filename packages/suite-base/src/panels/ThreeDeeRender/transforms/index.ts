@@ -10,3 +10,4 @@ export * from "./geometry";
 export * from "./time";
 export * from "./Transform";
 export * from "./TransformTree";
+export * from "./TransformHistory";

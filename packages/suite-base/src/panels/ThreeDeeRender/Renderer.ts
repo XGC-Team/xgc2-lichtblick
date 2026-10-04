@@ -14,7 +14,6 @@ import * as THREE from "three";
 import { DeepPartial, assert } from "ts-essentials";
 import { v4 as uuidv4 } from "uuid";
 
-import { ObjectPool } from "@lichtblick/den/collection";
 import { CameraModelsMap } from "@lichtblick/den/image/types";
 import Logger from "@lichtblick/log";
 import { Time, fromNanoSec, isLessThan, toNanoSec } from "@lichtblick/rostime";
@@ -73,7 +72,6 @@ import { DetailLevel, msaaSamples } from "./lod";
 import {
   normalizeFrameTransform,
   normalizeFrameTransforms,
-  normalizeTFMessage,
   normalizeTransformStamped,
 } from "./normalizeMessages";
 import { CameraStateSettings } from "./renderables/CameraStateSettings";
@@ -96,10 +94,9 @@ import {
   AddTransformResult,
   CoordinateFrame,
   makePose,
-  DEFAULT_MAX_CAPACITY_PER_FRAME,
   TransformTree,
-  Transform,
 } from "./transforms";
+import { TF_BATCH_STRIDE, tfBatchFor } from "./transforms/TfBatch";
 import { InterfaceMode } from "./types";
 
 const log = Logger.getLogger(__filename);
@@ -228,16 +225,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   public colorScheme: "dark" | "light" = "light";
   public modelCache: ModelCache;
 
-  /**
-   * Max capacity should be chosen to be at least several multiples of
-   * the CoordinateFrame transform max capacity. So that it can store
-   * several coordinate frames being emptied.
-   * It's mostly important to not let this grow unbounded.
-   */
-  #transformPool = new ObjectPool(Transform.Empty, {
-    maxCapacity: 5 * DEFAULT_MAX_CAPACITY_PER_FRAME,
-  });
-  public transformTree = new TransformTree(this.#transformPool);
+  public transformTree = new TransformTree();
 
   public coordinateFrameList: SelectEntry[] = [];
   public currentTime = 0n;
@@ -506,7 +494,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
     this.labelPool.dispose();
     this.markerPool.dispose();
-    this.#transformPool.clear();
     this.#picker.dispose();
     this.input.dispose();
     this.gl.dispose();
@@ -1235,6 +1222,40 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     }
   }
 
+  /**
+   * Ingest a whole tf2_msgs/TFMessage. Decoding it (frame ids, nanosecond stamps, numbers) is shared
+   * by every panel that receives this message object; only storing the samples is per panel.
+   */
+  #addTfBatch(message: object): void {
+    const batch = tfBatchFor(message, this.ros);
+    const { values, errors } = batch;
+    for (let i = 0; i < batch.count; i++) {
+      const childFrameId = batch.childIds[i]!;
+      try {
+        const error = errors?.[i];
+        if (error) {
+          throw error;
+        }
+        const base = i * TF_BATCH_STRIDE;
+        tempVec3[0] = values[base]!;
+        tempVec3[1] = values[base + 1]!;
+        tempVec3[2] = values[base + 2]!;
+        tempQuat[0] = values[base + 3]!;
+        tempQuat[1] = values[base + 4]!;
+        tempQuat[2] = values[base + 5]!;
+        tempQuat[3] = values[base + 6]!;
+        this.#storeTransform(batch.parentIds[i]!, childFrameId, batch.stamps[i]!);
+      } catch (e: unknown) {
+        const err = e as Error;
+        this.settings.errors.add(
+          ["transforms"],
+          ADD_TRANSFORM_ERROR,
+          `Error adding transform for frame ${childFrameId}: ${err.message}`,
+        );
+      }
+    }
+  }
+
   // Create a new transform and add it to the renderer's TransformTree
   public addTransform(
     parentFrameId: string,
@@ -1256,9 +1277,23 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     tempQuat[2] = q.z;
     tempQuat[3] = q.w;
 
-    const transform = this.#transformPool.acquire();
-    transform.setPositionRotation(tempVec3, tempQuat);
-    const status = this.transformTree.addTransform(childFrameId, parentFrameId, stamp, transform);
+    this.#storeTransform(parentFrameId, childFrameId, stamp, errorSettingsPath);
+  }
+
+  /** Store the transform held in `tempVec3` / `tempQuat`. */
+  #storeTransform(
+    parentFrameId: string,
+    childFrameId: string,
+    stamp: bigint,
+    errorSettingsPath?: string[],
+  ): void {
+    const status = this.transformTree.addTransformValues(
+      childFrameId,
+      parentFrameId,
+      stamp,
+      tempVec3,
+      tempQuat,
+    );
 
     if (status === AddTransformResult.UPDATED) {
       this.coordinateFrameList = this.transformTree.frameList();
@@ -1618,10 +1653,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #handleTFMessage = ({ message }: MessageEvent<DeepPartial<TFMessage>>): void => {
     // tf2_msgs/TFMessage - Ingest the list of transforms into our TF tree
-    const tfMessage = normalizeTFMessage(message);
-    for (const tf of tfMessage.transforms) {
-      this.#addTransformMessage(tf);
-    }
+    this.#addTfBatch(message);
   };
 
   #handleTransformStamped = ({ message }: MessageEvent<DeepPartial<TransformStamped>>): void => {
