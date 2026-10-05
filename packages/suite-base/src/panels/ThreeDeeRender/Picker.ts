@@ -1,3 +1,4 @@
+import type { LogicalPickFence } from "./renderables/urdfVisualInstances";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -61,6 +62,7 @@ export class Picker {
   #pixelBuffer: Uint8Array;
   #currClearColor = new THREE.Color();
   #pickingTarget: THREE.WebGLRenderTarget;
+  #logicalPickFences: LogicalPickFence[] = [];
   #isDebugPass = false;
 
   public constructor(gl: THREE.WebGLRenderer, scene: THREE.Scene) {
@@ -85,6 +87,7 @@ export class Picker {
       material.dispose();
     }
     this.#materialCache.clear();
+    this.#logicalPickFences.length = 0;
     this.#pickingTarget.dispose();
   }
 
@@ -94,6 +97,7 @@ export class Picker {
     camera: THREE.OrthographicCamera | THREE.PerspectiveCamera,
     options: PickerOptions = {},
   ): number {
+    this.#logicalPickFences.length = 0;
     // Use the onAfterRender callback to actually render geometry for picking
     this.#emptyScene.onAfterRender = this.#renderForPicking;
 
@@ -108,17 +112,23 @@ export class Picker {
     this.#cleanUpGlRendererFromPick(originalRenderState);
     this.#resetCameraFromPick(options);
 
-    const val =
-      (this.#pixelBuffer[0]! << 24) +
-      (this.#pixelBuffer[1]! << 16) +
-      (this.#pixelBuffer[2]! << 8) +
-      this.#pixelBuffer[3]!;
+    const val = decodePickingId(this.#pixelBuffer);
 
     if (options.debug === true) {
       this.#pickDebugRender(camera);
     }
 
     return val;
+  }
+
+  public logicalHitIsCurrent(objectId: number): boolean {
+    let covered = false;
+    for (const fence of this.#logicalPickFences) {
+      if (!fence.ids.includes(objectId)) continue;
+      covered = true;
+      if (fence.isCurrent(objectId)) return true;
+    }
+    return !covered; // True only for the original ordinary non-batch picking path.
   }
 
   public pickInstance(
@@ -145,12 +155,7 @@ export class Picker {
       this.#pickInstanceDebugRender(camera, renderable);
     }
 
-    return (
-      (this.#pixelBuffer[0]! << 24) +
-      (this.#pixelBuffer[1]! << 16) +
-      (this.#pixelBuffer[2]! << 8) +
-      this.#pixelBuffer[3]!
-    );
+    return decodePickingId(this.#pixelBuffer);
   }
 
   #updateCameraForPickAndGetPickCoordsInView(
@@ -280,6 +285,10 @@ export class Picker {
     const objId = this.#isDebugPass ? hashInt(object.id) : object.id;
     const material = renderItem.material;
     const geometry = renderItem.geometry;
+    const capture = object.userData.logicalPickFence as (() => LogicalPickFence) | undefined;
+    const fence = capture?.();
+    if (fence != undefined) this.#logicalPickFences.push(fence);
+
     if (
       !geometry || // Skip if geometry is not defined
       renderItem.object.userData.picking === false // Skip if object is marked no picking
@@ -460,4 +469,9 @@ function hashInt(x: number): number {
   A[0] ^= A[0] << 10;
   A[0] ^= A[0] >>> 15;
   return A[0];
+}
+
+function decodePickingId(bytes: Uint8Array): number {
+  const unsigned = ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0;
+  return unsigned === 0xffffffff ? -1 : unsigned;
 }

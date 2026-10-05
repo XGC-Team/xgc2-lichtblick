@@ -94,6 +94,11 @@ export class SceneExtension<
    * This will be called by the renderer when building topic and schema subscriptions on
    * initialization and when imageOnlyMode becomes enabled
    */
+  /** Publish logical visual masks/selection in the same synchronous draw boundary. */
+  public prepareVisualDraw(): boolean {
+    return false;
+  }
+
   public getSubscriptions(): readonly AnyRendererSubscription[] {
     return [];
   }

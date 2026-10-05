@@ -1,4 +1,10 @@
 /** @jest-environment jsdom */
+import {
+  UrdfVisualInstances,
+  encodeLogicalObjectId,
+  type UrdfInstancePart,
+} from "./renderables/urdfVisualInstances";
+import type { Renderable } from "./Renderable";
 
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
@@ -965,6 +971,91 @@ describe("3D Renderer", () => {
     expect(renderPasses[1]!.scene).not.toBe(mainScene);
     expect(renderPasses[2]!.scene).toBe(mainScene);
     expect(renderPasses[2]!.layersMask).toBe(1 << 1);
+
+    const geometry = new THREE.BoxGeometry();
+    const borrowed = new THREE.BufferAttribute(new Float32Array(3), 3);
+    geometry.setAttribute("xgcFoo", borrowed);
+    const material = new THREE.MeshStandardMaterial({ color: 0x445566 });
+    const other = material.clone(); // Equal real draw state despite another material object/id.
+    const a = new THREE.Object3D(),
+      b = new THREE.Object3D();
+    mainScene instanceof THREE.Scene && mainScene.add(a, b);
+    a.position.set(2, 3, 4);
+    a.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+    a.scale.set(2, 3, 4);
+    let aCurrent = true;
+    const visualMatrix = new THREE.Matrix4().makeRotationX(0.3).setPosition(1, 2, 3);
+    const part = (source: THREE.Object3D, binding: THREE.Material): UrdfInstancePart => ({
+      geometry,
+      material: binding,
+      visualMatrix,
+      source: source as Renderable,
+      logicalTarget: source as Renderable,
+      sourceGeneration: 1,
+      isCurrent: () => (source === a ? aCurrent : true),
+      renderOrder: 0,
+      castShadow: false,
+      receiveShadow: false,
+    });
+    const batch = new UrdfVisualInstances();
+    batch.replaceParts([part(a, material), part(b, other)]);
+    expect(batch.children).toHaveLength(1);
+    expect(batch.prepareDraw()).toBe(true);
+    expect(batch.prepareDraw()).toBe(false);
+    const normal = batch.children[0] as THREE.InstancedMesh;
+    const currentMatrix = new THREE.Matrix4();
+    normal.getMatrixAt(0, currentMatrix);
+    const expectedMatrix = new THREE.Matrix4().multiplyMatrices(a.matrixWorld, visualMatrix);
+    expect(currentMatrix.elements).toEqual(expectedMatrix.elements.map(Math.fround));
+    const matrixVersion = normal.instanceMatrix.version;
+    const fence = (
+      normal.userData
+        .logicalPickFence as () => import("./renderables/urdfVisualInstances").LogicalPickFence
+    )();
+    a.visible = false;
+    expect(batch.prepareDraw()).toBe(true);
+    expect(normal.visible).toBe(true); // B remains visible.
+    expect(fence.ids).toContain(a.id);
+    expect(fence.isCurrent(a.id)).toBe(false);
+    a.visible = true;
+    expect(batch.prepareDraw()).toBe(true);
+    expect(batch.prepareDraw()).toBe(false);
+    expect(normal.instanceMatrix.version).toBe(matrixVersion); // Mask-only restoration does not repack poses.
+    expect((normal.userData.logicalPickFence as () => unknown)()).toBe(fence); // No per-pick fleet allocation.
+    a.layers.set(1);
+    expect(batch.prepareDraw()).toBe(true);
+    const selected = batch.children.find(
+      (child) => child.layers.mask === 1 << 1,
+    ) as THREE.InstancedMesh;
+    expect(selected.count).toBe(1);
+    expect(normal.geometry.getAttribute("xgcVisible").getX(0)).toBe(0);
+    expect(normal.geometry.getAttribute("xgcVisible").getX(1)).toBe(1);
+    aCurrent = false;
+    expect(fence.ids).toContain(a.id);
+    expect(fence.isCurrent(a.id)).toBe(false);
+    const bytes = new Uint8Array(4);
+    encodeLogicalObjectId(0x80000000, bytes, 0);
+    expect(Array.from(bytes)).toEqual([128, 0, 0, 0]);
+    const wrappers = [normal.geometry, selected.geometry];
+    const releaseWrapper = jest.fn((wrapper: THREE.BufferGeometry) => {
+      expect(wrapper.getAttribute("xgcFoo")).toBeUndefined();
+      expect(wrapper.getAttribute("position")).toBeUndefined();
+      expect(wrapper.index).toBeNull();
+      expect(wrapper.getAttribute("xgcVisible")).toBeDefined();
+      expect(wrapper.getAttribute("xgcLogicalId")).toBeDefined();
+      expect(wrapper.getAttribute("xgcNormal0")).toBeDefined();
+    });
+    for (const wrapper of wrappers)
+      wrapper.addEventListener("dispose", () => releaseWrapper(wrapper));
+    const release = jest.spyOn(geometry, "dispose");
+    batch.dispose();
+    expect(release).not.toHaveBeenCalled();
+    expect(releaseWrapper).toHaveBeenCalledTimes(2);
+    expect(geometry.getAttribute("xgcFoo")).toBe(borrowed);
+    release.mockRestore();
+    geometry.dispose();
+    material.dispose();
+    other.dispose();
 
     renderer.dispose();
   });

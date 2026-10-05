@@ -1,3 +1,8 @@
+import {
+  UrdfVisualInstances,
+  highestLogicalTarget,
+  type UrdfInstancePart,
+} from "./urdfVisualInstances";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -209,6 +214,7 @@ type UrdfVisualChild = Renderable & {
 
 export class UrdfRenderable extends Renderable<UrdfUserData> {
   public loadGeneration = 0;
+  public committedVisualGeneration = 0;
   public visualLod?: UrdfVisualLodState;
   /** Source/settings request is separate from the last complete drawable combination. */
   public requestedVisual?: UrdfUserData;
@@ -227,6 +233,7 @@ export class UrdfRenderable extends Renderable<UrdfUserData> {
   }
 
   public removeChildren(): void {
+    ++this.committedVisualGeneration;
     setVisualWork(this, "visible");
     for (const childRenderable of this.userData.renderables.values()) {
       setVisualWork(childRenderable, "visible");
@@ -249,6 +256,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #managedLayersIdentity: IRenderer["config"]["layers"] | undefined;
   #managedMembershipDirty = true;
   #selection: PickedRenderable | undefined;
+  #visualInstances = new UrdfVisualInstances();
+  #visualMembershipDirty = true;
   readonly #viewProjection = new THREE.Matrix4();
   readonly #frustum = new THREE.Frustum();
   readonly #modelSphere = new THREE.Sphere();
@@ -263,6 +272,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   };
 
   public override dispose(): void {
+    this.#visualInstances.dispose();
     this.renderer.off("selectedRenderable", this.#handleSelection);
     super.dispose();
   }
@@ -294,6 +304,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
   public constructor(renderer: IRenderer, name: string = Urdfs.extensionId) {
     super(name, renderer);
+    this.add(this.#visualInstances);
 
     renderer.on("parametersChange", this.#handleParametersChange);
     renderer.on("selectedRenderable", this.#handleSelection);
@@ -568,6 +579,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   }
 
   public override removeAllRenderables(): void {
+    this.#visualMembershipDirty = true;
     this.#managedMembershipDirty = true;
     // Re-add coordinate frames and transforms since the scene has been cleared
     this.#refreshTransforms();
@@ -583,6 +595,35 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     for (const [instanceId, transforms] of this.#transformsByInstanceId) {
       this.#loadTransforms(instanceId, transforms);
     }
+  }
+
+  public override prepareVisualDraw(): boolean {
+    if (this.#visualMembershipDirty) {
+      const parts: UrdfInstancePart[] = [];
+      for (const [instanceId, owner] of this.renderables) {
+        const generation = owner.committedVisualGeneration;
+        for (const [key, child] of owner.userData.renderables) {
+          if (!(child instanceof RenderableMeshResource)) continue;
+          const assetParts = child.getVisualInstanceParts();
+          for (const source of assetParts)
+            parts.push({
+              ...source,
+              source: child,
+              logicalTarget: highestLogicalTarget(child),
+              sourceGeneration: generation,
+              isCurrent: () =>
+                this.renderables.get(instanceId) === owner &&
+                owner.committedVisualGeneration === generation &&
+                owner.userData.renderables.get(key) === child &&
+                child.parent === owner &&
+                child.getVisualInstanceParts() === assetParts,
+            });
+        }
+      }
+      this.#visualInstances.replaceParts(parts);
+      this.#visualMembershipDirty = false;
+    }
+    return this.#visualInstances.prepareDraw();
   }
 
   public override startFrame(
@@ -1127,6 +1168,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       renderable.dispose();
       this.remove(renderable);
       this.renderables.delete(instanceId);
+      this.#visualMembershipDirty = true;
       this.#managedMembershipDirty = true;
     }
 
@@ -1275,6 +1317,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       });
       this.add(renderable);
       this.renderables.set(instanceId, renderable);
+      this.#visualMembershipDirty = true;
       this.#managedMembershipDirty = true;
     }
 
@@ -1430,6 +1473,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         baseUrl,
         fallbackColor,
         scale,
+        visualInstancesChanged: (source) => {
+          if (renderable.userData.renderables.get(`${frameId}/${i}`) === source)
+            this.#visualMembershipDirty = true;
+        },
       });
       // Set the childRenderable settingsPath so errors route to the correct place
       childRenderable.userData.settingsPath = renderable.userData.settingsPath;
@@ -1493,6 +1540,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const ownedChildren = renderable.userData.renderables;
     renderable.userData = { ...staged.userData, renderables: ownedChildren, fetching: undefined };
     renderable.visualLod = request.visualLod;
+    this.#visualMembershipDirty = true;
     renderable.requestedVisual = undefined;
     for (const [key, child] of staged.userData.renderables) {
       renderable.userData.renderables.set(key, child);
@@ -1683,6 +1731,7 @@ function setVisualWork(renderable: UrdfVisualChild, work: "parked" | "visible"):
 function storeVisualRadii(visual: UrdfRenderable): void {
   for (const child of visual.userData.renderables.values()) {
     const box = new THREE.Box3().setFromObject(child);
+    if (child instanceof RenderableMeshResource) child.extendVisualBounds(box);
     (child as UrdfVisualChild).visualRadius = box.isEmpty()
       ? 0
       : Math.hypot(
@@ -1755,6 +1804,7 @@ function createRenderable(args: {
   baseUrl?: string;
   fallbackColor?: ColorRGBA;
   scale: number;
+  visualInstancesChanged?: (source: RenderableMeshResource) => void;
 }): Renderable {
   const { visual, robot, id, frameId, renderer, baseUrl, fallbackColor, scale } = args;
   const name = `${frameId}-${id}-${visual.geometry.geometryType}`;
@@ -1814,6 +1864,7 @@ function createRenderable(args: {
       );
       return new RenderableMeshResource(name, marker, undefined, renderer, {
         referenceUrl: baseUrl,
+        visualInstancesChanged: args.visualInstancesChanged,
       });
     }
     default:

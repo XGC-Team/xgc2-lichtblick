@@ -1469,6 +1469,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       }
     }
 
+    this.#prepareVisualDraw();
     this.gl.render(this.#scene, camera);
 
     if (this.#selectedRenderable) {
@@ -1479,6 +1480,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       // objects draw: projectObject() collects the scene's lights into the
       // render state along the way, and lit materials (e.g. URDF
       // MeshStandardMaterial) render black in this pass without them.
+      this.#prepareVisualDraw();
       this.gl.render(this.#scene, camera);
     }
 
@@ -1486,6 +1488,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
     this.gl.info.reset();
   };
+
+  #prepareVisualDraw(): boolean {
+    let changed = false;
+    for (const extension of this.sceneExtensions.values())
+      changed = extension.prepareVisualDraw() || changed;
+    return changed;
+  }
 
   /** iterates through all subscription message queues, processes them, and calls their handler for each message in the frame */
   #handleSubscriptionQueues(): void {
@@ -1648,6 +1657,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
         break;
       }
       curSelection.renderable.visible = false;
+      this.#prepareVisualDraw();
       this.gl.render(this.#scene, camera);
     }
 
@@ -1655,6 +1665,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     for (const selection of selections) {
       selection.renderable.visible = true;
     }
+    if (this.#prepareVisualDraw()) this.gl.render(this.#scene, camera);
     if (!this.debugPicking) {
       this.animationFrame();
     }
@@ -1682,12 +1693,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     while (curSelection && selections.length < MAX_SELECTIONS) {
       selections.push(curSelection);
       curSelection.renderable.visible = false;
+      this.#prepareVisualDraw();
       this.gl.render(this.#scene, camera);
       curSelection = this.#pickSingleObject(cursorCoords);
     }
     for (const selection of selections) {
       selection.renderable.visible = true;
     }
+    if (this.#prepareVisualDraw()) this.gl.render(this.#scene, camera);
     // The intermediate picking passes render without clearing (autoClear is
     // off), so the visible frame still shows the pre-pick image. Repaint only
     // when the hovered set changed or the canvas was disturbed.
@@ -1792,6 +1805,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     window.clearTimeout(this.#canvasResizeTimer);
     this.#canvasResizeTimer = undefined;
     this.#applyCanvasSize();
+    if (this.#prepareVisualDraw())
+      this.gl.render(this.#scene, this.cameraHandler.getActiveCamera());
     // Render a single pixel using a fragment shader that writes object IDs as
     // colors, then read the value of that single pixel back
     const objectId = this.#picker.pick(
@@ -1804,6 +1819,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       log.debug("Picking did not return an object");
       return undefined;
     }
+
+    if (!this.#picker.logicalHitIsCurrent(objectId)) return undefined;
 
     // Traverse the scene looking for this objectId
     const pickedObject = this.#scene.getObjectById(objectId);

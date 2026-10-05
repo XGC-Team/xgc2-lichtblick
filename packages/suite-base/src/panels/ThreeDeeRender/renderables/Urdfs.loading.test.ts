@@ -1,4 +1,5 @@
 /** @jest-environment jsdom */
+import { RenderableMeshResource } from "./markers/RenderableMeshResource";
 
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
@@ -519,4 +520,64 @@ it("does not clear a newer generation error from a completed model continuation"
   );
   extension.dispose();
   modelCache.dispose();
+});
+
+it("submits compatible loaded URDF meshes as one owned batch while retiring only eligible clones", async () => {
+  const geometry = new THREE.BoxGeometry();
+  const material = new THREE.MeshStandardMaterial({ color: 0x6699aa });
+  const texture = new THREE.Texture();
+  material.map = texture;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(1, 2, 3);
+  mesh.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.4);
+  mesh.scale.set(2, 3, 4);
+  const cached = new THREE.Group();
+  cached.add(mesh);
+  mockParse.mockReturnValueOnce({ scene: cached });
+  const { extension, renderer, modelCache } = setup();
+  await extension.settleVideoDecodes();
+  renderer.config.layers.other = { ...renderer.config.layers.model! };
+  extension.startFrame(0n, "world", "world");
+  await extension.settleVideoDecodes();
+  const owners = [...extension.renderables.values()];
+  for (const owner of owners) owner.visible = true;
+  const children = owners.map(
+    (owner) => [...owner.userData.renderables.values()][0] as RenderableMeshResource,
+  );
+  for (const child of children) {
+    child.visible = true;
+    expect(child.children).toHaveLength(0);
+    expect(child.getVisualInstanceParts()).toHaveLength(1);
+  }
+  const sharedGeometry = children[0]!.getVisualInstanceParts()[0]!.geometry;
+  const sharedMaterial = children[0]!.getVisualInstanceParts()[0]!.material;
+  expect(children[1]!.getVisualInstanceParts()[0]!.geometry).toBe(sharedGeometry);
+  expect(children[1]!.getVisualInstanceParts()[0]!.material).toBe(sharedMaterial);
+  const releasedGeometry = jest.spyOn(sharedGeometry, "dispose"),
+    releasedTexture = jest.spyOn(texture, "dispose");
+  expect(extension.prepareVisualDraw()).toBe(true);
+  const batch = extension.children.find((child) =>
+    child.children.some((item) => item instanceof THREE.InstancedMesh),
+  )!;
+  const draws = batch.children.filter(
+    (child) => child instanceof THREE.InstancedMesh,
+  ) as THREE.InstancedMesh[];
+  expect(draws).toHaveLength(1);
+  expect(draws[0]!.count).toBe(2);
+  const fence = (
+    draws[0]!.userData.logicalPickFence as () => import("./urdfVisualInstances").LogicalPickFence
+  )();
+  ++owners[0]!.loadGeneration;
+  expect(fence.isCurrent(owners[0]!.id)).toBe(true); // New pending load does not retire last complete visuals.
+  owners[0]!.removeChildren();
+  expect(fence.isCurrent(owners[0]!.id)).toBe(false);
+  extension.prepareVisualDraw();
+  extension.dispose();
+  expect(releasedGeometry).not.toHaveBeenCalled();
+  expect(releasedTexture).not.toHaveBeenCalled();
+  modelCache.dispose();
+  expect(releasedGeometry).toHaveBeenCalledTimes(1);
+  expect(releasedTexture).toHaveBeenCalledTimes(1);
+  releasedGeometry.mockRestore();
+  releasedTexture.mockRestore();
 });
