@@ -9,26 +9,27 @@ import { t } from "i18next";
 import * as THREE from "three";
 
 import { toNanoSec } from "@lichtblick/rostime";
-import { SettingsTreeAction, SettingsTreeFields } from "@lichtblick/suite";
+import { SettingsTreeAction, SettingsTreeFields, type MessageEvent } from "@lichtblick/suite";
 import type { RosValue } from "@lichtblick/suite-base/players/types";
 
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
 import { BaseUserData, Renderable } from "../Renderable";
-import {
-  PartialMessage,
-  PartialMessageEvent,
-  SceneExtension,
-  onlyLastByTopicMessage,
-} from "../SceneExtension";
+import { PartialMessageEvent, SceneExtension, onlyLastByTopicMessage } from "../SceneExtension";
 import { SettingsTreeEntry } from "../SettingsManager";
-import { rgbaToCssString, SRGBToLinear, stringToRgba } from "../color";
+import { rgbaToCssString } from "../color";
+import { OccupancyGrid, OCCUPANCY_GRID_DATATYPES } from "../ros";
+import type {
+  NativeCloudPreparation,
+  NativeCloudCommitUsage,
+} from "../../../players/nativeCloudPreparation";
 import {
-  normalizeHeader,
-  normalizePose,
-  normalizeInt8Array,
-  normalizeTime,
-} from "../normalizeMessages";
-import { ColorRGBA, OccupancyGrid, OCCUPANCY_GRID_DATATYPES } from "../ros";
+  createOccupancyGridPalette,
+  prepareOccupancyGrid,
+  occupancyGridColorKey,
+  occupancyGridHasTransparency,
+  type PreparedOccupancyGrid,
+  type NormalizedOccupancyGrid,
+} from "./occupancyGrids/prepareOccupancyGrid";
 import { BaseSettings } from "../settings";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 
@@ -71,11 +72,13 @@ const DEFAULT_SETTINGS: LayerSettingsOccupancyGrid = {
 export type OccupancyGridUserData = BaseUserData & {
   settings: LayerSettingsOccupancyGrid;
   topic: string;
-  occupancyGrid: OccupancyGrid;
+  occupancyGrid: NormalizedOccupancyGrid;
   mesh: THREE.Mesh;
   texture: THREE.DataTexture;
   material: THREE.MeshBasicMaterial;
   pickingMaterial: THREE.ShaderMaterial;
+  originalEvent?: MessageEvent;
+  growOverlapBytes: number;
 };
 
 export class OccupancyGridRenderable extends Renderable<OccupancyGridUserData> {
@@ -96,12 +99,71 @@ export class OccupancyGrids extends SceneExtension<OccupancyGridRenderable> {
     super(name, renderer);
   }
 
+  #preparedTopics = new Set<string>();
+  #preparationByTopic = new Map<string, NativeCloudPreparation>();
+  #prepRevision = 0;
+
+  #usage(topic: string): NativeCloudCommitUsage {
+    const current = this.renderables.get(topic)?.userData;
+    if (current == undefined) return { cpuArrays: [], gpuCapacityBytes: 0, growOverlapBytes: 0 };
+    const originalData = (current.originalEvent?.message as { data?: unknown } | undefined)?.data;
+    return {
+      cpuArrays: [
+        current.occupancyGrid.data,
+        current.texture.image.data,
+        ...(ArrayBuffer.isView(originalData) ? [originalData] : []),
+      ],
+      gpuCapacityBytes: current.texture.image.data.byteLength,
+      growOverlapBytes: current.growOverlapBytes,
+    };
+  }
+
+  #nativePreparation = (topic: string): NativeCloudPreparation => {
+    const settings = { ...DEFAULT_SETTINGS, ...this.renderer.config.topics[topic] };
+    const inputKey = occupancyGridColorKey(settings);
+    const old = this.#preparationByTopic.get(topic);
+    if (old != undefined && old.inputKey === inputKey) return old;
+    const request: NativeCloudPreparation = {
+      kind: "occupancy-grid",
+      key: old?.key ?? {},
+      revision: String(++this.#prepRevision),
+      inputKey,
+      settings: { palette: createOccupancyGridPalette(settings) },
+      setEnabled: (enabled) => {
+        if (enabled) this.#preparedTopics.add(topic);
+        else this.#preparedTopics.delete(topic);
+      },
+      invalidCloud: (message) => {
+        this.renderer.settings.errors.addToTopic(topic, INVALID_OCCUPANCY_GRID, message);
+      },
+      usage: () => this.#usage(topic),
+      commit: (event, prepared) => {
+        if (prepared.kind !== "occupancy-grid")
+          throw new Error("Mismatched OccupancyGrid preparation result");
+        // Config changes are synchronous; React's next subscription effect may still carry the
+        // old descriptor. Do not pair old RGBA with new settings/material in that interval.
+        const actual = { ...DEFAULT_SETTINGS, ...this.renderer.config.topics[topic] };
+        if (inputKey !== occupancyGridColorKey(actual)) return undefined;
+        this.#commit(event, prepared);
+        if (this.renderer.canvasVisibility() === "visible") this.renderer.queueAnimationFrame();
+        return this.#usage(topic);
+      },
+    };
+    this.#preparationByTopic.set(topic, request);
+    return request;
+  };
+
   public override getSubscriptions(): readonly AnyRendererSubscription[] {
     return [
       {
         type: "schema",
         schemaNames: OCCUPANCY_GRID_DATATYPES,
-        subscription: { handler: this.#handleOccupancyGrid, filterQueue: onlyLastByTopicMessage },
+        subscription: {
+          handler: this.#handleOccupancyGrid,
+          filterQueue: onlyLastByTopicMessage,
+          supportsLatestPerRenderTick: () => true,
+          nativeCloudPreparation: this.#nativePreparation,
+        },
       },
     ];
   }
@@ -205,55 +267,99 @@ export class OccupancyGrids extends SceneExtension<OccupancyGridRenderable> {
 
     this.saveSetting(path, action.payload.value);
 
-    // Update the renderable
-    const topicName = path[1]!;
-    const renderable = this.renderables.get(topicName);
-    if (renderable) {
-      const prevTransparent = occupancyGridHasTransparency(renderable.userData.settings);
-      const settings = this.renderer.config.topics[topicName];
-      renderable.userData.settings = { ...DEFAULT_SETTINGS, ...settings };
-
-      // Check if the transparency changed and we need to create a new material
-      const newTransparent = occupancyGridHasTransparency(renderable.userData.settings);
-      if (prevTransparent !== newTransparent) {
-        renderable.userData.material.transparent = newTransparent;
-        renderable.userData.material.depthWrite = !newTransparent;
-        renderable.userData.material.needsUpdate = true;
-      }
-
-      this.#updateOccupancyGridRenderable(
-        renderable,
-        renderable.userData.occupancyGrid,
-        renderable.userData.receiveTime,
+    const topic = path[1]!;
+    const renderable = this.renderables.get(topic);
+    if (renderable == undefined) return;
+    const current = renderable.userData;
+    const previousKey = occupancyGridColorKey(current.settings);
+    const settings = { ...DEFAULT_SETTINGS, ...this.renderer.config.topics[topic] };
+    const colorsChanged = previousKey !== occupancyGridColorKey(settings);
+    if (colorsChanged && this.#preparedTopics.has(topic)) {
+      // Preserve the committed texture/color-material combination until this color revision
+      // returns. Visibility/frame locking remain current UI intent, not preparation inputs.
+      current.settings = {
+        ...current.settings,
+        visible: settings.visible,
+        frameLocked: settings.frameLocked,
+      };
+      return;
+    }
+    if (colorsChanged) {
+      const event = current.originalEvent ?? {
+        topic,
+        schemaName: "nav_msgs/OccupancyGrid",
+        receiveTime: { sec: 0, nsec: 0 },
+        message: current.occupancyGrid,
+        sizeInBytes: current.occupancyGrid.data.byteLength,
+      };
+      this.#commit(
+        event,
+        prepareOccupancyGrid(current.occupancyGrid, createOccupancyGridPalette(settings)),
+        current.receiveTime,
       );
+    } else {
+      current.settings = settings;
+      updateMaterial(current.material, settings);
     }
   };
 
   #handleOccupancyGrid = (messageEvent: PartialMessageEvent<OccupancyGrid>): void => {
-    const topic = messageEvent.topic;
-    const occupancyGrid = normalizeOccupancyGrid(messageEvent.message);
-    const receiveTime = toNanoSec(messageEvent.receiveTime);
+    if (this.#preparedTopics.has(messageEvent.topic)) return;
+    const settings = { ...DEFAULT_SETTINGS, ...this.renderer.config.topics[messageEvent.topic] };
+    try {
+      this.#commit(
+        messageEvent as MessageEvent,
+        prepareOccupancyGrid(messageEvent.message, createOccupancyGridPalette(settings)),
+      );
+    } catch (error) {
+      this.renderer.settings.errors.addToTopic(
+        messageEvent.topic,
+        INVALID_OCCUPANCY_GRID,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
 
+  #commit(
+    event: MessageEvent,
+    prepared: PreparedOccupancyGrid,
+    receiveTime = toNanoSec(event.receiveTime),
+  ): void {
+    const { occupancyGrid, rgba } = prepared;
+    const { width, height, resolution } = occupancyGrid.info;
+    // Preflight both the complete sample and its texture before touching last-valid metadata.
+    if (
+      !(occupancyGrid.data instanceof Int8Array) ||
+      !(rgba instanceof Uint8ClampedArray) ||
+      occupancyGrid.data.length !== width * height ||
+      rgba.length !== width * height * 4
+    ) {
+      throw new Error("Invalid prepared OccupancyGrid texture dimensions or dtype");
+    }
+    const topic = event.topic;
+    const settings = { ...DEFAULT_SETTINGS, ...this.renderer.config.topics[topic] };
+    const messageTime = toNanoSec(occupancyGrid.header.stamp);
+    const frameId = this.renderer.normalizeFrameId(occupancyGrid.header.frame_id);
+    const transparent = occupancyGridHasTransparency(settings);
     let renderable = this.renderables.get(topic);
-    if (!renderable) {
-      // Set the initial settings from default values merged with any user settings
-      const userSettings = this.renderer.config.topics[topic];
-      const settings = { ...DEFAULT_SETTINGS, ...userSettings };
-
-      const texture = createTexture(occupancyGrid);
+    const oldTexture = renderable?.userData.texture;
+    const resized =
+      oldTexture == undefined ||
+      oldTexture.image.width !== width ||
+      oldTexture.image.height !== height;
+    const texture = resized ? createTexture(occupancyGrid, rgba) : oldTexture!;
+    // For same dimensions this read-only derived array is directly adopted, never copied or
+    // modified in place. Every consumer keeps its own DataTexture/GPU context binding.
+    if (renderable == undefined) {
       const geometry = this.renderer.sharedGeometry.getGeometry(
         this.constructor.name,
         createGeometry,
       );
       const mesh = createMesh(topic, geometry, texture, settings);
-      const material = mesh.material as THREE.MeshBasicMaterial;
-      const pickingMaterial = mesh.userData.pickingMaterial as THREE.ShaderMaterial;
-
-      // Create the renderable
       renderable = new OccupancyGridRenderable(topic, this.renderer, {
         receiveTime,
-        messageTime: toNanoSec(occupancyGrid.header.stamp),
-        frameId: this.renderer.normalizeFrameId(occupancyGrid.header.frame_id),
+        messageTime,
+        frameId,
         pose: occupancyGrid.info.origin,
         settingsPath: ["topics", topic],
         settings,
@@ -261,53 +367,35 @@ export class OccupancyGrids extends SceneExtension<OccupancyGridRenderable> {
         occupancyGrid,
         mesh,
         texture,
-        material,
-        pickingMaterial,
+        material: mesh.material as THREE.MeshBasicMaterial,
+        pickingMaterial: mesh.userData.pickingMaterial as THREE.ShaderMaterial,
+        originalEvent: event,
+        growOverlapBytes: 0,
       });
       renderable.add(mesh);
-
       this.add(renderable);
       this.renderables.set(topic, renderable);
     }
-
-    this.#updateOccupancyGridRenderable(renderable, occupancyGrid, receiveTime);
-  };
-
-  #updateOccupancyGridRenderable(
-    renderable: OccupancyGridRenderable,
-    occupancyGrid: OccupancyGrid,
-    receiveTime: bigint,
-  ): void {
-    renderable.userData.occupancyGrid = occupancyGrid;
-    renderable.userData.pose = occupancyGrid.info.origin;
-    renderable.userData.receiveTime = receiveTime;
-    renderable.userData.messageTime = toNanoSec(occupancyGrid.header.stamp);
-    renderable.userData.frameId = this.renderer.normalizeFrameId(occupancyGrid.header.frame_id);
-
-    const size = occupancyGrid.info.width * occupancyGrid.info.height;
-    if (occupancyGrid.data.length !== size) {
-      const message = `OccupancyGrid data length (${occupancyGrid.data.length}) is not equal to width ${occupancyGrid.info.width} * height ${occupancyGrid.info.height}`;
-      invalidOccupancyGridError(this.renderer, renderable, message);
-      return;
-    }
-
-    let texture = renderable.userData.texture;
-    const width = occupancyGrid.info.width;
-    const height = occupancyGrid.info.height;
-    const resolution = occupancyGrid.info.resolution;
-
-    if (width !== texture.image.width || height !== texture.image.height) {
-      // The image dimensions changed, regenerate the texture
-      texture.dispose();
-      texture = createTexture(occupancyGrid);
-      renderable.userData.texture = texture;
-      renderable.userData.material.map = texture;
-    }
-
-    // Update the occupancy grid texture
-    updateTexture(texture, occupancyGrid, renderable.userData.settings);
-
+    const current = renderable.userData;
+    texture.image = { data: rgba, width, height };
+    texture.needsUpdate = true;
+    current.occupancyGrid = occupancyGrid;
+    current.originalEvent = event;
+    current.pose = occupancyGrid.info.origin;
+    current.receiveTime = receiveTime;
+    current.messageTime = messageTime;
+    current.frameId = frameId;
+    current.settings = settings;
+    current.texture = texture;
+    current.material.map = texture;
+    current.pickingMaterial.uniforms.map!.value = texture;
+    updateMaterial(current.material, settings, transparent);
+    current.growOverlapBytes =
+      resized && oldTexture != undefined ? oldTexture.image.data.byteLength + rgba.byteLength : 0;
     renderable.scale.set(resolution * width, resolution * height, 1);
+    this.renderer.settings.errors.removeFromTopic(topic, INVALID_OCCUPANCY_GRID);
+    // Discard the old texture only after both draw and picking refer to the complete new sample.
+    if (resized && oldTexture != undefined) oldTexture.dispose();
   }
 }
 function createGeometry(): THREE.PlaneGeometry {
@@ -316,19 +404,9 @@ function createGeometry(): THREE.PlaneGeometry {
   geometry.computeBoundingSphere();
   return geometry;
 }
-function invalidOccupancyGridError(
-  renderer: IRenderer,
-  renderable: OccupancyGridRenderable,
-  message: string,
-): void {
-  renderer.settings.errors.addToTopic(renderable.userData.topic, INVALID_OCCUPANCY_GRID, message);
-}
-
-function createTexture(occupancyGrid: OccupancyGrid): THREE.DataTexture {
+function createTexture(occupancyGrid: OccupancyGrid, rgba: Uint8ClampedArray): THREE.DataTexture {
   const width = occupancyGrid.info.width;
   const height = occupancyGrid.info.height;
-  const size = width * height;
-  const rgba = new Uint8ClampedArray(size * 4);
   const texture = new THREE.DataTexture(
     rgba,
     width,
@@ -362,67 +440,6 @@ function createMesh(
   // This overrides the picking material used for `mesh`. See Picker.ts
   mesh.userData.pickingMaterial = pickingMaterial;
   return mesh;
-}
-
-const tempColor = { r: 0, g: 0, b: 0, a: 0 };
-const tempUnknownColor = { r: 0, g: 0, b: 0, a: 0 };
-const tempInvalidColor = { r: 0, g: 0, b: 0, a: 0 };
-const tempMinColor = { r: 0, g: 0, b: 0, a: 0 };
-const tempMaxColor = { r: 0, g: 0, b: 0, a: 0 };
-
-function updateTexture(
-  texture: THREE.DataTexture,
-  occupancyGrid: OccupancyGrid,
-  settings: LayerSettingsOccupancyGrid,
-): void {
-  const size = occupancyGrid.info.width * occupancyGrid.info.height;
-  const rgba = texture.image.data;
-  stringToRgba(tempMinColor, settings.minColor);
-  stringToRgba(tempMaxColor, settings.maxColor);
-  stringToRgba(tempUnknownColor, settings.unknownColor);
-  stringToRgba(tempInvalidColor, settings.invalidColor);
-
-  srgbToLinearUint8(tempMinColor);
-  srgbToLinearUint8(tempMaxColor);
-  srgbToLinearUint8(tempUnknownColor);
-  srgbToLinearUint8(tempInvalidColor);
-
-  const data = occupancyGrid.data;
-  for (let i = 0; i < size; i++) {
-    const value = data[i]! | 0;
-    const offset = i * 4;
-    if (settings.colorMode === "custom") {
-      if (value === -1) {
-        // Unknown (-1)
-        rgba[offset + 0] = tempUnknownColor.r;
-        rgba[offset + 1] = tempUnknownColor.g;
-        rgba[offset + 2] = tempUnknownColor.b;
-        rgba[offset + 3] = tempUnknownColor.a;
-      } else if (value >= 0 && value <= 100) {
-        // Valid [0-100]
-        const frac = value / 100;
-
-        rgba[offset + 0] = tempMinColor.r + (tempMaxColor.r - tempMinColor.r) * frac;
-        rgba[offset + 1] = tempMinColor.g + (tempMaxColor.g - tempMinColor.g) * frac;
-        rgba[offset + 2] = tempMinColor.b + (tempMaxColor.b - tempMinColor.b) * frac;
-        rgba[offset + 3] = tempMinColor.a + (tempMaxColor.a - tempMinColor.a) * frac;
-      } else {
-        // Invalid (< -1 or > 100)
-        rgba[offset + 0] = tempInvalidColor.r;
-        rgba[offset + 1] = tempInvalidColor.g;
-        rgba[offset + 2] = tempInvalidColor.b;
-        rgba[offset + 3] = tempInvalidColor.a;
-      }
-    } else {
-      paletteColorCached(tempColor, value, settings.colorMode);
-      rgba[offset + 0] = tempColor.r;
-      rgba[offset + 1] = tempColor.g;
-      rgba[offset + 2] = tempColor.b;
-      rgba[offset + 3] = tempColor.a * settings.alpha;
-    }
-  }
-
-  texture.needsUpdate = true;
 }
 
 function createMaterial(
@@ -469,164 +486,14 @@ function createPickingMaterial(texture: THREE.DataTexture): THREE.ShaderMaterial
   });
 }
 
-function occupancyGridHasTransparency(settings: LayerSettingsOccupancyGrid): boolean {
-  if (settings.colorMode === "custom") {
-    stringToRgba(tempMinColor, settings.minColor);
-    stringToRgba(tempMaxColor, settings.maxColor);
-    stringToRgba(tempUnknownColor, settings.unknownColor);
-    stringToRgba(tempInvalidColor, settings.invalidColor);
-    return (
-      tempMinColor.a < 1 || tempMaxColor.a < 1 || tempInvalidColor.a < 1 || tempUnknownColor.a < 1
-    );
-  } else {
-    return true;
+function updateMaterial(
+  material: THREE.MeshBasicMaterial,
+  settings: LayerSettingsOccupancyGrid,
+  transparent = occupancyGridHasTransparency(settings),
+): void {
+  if (material.transparent !== transparent) {
+    material.transparent = transparent;
+    material.depthWrite = !transparent;
+    material.needsUpdate = true;
   }
-}
-
-function srgbToLinearUint8(color: ColorRGBA): void {
-  color.r = Math.trunc(SRGBToLinear(color.r) * 255);
-  color.g = Math.trunc(SRGBToLinear(color.g) * 255);
-  color.b = Math.trunc(SRGBToLinear(color.b) * 255);
-  color.a = Math.trunc(color.a * 255);
-}
-
-function normalizeOccupancyGrid(message: PartialMessage<OccupancyGrid>): OccupancyGrid {
-  const info = message.info ?? {};
-
-  return {
-    header: normalizeHeader(message.header),
-    info: {
-      map_load_time: normalizeTime(info.map_load_time),
-      resolution: info.resolution ?? 0,
-      width: info.width ?? 0,
-      height: info.height ?? 0,
-      origin: normalizePose(info.origin),
-    },
-    data: normalizeInt8Array(message.data),
-  };
-}
-
-let costmapPalette: [number, number, number, number][] | undefined;
-let mapPalette: [number, number, number, number][] | undefined;
-let rawPalette: [number, number, number, number][] | undefined;
-
-/**
- * Maps the value to a color using the given palette that is cached after initial use.
- * @param output - RGBA color output of the given value using the palette in the colormode
- * @param value - Int8 or Uint8 value to map to a color
- * @param paletteColorMode - "costmap", "map", or "raw" these are the predefined palette colormodes. Their palette will be used to determine the output color
- */
-function paletteColorCached(
-  output: ColorRGBA,
-  value: number,
-  paletteColorMode: "costmap" | "map" | "raw",
-) {
-  const unsignedValue = value >= 0 ? value : value + 256;
-  if (unsignedValue < 0 || unsignedValue > 255) {
-    output.r = 0;
-    output.g = 0;
-    output.b = 0;
-    output.a = 0;
-  }
-
-  let palette: [number, number, number, number][] | undefined;
-  switch (paletteColorMode) {
-    case "costmap":
-      costmapPalette ??= createCostmapPalette();
-      palette = costmapPalette;
-      break;
-    case "map":
-      mapPalette ??= createMapPalette();
-      palette = mapPalette;
-      break;
-    case "raw":
-      rawPalette ??= createRawPalette();
-      palette = rawPalette;
-      break;
-    default:
-      // Default to raw palette if unknown colormode, the user will have an error already in the settings
-      rawPalette ??= createRawPalette();
-      palette = rawPalette;
-  }
-
-  const colorRaw = palette[Math.trunc(unsignedValue)]!;
-  output.r = colorRaw[0];
-  output.g = colorRaw[1];
-  output.b = colorRaw[2];
-  output.a = colorRaw[3];
-}
-
-// Based off of rviz map implementation
-// https://github.com/ros-visualization/rviz/blob/1f622b8c95b8e188841b5505db2f97394d3e9c6c/src/rviz/default_plugin/map_display.cpp#L284
-function createMapPalette() {
-  let index = 0;
-  const palette = new Array(256).fill([0, 0, 0, 0]);
-
-  // Standard gray map palette values
-  for (let i = 0; i <= 100; i++) {
-    const v = Math.trunc(255 - (255 * i) / 100);
-    palette[index++] = [v, v, v, 255];
-  }
-
-  // illegal positive values in green
-  for (let i = 101; i <= 127; i++) {
-    palette[index++] = [0, 255, 0, 255];
-  }
-
-  // illegal negative (char) values in shades of red/yellow
-  for (let i = 128; i <= 254; i++) {
-    palette[index++] = [255, Math.trunc((255 * (i - 128)) / (254 - 128)), 0, 255];
-  }
-
-  // legal -1 value is tasteful blueish greenish grayish color
-  palette[index++] = [112, 137, 134, 255];
-  return palette;
-}
-
-// Based off of rviz costmap implementation
-// https://github.com/ros-visualization/rviz/blob/1f622b8c95b8e188841b5505db2f97394d3e9c6c/src/rviz/default_plugin/map_display.cpp#L322
-function createCostmapPalette() {
-  let index = 0;
-  const palette = new Array(256).fill([0, 0, 0, 0]);
-  // zero values have alpha=0
-  palette[index++] = [0, 0, 0, 0];
-
-  // Blue to red spectrum for most normal cost values
-  for (let i = 1; i <= 98; i++) {
-    const v = Math.trunc((255 * i) / 100);
-    palette[index++] = [v, 0, 255 - v, 255];
-  }
-  // inscribed obstacle values (99) in cyan
-  palette[index++] = [0, 255, 255, 255];
-
-  // lethal obstacle values (100) in purple
-  palette[index++] = [255, 0, 255, 255];
-
-  // illegal positive values in green
-  for (let i = 101; i <= 127; i++) {
-    palette[index++] = [0, 255, 0, 255];
-  }
-
-  // illegal negative (char) values in shades of red/yellow
-  for (let i = 128; i <= 254; i++) {
-    palette[index++] = [255, Math.trunc((255 * (i - 128)) / (254 - 128)), 0, 255];
-  }
-
-  // legal -1 value is tasteful blueish greenish grayish color
-  palette[index++] = [112, 137, 134, 255];
-  return palette;
-}
-
-// Based off of rviz raw implementation
-// https://github.com/ros-visualization/rviz/blob/1f622b8c95b8e188841b5505db2f97394d3e9c6c/src/rviz/default_plugin/map_display.cpp#L377
-function createRawPalette() {
-  let index = 0;
-  const palette = new Array(256).fill([0, 0, 0, 0]);
-
-  // Standard gray map palette values
-  for (let i = 0; i < 256; i++) {
-    palette[index++] = [i, i, i, 255];
-  }
-
-  return palette;
 }

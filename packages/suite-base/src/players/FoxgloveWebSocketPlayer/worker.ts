@@ -9,7 +9,7 @@ import {
 } from "@lichtblick/suite-base/players/FoxgloveWebSocketPlayer/types";
 import {
   COMPRESSED_VIDEO_DATATYPES,
-  POINTCLOUD_SNAPSHOT_DATATYPES,
+  NATIVE_PREP_SNAPSHOT_DATATYPES,
 } from "@lichtblick/suite-base/util/foxgloveSchemas";
 
 import { WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES } from "./constants";
@@ -220,7 +220,7 @@ function enqueueMessage(data: unknown): void {
   const independentCloud =
     !lossExempt &&
     channel?.schemaName != undefined &&
-    POINTCLOUD_SNAPSHOT_DATATYPES.has(channel.schemaName);
+    NATIVE_PREP_SNAPSHOT_DATATYPES.has(channel.schemaName);
   const latestSnapshot = independentCloud && latestSnapshotTopics.has(channel!.topic);
   const retention: LiveMessageRetention = isVideo
     ? "video"

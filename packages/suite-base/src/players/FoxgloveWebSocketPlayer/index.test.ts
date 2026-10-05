@@ -1,4 +1,7 @@
 /** @jest-environment jsdom */
+import { prepareOccupancyGrid } from "../../panels/ThreeDeeRender/renderables/occupancyGrids/prepareOccupancyGrid";
+import { HIGH_FREQUENCY_ALERT } from "../utils/constants";
+import { nativePreparationKind } from "../../util/foxgloveSchemas";
 import type { NativeCloudConsumer } from "../nativeCloudPreparation";
 import type { CloudPrepRequest, CloudPrepResponse } from "./cloudPrepWorker";
 import type { LayerSettingsPointClouds } from "../../panels/ThreeDeeRender/renderables/PointClouds";
@@ -279,8 +282,10 @@ describe("native cloud preparation ownership", () => {
       workers[workers.length - 1]!.onmessage!({
         data: {
           id: job.id,
+          inputKey: job.inputKey,
           event,
           prepared: {
+            kind: "pointcloud",
             pointCloud: { data: new Uint8Array(0) } as never,
             pointCount: 0,
             coordinatesPrepared: true,
@@ -405,6 +410,224 @@ describe("native cloud preparation ownership", () => {
       release();
       player.close();
       for (const owned of workers) expect(owned.terminate).toHaveBeenCalledTimes(1);
+      socket.mockRestore();
+      if (workerDescriptor) Object.defineProperty(globalThis, "Worker", workerDescriptor);
+      else Reflect.deleteProperty(globalThis, "Worker");
+    }
+  });
+});
+
+describe("native complete occupancy grid preparation ownership", () => {
+  it("dispatches complete grids through the one worker and rejects wrong kind or input without committing", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const client = {
+      on: jest.fn((name: string, fn: (payload: unknown) => void) => handlers.set(name, fn)),
+      subscribe: jest.fn(() => 1),
+      unsubscribe: jest.fn(),
+      close: jest.fn(),
+    };
+    jest.mocked(FoxgloveClient).mockImplementation(() => client as unknown as FoxgloveClient);
+    const deserialize = jest.fn(() => ({ data: [1] }));
+    jest
+      .mocked(parseChannel)
+      .mockReturnValue({ datatypes: new Map(), deserialize } as ReturnType<typeof parseChannel>);
+    const socket = jest.spyOn(window, "WebSocket").mockImplementation(() => ({}) as WebSocket);
+    const workerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+    const jobs: CloudPrepRequest[] = [];
+    const worker = {
+      onmessage: undefined as undefined | ((event: { data: CloudPrepResponse }) => void),
+      onerror: undefined as undefined | ((event: { message: string }) => void),
+      postMessage: jest.fn((job: CloudPrepRequest) => jobs.push(job)),
+      terminate: jest.fn(),
+    };
+    const createWorker = jest.fn(() => worker);
+    const player = new FoxgloveWebSocketPlayer({
+      url: "ws://fixture",
+      sourceId: "fixture",
+      metricsCollector: {
+        playerConstructed: jest.fn(),
+      } as unknown as PlayerMetricsCollectorInterface,
+    });
+    Object.defineProperty(globalThis, "Worker", {
+      value: createWorker,
+      configurable: true,
+      writable: true,
+    });
+    let latest: import("@lichtblick/suite").MessageEvent | undefined;
+    let noAdopt = false;
+    const commit = jest.fn(
+      (
+        event: import("@lichtblick/suite").MessageEvent,
+        prepared: import("../nativeCloudPreparation").PreparedNativeSample,
+      ) => {
+        if (prepared.kind !== "occupancy-grid") throw new Error("Wrong grid result");
+        if (noAdopt) {
+          noAdopt = false;
+          return undefined;
+        }
+        latest = event;
+        return {
+          cpuArrays: [prepared.occupancyGrid.data, prepared.rgba],
+          gpuCapacityBytes: prepared.rgba.byteLength,
+          growOverlapBytes: 0,
+        };
+      },
+    );
+    const consumer: NativeCloudConsumer = {
+      kind: "occupancy-grid",
+      key: {},
+      identity: {},
+      revision: "0",
+      inputKey: "colors0",
+      parked: false,
+      settings: { palette: new Uint8ClampedArray(1024) },
+      setEnabled: jest.fn(),
+      invalidCloud: jest.fn(),
+      usage: () => ({ cpuArrays: [], gpuCapacityBytes: 0, growOverlapBytes: 0 }),
+      isActive: () => true,
+      latest: () => latest,
+      commit,
+    };
+    const subscribe = (value: NativeCloudConsumer) =>
+      player.setSubscriptions([
+        {
+          topic: "/grid",
+          preloadType: "partial",
+          samplingRequest: { mode: "latest-per-render-tick" },
+          samplingAuthorized: true,
+          nativeCloudConsumers: [value],
+          nativeCloudPreparationAllowed: true,
+        } as InternalSubscribePayload,
+      ]);
+    const eventFor = (job: CloudPrepRequest) =>
+      job.event ?? {
+        topic: "/grid",
+        schemaName: "nav_msgs/OccupancyGrid",
+        receiveTime: job.receiveTime,
+        sizeInBytes: 1,
+        message: { info: { width: 1, height: 1, resolution: 0.1 }, data: [1] },
+      };
+    const finish = (job: CloudPrepRequest, inputKey = job.inputKey) => {
+      if (job.kind !== "occupancy-grid") throw new Error("Wrong dispatched kind");
+      const event = eventFor(job);
+      worker.onmessage!({
+        data: {
+          id: job.id,
+          inputKey,
+          event,
+          prepared: {
+            kind: "occupancy-grid",
+            ...prepareOccupancyGrid(event.message, job.settings.palette),
+          },
+        },
+      });
+    };
+    try {
+      player.setListener(async () => {});
+      handlers.get("open")!(undefined);
+      subscribe(consumer);
+      handlers.get("advertise")!([
+        {
+          id: 1,
+          topic: "/grid",
+          encoding: "json",
+          schemaName: "nav_msgs/OccupancyGrid",
+          schema: "{}",
+        },
+      ]);
+      await flush();
+      expect(nativePreparationKind("nav_msgs/OccupancyGrid")).toBe("occupancy-grid");
+      expect(nativePreparationKind("map_msgs/OccupancyGridUpdate")).toBeUndefined();
+      expect(nativePreparationKind("foxglove.SceneUpdate")).toBeUndefined();
+      handlers.get("message")!({
+        subscriptionId: 1,
+        data: new DataView(new Uint8Array([1]).buffer),
+      });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.kind).toBe("occupancy-grid");
+      expect(deserialize).not.toHaveBeenCalled(); // Eligible whole-grid decode is absent from emitState.
+      // An ID-matching result of another kind must never reach a grid consumer.
+      const first = jobs[0]!;
+      worker.onmessage!({
+        data: {
+          id: first.id,
+          inputKey: first.inputKey,
+          event: eventFor(first),
+          prepared: {
+            kind: "pointcloud",
+            pointCloud: { data: new Uint8Array(0) } as never,
+            pointCount: 0,
+            coordinatesPrepared: true,
+            positions: new Float32Array(0),
+            colors: new Uint8Array(0),
+            stixelPositions: new Float32Array(0),
+            stixelColors: new Uint8Array(0),
+            bounds: undefined,
+            problems: [],
+            settings: {} as LayerSettingsPointClouds,
+          },
+        },
+      });
+      expect(commit).not.toHaveBeenCalled();
+      expect(jobs).toHaveLength(1); // Rejected attempt does not spin on this bad sample/config.
+      handlers.get("message")!({
+        subscriptionId: 1,
+        data: new DataView(new Uint8Array([2]).buffer),
+      });
+      expect(jobs).toHaveLength(2);
+      finish(jobs[1]!);
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(createWorker).toHaveBeenCalledTimes(1);
+      const next = { ...consumer, revision: "1", inputKey: "colors1" };
+      subscribe(next);
+      expect(jobs).toHaveLength(3);
+      expect(jobs[2]!.event).toBe(latest); // Same original event, new color revision; no raw reenqueue.
+      finish(jobs[2]!, "wrong-config");
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(jobs).toHaveLength(3);
+      // A synchronous owner config rejection is a no-adopt, not a failed publish or a new
+      // committed sample. The old React descriptor must not spin on the same raw attempt.
+      const heldLatest = latest;
+      noAdopt = true;
+      handlers.get("message")!({
+        subscriptionId: 1,
+        data: new DataView(new Uint8Array([3]).buffer),
+      });
+      expect(jobs).toHaveLength(4);
+      finish(jobs[3]!);
+      expect(jobs).toHaveLength(4);
+      expect(latest).toBe(heldLatest);
+      subscribe({ ...consumer, revision: "2", inputKey: "colors2" });
+      expect(jobs).toHaveLength(5);
+      expect(jobs[4]!.raw).toBeDefined(); // Failed adoption did not discard the still-new raw.
+      finish(jobs[4]!);
+      expect(latest).not.toBe(heldLatest);
+      const alerts = (console.error as jest.Mock).mock.calls;
+      expect(alerts).toHaveLength(2);
+      expect(
+        alerts.every(
+          ([message, id]) => message === "Player alert" && id === "cloud-preparation:/grid",
+        ),
+      ).toBe(true);
+      (console.error as jest.Mock).mockClear();
+      // This fixture emits several messages synchronously. Account only for the exact
+      // existing high-frequency alert; any unrelated warning still fails the test.
+      const expectedWarnings = jest.mocked(console.warn).mock.calls;
+      for (const call of expectedWarnings) {
+        expect(call).toHaveLength(3);
+        const [message, id, alert] = call;
+        expect(message).toBe("Player alert");
+        expect(id).toBe(HIGH_FREQUENCY_ALERT.id);
+        expect(alert).toEqual({
+          severity: HIGH_FREQUENCY_ALERT.severity,
+          message: HIGH_FREQUENCY_ALERT.message,
+          error: expect.any(Error),
+        });
+        expect((alert as { error: Error }).error.message).toBe(HIGH_FREQUENCY_ALERT.errorMessage);
+      }
+      jest.mocked(console.warn).mockClear();
+    } finally {
+      player.close();
       socket.mockRestore();
       if (workerDescriptor) Object.defineProperty(globalThis, "Worker", workerDescriptor);
       else Reflect.deleteProperty(globalThis, "Worker");

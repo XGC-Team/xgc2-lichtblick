@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import type { MessageEvent } from "@lichtblick/suite";
 import type { LayerSettingsPointClouds } from "../panels/ThreeDeeRender/renderables/PointClouds";
+import type { PreparedOccupancyGrid } from "../panels/ThreeDeeRender/renderables/occupancyGrids/prepareOccupancyGrid";
 import type { PreparedPointCloud } from "../panels/ThreeDeeRender/renderables/pointClouds/preparePointCloud";
 
 export type NativeCloudProvenance = {
@@ -22,26 +23,56 @@ export type NativeCloudCommitUsage = {
   gpuCapacityBytes: number;
   growOverlapBytes: number;
 };
-export type NativeCloudPreparation = {
-  kind: "pointcloud";
+export type PreparedNativeSample =
+  | ({ kind: "pointcloud" } & PreparedPointCloud)
+  | ({ kind: "occupancy-grid" } & PreparedOccupancyGrid);
+
+type PreparationInputs =
+  | {
+      kind: "pointcloud";
+      settings: LayerSettingsPointClouds;
+      capacity: () => number;
+      canReuseCoordinates: (event: MessageEvent) => boolean;
+    }
+  | { kind: "occupancy-grid"; settings: { palette: Uint8ClampedArray } };
+type PreparationOwner = {
   key: object;
   revision: string;
   inputKey: string;
-  settings: LayerSettingsPointClouds;
-  capacity: () => number;
-  canReuseCoordinates: (event: MessageEvent) => boolean;
   setEnabled: (enabled: boolean) => void;
   invalidCloud: (message: string) => void;
   usage: () => NativeCloudCommitUsage;
-  commit: (event: MessageEvent, prepared: PreparedPointCloud) => NativeCloudCommitUsage;
 };
-export type NativeCloudConsumer = Omit<NativeCloudPreparation, "commit"> & {
-  identity: object;
-  parked: boolean;
-  isActive: () => boolean;
-  latest: () => MessageEvent | undefined;
-  commit: (event: MessageEvent, prepared: PreparedPointCloud) => NativeCloudCommitUsage | undefined;
-};
+export type NativeCloudPreparation = PreparationOwner &
+  PreparationInputs & {
+    commit: (
+      event: MessageEvent,
+      prepared: PreparedNativeSample,
+    ) => NativeCloudCommitUsage | undefined;
+  };
+export type NativeCloudConsumer = PreparationOwner &
+  PreparationInputs & {
+    identity: object;
+    parked: boolean;
+    isActive: () => boolean;
+    latest: () => MessageEvent | undefined;
+    commit: (
+      event: MessageEvent,
+      prepared: PreparedNativeSample,
+    ) => NativeCloudCommitUsage | undefined;
+  };
+
+export function nativePreparedArrays(prepared: PreparedNativeSample): readonly ArrayBufferView[] {
+  return prepared.kind === "occupancy-grid"
+    ? [prepared.occupancyGrid.data, prepared.rgba]
+    : [
+        prepared.positions,
+        prepared.colors,
+        prepared.stixelPositions,
+        prepared.stixelColors,
+        prepared.pointCloud.data,
+      ];
+}
 
 export function shouldRetainNativeCloud(event: object, current: object | undefined): boolean {
   const incoming = getNativeCloudProvenance(event),

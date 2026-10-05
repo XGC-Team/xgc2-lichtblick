@@ -16,6 +16,7 @@ import Logger from "@lichtblick/log";
 import { fromSec, toSec } from "@lichtblick/rostime";
 import {
   AppSettingValue,
+  type MessageEvent,
   ExtensionPanelRegistration,
   PanelExtensionContext,
   ParameterValue,
@@ -64,7 +65,8 @@ import {
 import { PanelConfig, SaveConfig } from "@lichtblick/suite-base/types/panels";
 import { assertNever } from "@lichtblick/suite-base/util/assertNever";
 import { maybeCast } from "@lichtblick/suite-base/util/maybeCast";
-import { POINTCLOUD_SNAPSHOT_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
+import type { PreparedNativeSample } from "../../players/nativeCloudPreparation";
+import { NATIVE_PREP_SNAPSHOT_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
 
 import { PanelConfigVersionError } from "./PanelConfigVersionError";
 import { RenderStateConfig, initRenderStateBuilder } from "./renderState";
@@ -545,7 +547,7 @@ function PanelExtensionAdapter(
             return { topic: item.topic, preloadType };
           }
 
-          // Native complete point clouds opt in only from their history-free consumer.
+          // Native complete point clouds and grids opt in only from their snapshot consumers.
           // Other native paths remain denied; converters keep their explicit declaration.
           // If allowed, we set both the sampling request and the internal authorization bit.
           // MessagePipeline merge logic strips sampling requests unless authorization is present.
@@ -559,7 +561,7 @@ function PanelExtensionAdapter(
             item.convertTo == undefined ||
             (topicSchemaName != undefined && topicSchemaName === item.convertTo);
           const samplingAllowed = isNativePath
-            ? topicSchemaName != undefined && POINTCLOUD_SNAPSHOT_DATATYPES.has(topicSchemaName)
+            ? topicSchemaName != undefined && NATIVE_PREP_SNAPSHOT_DATATYPES.has(topicSchemaName)
             : converter?.supportsLatestPerRenderTick === true;
 
           return {
@@ -845,10 +847,10 @@ function PanelExtensionAdapter(
                 },
                 latest: () =>
                   active ? getMessagePipelineContext().getLatestNativeCloud(item.topic) : undefined,
-                commit: (event, prepared) => {
+                commit: (event: MessageEvent, prepared: PreparedNativeSample) => {
                   if (!active) return undefined;
                   const usage = preparation.commit(event, prepared);
-                  if (!active) return undefined;
+                  if (!active || usage == undefined) return undefined;
                   getMessagePipelineContext().retainNativeCloud(event);
                   return usage;
                 },

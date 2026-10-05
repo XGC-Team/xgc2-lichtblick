@@ -608,6 +608,8 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
           growOverlapBytes: 0,
         },
       commit: (event, prepared) => {
+        if (prepared.kind !== "pointcloud")
+          throw new Error("Mismatched point cloud preparation result");
         const cloud = prepared.pointCloud;
         this.#handlePointCloud(
           event.topic,

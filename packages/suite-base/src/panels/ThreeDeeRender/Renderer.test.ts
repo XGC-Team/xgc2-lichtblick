@@ -36,6 +36,12 @@ import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { RendererConfig, type IRenderer } from "./IRenderer";
 import { DynamicBufferGeometry } from "./DynamicBufferGeometry";
+import { OccupancyGrids } from "./renderables/OccupancyGrids";
+import {
+  prepareOccupancyGrid,
+  createOccupancyGridPalette,
+} from "./renderables/occupancyGrids/prepareOccupancyGrid";
+import { stringToRgba, SRGBToLinear } from "./color";
 import { preparePointCloud } from "./renderables/pointClouds/preparePointCloud";
 import {
   DEFAULT_POINT_SETTINGS,
@@ -2947,5 +2953,221 @@ describe("native prepared point cloud attributes", () => {
     history.updatePointCloud(second.pointCloud, four, settings, 3n, second);
     expect(history.canReusePreparedCoordinates(replay, settings)).toBe(true);
     history.dispose();
+  });
+});
+
+describe("native prepared complete occupancy grids", () => {
+  it("preserves every signed palette byte and atomically switches drawing and picking textures", () => {
+    setupJestCanvasMock();
+    const canvas = document.createElement("canvas");
+    document.body.appendChild(canvas);
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    renderer.setTopics([{ name: "/grid", schemaName: "nav_msgs/OccupancyGrid" }]);
+    renderer.updateConfig((draft) => {
+      draft.topics["/grid"] = {
+        visible: true,
+        colorMode: "custom",
+        minColor: "#4080c099",
+        maxColor: "#f0804066",
+        unknownColor: "#11223344",
+        invalidColor: "#abcdef33",
+        alpha: 0.37,
+      };
+    });
+    const extension = renderer.sceneExtensions.get(OccupancyGrids.extensionId) as OccupancyGrids;
+    const getPreparation = () =>
+      extension.getSubscriptions()[0]!.subscription.nativeCloudPreparation!("/grid")!;
+    const first = getPreparation();
+    if (first.kind !== "occupancy-grid") throw new Error("Expected complete grid preparation");
+    const signed = new Int8Array(Array.from({ length: 256 }, (_, i) => i));
+    const input = {
+      header: { frame_id: "world", stamp: { sec: 3, nsec: 7 } },
+      info: { width: 256, height: 1, resolution: 0.2, origin: { position: { x: 4, y: 5, z: 0 } } },
+      data: signed,
+    };
+    const prepared = prepareOccupancyGrid(input, first.settings.palette);
+    const linearBytes = (text: string) => {
+      const color = { r: 0, g: 0, b: 0, a: 0 };
+      stringToRgba(color, text);
+      return [
+        Math.trunc(SRGBToLinear(color.r) * 255),
+        Math.trunc(SRGBToLinear(color.g) * 255),
+        Math.trunc(SRGBToLinear(color.b) * 255),
+        Math.trunc(color.a * 255),
+      ];
+    };
+    const min = linearBytes("#4080c099"),
+      max = linearBytes("#f0804066"),
+      unknown = linearBytes("#11223344"),
+      invalid = linearBytes("#abcdef33");
+    const expected = new Uint8ClampedArray(1024);
+    // The original direct color formula is the reference, including clamped-array rounding.
+    for (let i = 0; i < 256; i++) {
+      const value = signed[i]!;
+      const fraction = value / 100;
+      const color =
+        value === -1
+          ? unknown
+          : value >= 0 && value <= 100
+            ? min.map((v, j) => v + (max[j]! - v) * fraction)
+            : invalid;
+      expected.set(color, i * 4);
+    }
+    expect(prepared.rgba).toEqual(expected);
+    for (const colorMode of ["raw", "map", "costmap"] as const) {
+      const settings = {
+        ...renderer.config.topics["/grid"],
+        colorMode,
+        alpha: 0.37,
+      } as import("./renderables/OccupancyGrids").LayerSettingsOccupancyGrid;
+      const actual = prepareOccupancyGrid(input, createOccupancyGridPalette(settings)).rgba;
+      for (let i = 0; i < 256; i++) {
+        let color: number[];
+        if (colorMode === "raw") color = [i, i, i, 255];
+        else if (i === 255) color = [112, 137, 134, 255];
+        else if (i >= 128) color = [255, Math.trunc((255 * (i - 128)) / 126), 0, 255];
+        else if (i >= 101) color = [0, 255, 0, 255];
+        else if (colorMode === "map") {
+          const v = Math.trunc(255 - (255 * i) / 100);
+          color = [v, v, v, 255];
+        } else if (i === 0) color = [0, 0, 0, 0];
+        else if (i === 99) color = [0, 255, 255, 255];
+        else if (i === 100) color = [255, 0, 255, 255];
+        else {
+          const v = Math.trunc((255 * i) / 100);
+          color = [v, 0, 255 - v, 255];
+        }
+        color[3] = color[3]! * 0.37;
+        expect(actual.subarray(i * 4, i * 4 + 4)).toEqual(new Uint8ClampedArray(color));
+      }
+    }
+    const event: MessageEvent = {
+      topic: "/grid",
+      schemaName: "nav_msgs/OccupancyGrid",
+      receiveTime: { sec: 4, nsec: 0 },
+      sizeInBytes: 256,
+      message: input,
+    };
+    first.setEnabled(true);
+    first.commit(event, { kind: "occupancy-grid", ...prepared });
+    const current = extension.renderables.get("/grid")!;
+    const oldTexture = current.userData.texture;
+    expect(oldTexture.image.data).toBe(prepared.rgba);
+    expect(current.userData.pickingMaterial.uniforms.map!.value).toBe(oldTexture);
+    const materialVersion = current.userData.material.version;
+    extension.handleSettingsAction({
+      action: "update",
+      payload: { path: ["topics", "/grid", "frameLocked"], value: true },
+    });
+    extension.handleSettingsAction({
+      action: "update",
+      payload: { path: ["topics", "/grid", "alpha"], value: 0.8 },
+    });
+    expect(getPreparation()).toBe(first); // Both edits leave custom colors and its prep revision unchanged.
+    expect(current.userData.texture.image.data).toBe(prepared.rgba);
+    expect(current.userData.material.version).toBe(materialVersion);
+    const smaller = {
+      ...input,
+      header: { frame_id: "new_frame", stamp: { sec: 5, nsec: 9 } },
+      info: { ...input.info, width: 2, resolution: 0.4 },
+      data: new Int8Array([-1, 100]),
+    };
+    const next = prepareOccupancyGrid(smaller, first.settings.palette);
+    const nextEvent = { ...event, message: smaller, receiveTime: { sec: 6, nsec: 0 } };
+    const disposed = jest.fn(() => {
+      expect(current.userData.texture).not.toBe(oldTexture);
+      expect(current.userData.material.map).toBe(current.userData.texture);
+      expect(current.userData.pickingMaterial.uniforms.map!.value).toBe(current.userData.texture);
+      expect(current.userData.frameId).toBe("new_frame");
+      expect(current.userData.occupancyGrid).toBe(next.occupancyGrid);
+    });
+    oldTexture.addEventListener("dispose", disposed);
+    first.commit(nextEvent, { kind: "occupancy-grid", ...next });
+    expect(disposed).toHaveBeenCalledTimes(1);
+    expect(current.userData.texture.image.data).toBe(next.rgba);
+    expect(current.scale.toArray()).toEqual([0.8, 0.4, 1]);
+    const committed = current.userData.originalEvent;
+    const committedTexture = current.userData.texture;
+    expect(() =>
+      first.commit(event, { kind: "occupancy-grid", ...prepared, rgba: new Uint8ClampedArray(0) }),
+    ).toThrow();
+    expect(current.userData.originalEvent).toBe(committed);
+    expect(current.userData.texture).toBe(committedTexture);
+    expect(current.userData.pickingMaterial.uniforms.map!.value).toBe(committedTexture);
+    extension.handleSettingsAction({
+      action: "update",
+      payload: { path: ["topics", "/grid", "minColor"], value: "#ff000080" },
+    });
+    expect(getPreparation().revision).not.toBe(first.revision);
+    expect(current.userData.settings.minColor).toBe("#4080c099");
+    // The last-valid texture survives until the new revision's result commits.
+    expect(current.userData.texture.image.data).toBe(next.rgba);
+    const emptyInput = {
+      ...smaller,
+      info: { ...smaller.info, width: 0, height: 0 },
+      data: new Int8Array(0),
+    };
+    const changed = getPreparation();
+    if (changed.kind !== "occupancy-grid") throw new Error("Expected grid preparation");
+    const empty = prepareOccupancyGrid(emptyInput, changed.settings.palette);
+    changed.commit({ ...event, message: emptyInput }, { kind: "occupancy-grid", ...empty });
+    expect(current.userData.texture.image.data.byteLength).toBe(0);
+    expect(current.userData.material.map).toBe(
+      current.userData.pickingMaterial.uniforms.map!.value,
+    );
+    // Exact owner window: config B changes now, but the old A subscription/descriptor is
+    // still current in Player until a later React effect. No subscribe/getPreparation between.
+    extension.handleSettingsAction({
+      action: "update",
+      payload: { path: ["topics", "/grid", "colorMode"], value: "map" },
+    });
+    extension.handleSettingsAction({
+      action: "update",
+      payload: { path: ["topics", "/grid", "alpha"], value: 1 },
+    });
+    const mapA = getPreparation();
+    if (mapA.kind !== "occupancy-grid") throw new Error("Expected grid preparation");
+    const preparedA = prepareOccupancyGrid(smaller, mapA.settings.palette);
+    mapA.commit(nextEvent, { kind: "occupancy-grid", ...preparedA });
+    const heldTexture = current.userData.texture;
+    const heldRgba = heldTexture.image.data;
+    const heldEvent = current.userData.originalEvent;
+    const heldReceiveTime = current.userData.receiveTime;
+    const heldTransparent = current.userData.material.transparent;
+    const heldDepthWrite = current.userData.material.depthWrite;
+    extension.handleSettingsAction({
+      action: "update",
+      payload: { path: ["topics", "/grid", "alpha"], value: 0.2 },
+    });
+    const heldSettings = current.userData.settings;
+    expect(heldSettings.alpha).toBe(1);
+    expect(mapA.commit(event, { kind: "occupancy-grid", ...preparedA })).toBeUndefined();
+    expect(current.userData.texture).toBe(heldTexture);
+    expect(current.userData.texture.image.data).toBe(heldRgba);
+    expect(current.userData.settings).toBe(heldSettings);
+    expect(current.userData.originalEvent).toBe(heldEvent);
+    expect(current.userData.receiveTime).toBe(heldReceiveTime);
+    expect(current.userData.material.map).toBe(heldTexture);
+    expect(current.userData.pickingMaterial.uniforms.map!.value).toBe(heldTexture);
+    expect(current.userData.material.transparent).toBe(heldTransparent);
+    expect(current.userData.material.depthWrite).toBe(heldDepthWrite);
+    const mapB = getPreparation();
+    if (mapB.kind !== "occupancy-grid") throw new Error("Expected grid preparation");
+    const preparedB = prepareOccupancyGrid(smaller, mapB.settings.palette);
+    expect(mapB.commit(nextEvent, { kind: "occupancy-grid", ...preparedB })).toBeDefined();
+    expect(current.userData.texture.image.data).toBe(preparedB.rgba);
+    expect(current.userData.texture.image.data[3]).toBe(51);
+    expect(current.userData.settings.alpha).toBe(0.2);
+    expect(current.userData.material.map).toBe(
+      current.userData.pickingMaterial.uniforms.map!.value,
+    );
+    renderer.dispose();
+    canvas.remove();
+    // This color/texture fixture deliberately has no TF tree. Keep its exact existing
+    // follow-frame diagnostic visible to the assertion; do not suppress other warnings.
+    expect(jest.mocked(console.warn).mock.calls).toEqual([
+      ["[general > followTf] No coordinate frames found"],
+    ]);
+    jest.mocked(console.warn).mockClear();
   });
 });

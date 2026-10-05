@@ -43,7 +43,7 @@ import {
 import { LayerErrors } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
 import { ICameraHandler } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ICameraHandler";
 import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
-import { POINTCLOUD_SNAPSHOT_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
+import { NATIVE_PREP_SNAPSHOT_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
 import { palette, fontMonospace } from "@lichtblick/theme";
 import { LabelMaterial, LabelPool } from "@lichtblick/three-text";
 
@@ -786,7 +786,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
         if (
           !subscription.queue.every(
             (message) =>
-              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              NATIVE_PREP_SNAPSHOT_DATATYPES.has(message.schemaName) &&
               subscription.supportsLatestPerRenderTick?.(message.topic) === true,
           )
         ) {
@@ -1077,7 +1077,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
         if (
           !subscription.queue.every(
             (message) =>
-              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              NATIVE_PREP_SNAPSHOT_DATATYPES.has(message.schemaName) &&
               subscription.supportsLatestPerRenderTick?.(message.topic) === true,
           )
         ) {
@@ -1510,7 +1510,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
           processedQueue.length > 0 &&
           processedQueue.every(
             (message) =>
-              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              NATIVE_PREP_SNAPSHOT_DATATYPES.has(message.schemaName) &&
               subscription.supportsLatestPerRenderTick?.(message.topic) === true,
           )
         ) {
@@ -1537,7 +1537,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
           processedQueue.length > 0 &&
           processedQueue.every(
             (message) =>
-              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              NATIVE_PREP_SNAPSHOT_DATATYPES.has(message.schemaName) &&
               subscription.supportsLatestPerRenderTick?.(message.topic) === true,
           )
         ) {

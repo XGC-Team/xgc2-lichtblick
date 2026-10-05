@@ -45,3 +45,19 @@ export const POINTCLOUD_SNAPSHOT_DATATYPES = new Set<string>([
   "ros.sensor_msgs.PointCloud2",
 ]);
 addFoxgloveSchema(POINTCLOUD_SNAPSHOT_DATATYPES, "foxglove.PointCloud");
+
+// Explicit complete native samples only. OccupancyGridUpdate is never a snapshot here.
+export const NATIVE_PREP_SNAPSHOT_DATATYPES = new Set<string>([
+  ...POINTCLOUD_SNAPSHOT_DATATYPES,
+  "nav_msgs/OccupancyGrid",
+  "nav_msgs/msg/OccupancyGrid",
+  "ros.nav_msgs.OccupancyGrid",
+]);
+
+export function nativePreparationKind(
+  schemaName: string,
+): "pointcloud" | "occupancy-grid" | undefined {
+  if (POINTCLOUD_SNAPSHOT_DATATYPES.has(schemaName)) return "pointcloud";
+  if (NATIVE_PREP_SNAPSHOT_DATATYPES.has(schemaName)) return "occupancy-grid";
+  return undefined;
+}

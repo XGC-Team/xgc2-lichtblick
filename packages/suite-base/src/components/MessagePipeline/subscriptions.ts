@@ -170,6 +170,8 @@ export function subscriptionsEqual(
               rightConsumer != undefined &&
               consumer.identity === rightConsumer.identity &&
               consumer.revision === rightConsumer.revision &&
+              consumer.kind === rightConsumer.kind &&
+              consumer.inputKey === rightConsumer.inputKey &&
               consumer.parked === rightConsumer.parked
             );
           }) &&

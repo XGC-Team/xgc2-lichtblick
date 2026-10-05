@@ -2,11 +2,12 @@ import { estimateObjectSize } from "../messageMemoryEstimation";
 // SPDX-License-Identifier: MPL-2.0
 import type { Channel } from "@foxglove/ws-protocol";
 import type { MessageEvent as SuiteMessageEvent } from "@lichtblick/suite";
-import type { NativeCloudPreparation } from "../nativeCloudPreparation";
+import { nativePreparedArrays, type PreparedNativeSample } from "../nativeCloudPreparation";
+import type { LayerSettingsPointClouds } from "../../panels/ThreeDeeRender/renderables/PointClouds";
+import { prepareOccupancyGrid } from "../../panels/ThreeDeeRender/renderables/occupancyGrids/prepareOccupancyGrid";
 import { preparePointCloud } from "../../panels/ThreeDeeRender/renderables/pointClouds/preparePointCloud";
-import type { PreparedPointCloud } from "../../panels/ThreeDeeRender/renderables/pointClouds/preparePointCloud";
 import { parseLiveChannel } from "./parseLiveChannel";
-export type CloudPrepRequest = {
+type CloudPrepRequestBase = {
   id: number;
   channelToken: number;
   generation: number;
@@ -14,17 +15,25 @@ export type CloudPrepRequest = {
   raw?: Uint8Array;
   event?: SuiteMessageEvent;
   receiveTime: SuiteMessageEvent["receiveTime"];
-  settings: NativeCloudPreparation["settings"];
-  capacity: number;
-  deriveCoordinates: boolean;
+  inputKey: string;
 };
+export type CloudPrepRequest = CloudPrepRequestBase &
+  (
+    | {
+        kind: "pointcloud";
+        settings: LayerSettingsPointClouds;
+        capacity: number;
+        deriveCoordinates: boolean;
+      }
+    | { kind: "occupancy-grid"; settings: { palette: Uint8ClampedArray } }
+  );
 export type CloudPrepWorkingSet = {
   inputBackingBytes: number;
   derivedCapacityBytes: number;
   ownedBackingPeakBytes: number;
 };
 export type CloudPrepResponse = (
-  | { id: number; event: SuiteMessageEvent; prepared: PreparedPointCloud }
+  | { id: number; inputKey: string; event: SuiteMessageEvent; prepared: PreparedNativeSample }
   | { id: number; error: string; invalidCloud?: boolean }
 ) & { workingSet?: CloudPrepWorkingSet };
 const sendWithTransfer: (message: CloudPrepResponse, transfer: Transferable[]) => void =
@@ -42,6 +51,7 @@ self.onmessage = (message: MessageEvent<CloudPrepRequest | { releaseChannel: num
   const inputBackings = new Set<ArrayBufferLike>();
   if (job.raw != undefined) inputBackings.add(job.raw.buffer);
   if (ArrayBuffer.isView(sourceData)) inputBackings.add(sourceData.buffer);
+  if (job.kind === "occupancy-grid") inputBackings.add(job.settings.palette.buffer);
   const workingSet: CloudPrepWorkingSet = {
     inputBackingBytes: [...inputBackings].reduce((n, b) => n + b.byteLength, 0),
     derivedCapacityBytes: 0,
@@ -76,26 +86,31 @@ self.onmessage = (message: MessageEvent<CloudPrepRequest | { releaseChannel: num
     if (job.event == undefined)
       event.sizeInBytes = Math.max(event.sizeInBytes, estimateObjectSize(event.message));
     invalidCloud = true;
-    const prepared = preparePointCloud(
-      event.message,
-      event.schemaName,
-      job.settings,
-      job.capacity,
-      job.deriveCoordinates,
-      allocated,
-    );
+    const prepared: PreparedNativeSample =
+      job.kind === "occupancy-grid"
+        ? {
+            kind: "occupancy-grid",
+            ...prepareOccupancyGrid(event.message, job.settings.palette, allocated),
+          }
+        : {
+            kind: "pointcloud",
+            ...preparePointCloud(
+              event.message,
+              event.schemaName,
+              job.settings,
+              job.capacity,
+              job.deriveCoordinates,
+              allocated,
+            ),
+          };
     const transfers = new Set<ArrayBuffer>();
-    for (const array of [
-      prepared.positions,
-      prepared.colors,
-      prepared.stixelPositions,
-      prepared.stixelColors,
-      prepared.pointCloud.data,
-    ]) {
+    for (const array of nativePreparedArrays(prepared)) {
       if (array.buffer instanceof ArrayBuffer) transfers.add(array.buffer);
     }
     // These arrays were allocated by this job and are immutable after ownership moves to main.
-    sendWithTransfer({ id: job.id, event, prepared, workingSet }, [...transfers]);
+    sendWithTransfer({ id: job.id, inputKey: job.inputKey, event, prepared, workingSet }, [
+      ...transfers,
+    ]);
   } catch (error) {
     send({
       id: job.id,

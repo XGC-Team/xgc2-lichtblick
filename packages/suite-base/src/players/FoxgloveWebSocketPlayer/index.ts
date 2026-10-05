@@ -1,5 +1,6 @@
 import {
   getNativeCloudProvenance,
+  nativePreparedArrays,
   setNativeCloudProvenance,
   type NativeCloudConsumer,
 } from "../nativeCloudPreparation";
@@ -68,7 +69,8 @@ import { HIGH_FREQUENCY_ALERT } from "@lichtblick/suite-base/players/utils/const
 import { isTopicHighFrequency } from "@lichtblick/suite-base/players/utils/isTopicHighFrequency";
 import {
   COMPRESSED_VIDEO_DATATYPES,
-  POINTCLOUD_SNAPSHOT_DATATYPES,
+  NATIVE_PREP_SNAPSHOT_DATATYPES,
+  nativePreparationKind,
 } from "@lichtblick/suite-base/util/foxgloveSchemas";
 import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosDatatypesToMessageDefinition";
 
@@ -120,6 +122,8 @@ type PrepCommitFence = {
   channel: ResolvedChannel;
   generation: number;
   revision: string;
+  kind: NativeCloudConsumer["kind"];
+  inputKey: string;
   sequence: number;
 };
 type PrepProgress = { committed?: PrepCommitFence; rejected?: PrepCommitFence };
@@ -131,9 +135,12 @@ type PrepJob = {
   subscriptionId: SubscriptionId;
   generation: number;
   sequence: number;
+  kind: NativeCloudConsumer["kind"];
+  inputKey: string;
   consumers: readonly NativeCloudConsumer[];
   inputBacking: ArrayBufferLike;
   inputByteLength: number;
+  inputPaletteByteLength: number;
   originalEvent?: MessageEvent;
   result?: Extract<CloudPrepResponse, { event: MessageEvent }>;
 };
@@ -575,7 +582,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#receivedBytes += data.byteLength;
         const receiveTime = this.#getCurrentTime();
         const topic = chanInfo.channel.topic;
-        const independentCloud = POINTCLOUD_SNAPSHOT_DATATYPES.has(chanInfo.channel.schemaName);
+        const independentCloud = NATIVE_PREP_SNAPSHOT_DATATYPES.has(chanInfo.channel.schemaName);
         const latestSnapshot = independentCloud && this.#latestSnapshotTopics.has(topic);
         // This one existing queue owns serialized complete clouds until the render barrier opens.
         // Retain the original view/backing bytes without another copy or pending buffer.
@@ -1129,6 +1136,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
         fence.channel === channel &&
         fence.generation === generation &&
         fence.revision === consumer.revision &&
+        fence.kind === consumer.kind &&
+        fence.inputKey === consumer.inputKey &&
         sequence <= fence.sequence,
     );
   }
@@ -1142,6 +1151,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
           (current) =>
             current.identity === consumer.identity &&
             current.revision === consumer.revision &&
+            current.kind === consumer.kind &&
+            current.inputKey === consumer.inputKey &&
             current.isActive(),
         )
     )
@@ -1153,6 +1164,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
         channel: job.channel,
         generation: job.generation,
         revision: consumer.revision,
+        kind: consumer.kind,
+        inputKey: consumer.inputKey,
         sequence: job.sequence,
       },
     });
@@ -1202,6 +1215,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           inputSub == undefined ||
           inputGeneration == undefined ||
           inputSequence == undefined ||
+          consumer.kind !== nativePreparationKind(inputChannel.channel.schemaName) ||
           !this.#validPrepInput(inputChannel, inputSub, inputGeneration) ||
           !this.#needsPrep(consumer, inputChannel, inputGeneration, inputSequence)
         )
@@ -1227,7 +1241,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
       }
       const compatible = active.filter(
         (c) =>
-          c.inputKey === selected!.inputKey && this.#needsPrep(c, channel!, generation!, sequence!),
+          c.kind === selected!.kind &&
+          c.inputKey === selected!.inputKey &&
+          this.#needsPrep(c, channel!, generation!, sequence!),
       );
       // Raw is still the sole pending owner (other settings/consumers may need it). Transfer only
       // this job's bounded copy, never detach a retained original or another consumer's view.
@@ -1245,9 +1261,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
         subscriptionId,
         generation,
         sequence,
+        kind: selected.kind,
+        inputKey: selected.inputKey,
         consumers: compatible,
         inputBacking,
         inputByteLength: bytes?.buffer.byteLength ?? event?.sizeInBytes ?? 0,
+        inputPaletteByteLength:
+          selected.kind === "occupancy-grid" ? selected.settings.palette.buffer.byteLength : 0,
         originalEvent: event,
       };
       this.#prepReady.delete(topic);
@@ -1257,6 +1277,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         channelToken = ++this.#prepChannelTokenSequence;
         this.#prepChannelTokens.set(channel, channelToken);
       }
+      const selectedCapacity = selected.kind === "pointcloud" ? selected.capacity() : 0;
       const request: CloudPrepRequest = {
         id,
         channelToken,
@@ -1265,13 +1286,24 @@ export default class FoxgloveWebSocketPlayer implements Player {
         raw: bytes,
         event,
         receiveTime: raw?.receiveTime ?? event!.receiveTime,
-        settings: selected.settings,
-        capacity: Math.max(...compatible.map((c) => c.capacity())),
-        deriveCoordinates:
-          event == undefined ||
-          !compatible.every(
-            (c) => c.canReuseCoordinates(event!) && c.capacity() === selected!.capacity(),
-          ),
+        inputKey: selected.inputKey,
+        ...(selected.kind === "occupancy-grid"
+          ? { kind: "occupancy-grid" as const, settings: selected.settings }
+          : {
+              kind: "pointcloud" as const,
+              settings: selected.settings,
+              capacity: Math.max(
+                ...compatible.map((c) => (c.kind === "pointcloud" ? c.capacity() : 0)),
+              ),
+              deriveCoordinates:
+                event == undefined ||
+                !compatible.every(
+                  (c) =>
+                    c.kind === "pointcloud" &&
+                    c.canReuseCoordinates(event!) &&
+                    c.capacity() === selectedCapacity,
+                ),
+            }),
       };
       this.#capturePrepWorkingSet();
       try {
@@ -1302,6 +1334,16 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #completePrep(result: CloudPrepResponse): void {
     const job = this.#prepInFlight;
     if (job == undefined || result.id !== job.id) return;
+    if (
+      "event" in result &&
+      (result.prepared.kind !== job.kind || result.inputKey !== job.inputKey)
+    ) {
+      result = {
+        id: result.id,
+        error: "Mismatched native preparation kind or configuration",
+        workingSet: result.workingSet,
+      };
+    }
     // The worker's once-returned input/derivation scope has ended. Transfer back is a phase
     // transition, not a reason to charge the same backing twice because its old view is detached.
     job.phase = "returned";
@@ -1335,6 +1377,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
               (c) =>
                 c.identity === dispatched.identity &&
                 c.revision === dispatched.revision &&
+                c.kind === job.kind &&
+                c.inputKey === job.inputKey &&
                 c.isActive(),
             );
           current?.invalidCloud(result.error);
@@ -1371,6 +1415,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
             (c) =>
               c.identity === dispatched.identity &&
               c.revision === dispatched.revision &&
+              c.kind === job.kind &&
+              c.inputKey === job.inputKey &&
               c.isActive(),
           );
           // Parked still owns a legitimately dispatched job; adopt CPU only, no new hidden prep.
@@ -1381,12 +1427,19 @@ export default class FoxgloveWebSocketPlayer implements Player {
             continue;
           try {
             const usage = consumer.commit(originalEvent, result.prepared);
-            if (usage == undefined) continue;
+            if (usage == undefined) {
+              // No-adopt is not a commit. Retire this attempt without an error or a retry loop;
+              // a newer ingress/config domain retains its original preparation opportunity.
+              this.#rejectPrepAttempt(consumer, job);
+              continue;
+            }
             this.#prepProgress.set(consumer.identity, {
               committed: {
                 channel: job.channel,
                 generation: job.generation,
                 revision: consumer.revision,
+                kind: consumer.kind,
+                inputKey: consumer.inputKey,
                 sequence: job.sequence,
               },
             });
@@ -1424,6 +1477,10 @@ export default class FoxgloveWebSocketPlayer implements Player {
     const input = this.#prepInFlight?.inputBacking;
     const inflightInputBytes =
       this.#prepInFlight?.phase === "worker" ? this.#prepInFlight.inputByteLength : 0;
+    // The 1024-byte palette is cloned for this one grid job, not transferred away from its
+    // consumer. Returned ends that worker-input charge; the consumer's original stays counted.
+    const inflightPaletteBytes =
+      this.#prepInFlight?.phase === "worker" ? this.#prepInFlight.inputPaletteByteLength : 0;
     const arrays = new Set<ArrayBufferLike>();
     let gpuCapacityBytes = 0;
     const seenConsumers = new Set<object>();
@@ -1431,20 +1488,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
       for (const consumer of consumers) {
         if (seenConsumers.has(consumer.identity)) continue;
         seenConsumers.add(consumer.identity);
+        if (consumer.kind === "occupancy-grid") arrays.add(consumer.settings.palette.buffer);
         const usage = consumer.usage();
         for (const array of usage.cpuArrays) arrays.add(array.buffer);
         gpuCapacityBytes += usage.gpuCapacityBytes;
       }
     const result = this.#prepInFlight?.result;
     if (result != undefined)
-      for (const array of [
-        result.prepared.positions,
-        result.prepared.colors,
-        result.prepared.stixelPositions,
-        result.prepared.stixelColors,
-        result.prepared.pointCloud.data,
-      ])
-        arrays.add(array.buffer);
+      for (const array of nativePreparedArrays(result.prepared)) arrays.add(array.buffer);
     const cpuCapacityBytes = [...arrays].reduce((sum, b) => sum + b.byteLength, 0);
     const all = new Set(arrays);
     if (input != undefined && this.#prepInFlight?.phase === "worker") all.add(input);
@@ -1454,7 +1505,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       nativeCloudWorkerDerivedCapacityPeakBytes:
         this.#prepWorkingSet.nativeCloudWorkerDerivedCapacityPeakBytes ?? 0,
       nativeCloudRawBytes: rawBytes,
-      nativeCloudInflightInputBytes: inflightInputBytes,
+      nativeCloudInflightInputBytes: inflightInputBytes + inflightPaletteBytes,
       nativeCloudCpuCapacityBytes: cpuCapacityBytes,
       nativeCloudObservedMainCpuPeakCapacityBytes: Math.max(
         this.#prepWorkingSet.nativeCloudObservedMainCpuPeakCapacityBytes ?? 0,
@@ -1466,7 +1517,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
           (sum, b) => sum + (this.#parsedMessages.hasRetainedBacking(b) ? 0 : b.byteLength),
           0,
         ) +
-        (input?.byteLength === 0 ? inflightInputBytes : 0),
+        (input?.byteLength === 0 ? inflightInputBytes : 0) +
+        inflightPaletteBytes,
       nativeCloudGpuCapacityEstimateBytes: gpuCapacityBytes,
       nativeCloudGrowOverlapEstimateBytes: Math.max(
         this.#prepWorkingSet.nativeCloudGrowOverlapEstimateBytes ?? 0,
