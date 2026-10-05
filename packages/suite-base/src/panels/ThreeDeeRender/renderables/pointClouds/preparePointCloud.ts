@@ -53,10 +53,12 @@ export function preparePointCloud(
   settings: LayerSettingsPointClouds,
   capacity: number,
   deriveCoordinates = true,
+  onAllocated?: (arrays: readonly ArrayBufferView[]) => void,
 ): PreparedPointCloud {
   const cloud = schemaName.includes("PointCloud2")
     ? normalizePointCloud2(message as PartialMessage<PointCloud2>)
     : normalizePointCloud(message as PartialMessage<PointCloud>);
+  onAllocated?.([cloud.data]);
   const effective = { ...settings };
   if (effective.colorField == undefined)
     autoSelectColorSettings(
@@ -69,7 +71,7 @@ export function preparePointCloud(
     );
   if (effective.colorField === colorFieldComputedPrefix + "distance")
     effective.colorFieldComputed = "distance";
-  return prepareNormalizedPointCloud(cloud, effective, capacity, deriveCoordinates);
+  return prepareNormalizedPointCloud(cloud, effective, capacity, deriveCoordinates, onAllocated);
 }
 
 export function prepareNormalizedPointCloud(
@@ -77,8 +79,15 @@ export function prepareNormalizedPointCloud(
   settings: LayerSettingsPointClouds,
   capacity: number,
   deriveCoordinates = true,
+  onAllocated?: (arrays: readonly ArrayBufferView[]) => void,
 ): PreparedPointCloud {
-  return new PointCloudCpuPreparer().prepare(cloud, settings, capacity, deriveCoordinates);
+  return new PointCloudCpuPreparer().prepare(
+    cloud,
+    settings,
+    capacity,
+    deriveCoordinates,
+    onAllocated,
+  );
 }
 
 export function validateNormalizedPointCloud(
@@ -111,6 +120,7 @@ class PointCloudCpuPreparer {
     settings: LayerSettingsPointClouds,
     capacity: number,
     deriveCoordinates = true,
+    onAllocated?: (arrays: readonly ArrayBufferView[]) => void,
   ): PreparedPointCloud {
     this.#validatePointCloud(pointCloud);
     const readers: PointCloudFieldReaders = {
@@ -128,11 +138,15 @@ class PointCloudCpuPreparer {
     const itemCapacity =
       pointCount > capacity ? Math.max(pointCount, Math.ceil(capacity * 1.5)) : capacity;
     const positions = new Float32Array(deriveCoordinates ? itemCapacity * 3 : 0);
+    onAllocated?.([pointCloud.data, positions]);
     const colors = new Uint8Array(itemCapacity * 4);
+    onAllocated?.([pointCloud.data, positions, colors]);
     const stixelPositions = new Float32Array(
       settings.stixelsEnabled && deriveCoordinates ? itemCapacity * 6 : 0,
     );
+    onAllocated?.([pointCloud.data, positions, colors, stixelPositions]);
     const stixelColors = new Uint8Array(settings.stixelsEnabled ? itemCapacity * 8 : 0);
+    onAllocated?.([pointCloud.data, positions, colors, stixelPositions, stixelColors]);
     this.#updatePointCloudBuffers(
       pointCloud,
       readers,

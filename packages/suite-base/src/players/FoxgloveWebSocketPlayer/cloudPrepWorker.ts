@@ -18,9 +18,15 @@ export type CloudPrepRequest = {
   capacity: number;
   deriveCoordinates: boolean;
 };
-export type CloudPrepResponse =
+export type CloudPrepWorkingSet = {
+  inputBackingBytes: number;
+  derivedCapacityBytes: number;
+  ownedBackingPeakBytes: number;
+};
+export type CloudPrepResponse = (
   | { id: number; event: SuiteMessageEvent; prepared: PreparedPointCloud }
-  | { id: number; error: string; invalidCloud?: boolean };
+  | { id: number; error: string; invalidCloud?: boolean }
+) & { workingSet?: CloudPrepWorkingSet };
 const sendWithTransfer: (message: CloudPrepResponse, transfer: Transferable[]) => void =
   self.postMessage;
 const send: (message: CloudPrepResponse) => void = self.postMessage;
@@ -32,6 +38,28 @@ self.onmessage = (message: MessageEvent<CloudPrepRequest | { releaseChannel: num
   }
   const job = message.data;
   let invalidCloud = false;
+  const sourceData = (job.event?.message as { data?: unknown } | undefined)?.data;
+  const inputBackings = new Set<ArrayBufferLike>();
+  if (job.raw != undefined) inputBackings.add(job.raw.buffer);
+  if (ArrayBuffer.isView(sourceData)) inputBackings.add(sourceData.buffer);
+  const workingSet: CloudPrepWorkingSet = {
+    inputBackingBytes: [...inputBackings].reduce((n, b) => n + b.byteLength, 0),
+    derivedCapacityBytes: 0,
+    ownedBackingPeakBytes: 0,
+  };
+  workingSet.ownedBackingPeakBytes = workingSet.inputBackingBytes;
+  const allocated = (arrays: readonly ArrayBufferView[]) => {
+    const backings = new Set(arrays.map((array) => array.buffer));
+    workingSet.derivedCapacityBytes = Math.max(
+      workingSet.derivedCapacityBytes,
+      [...backings].reduce((n, b) => n + (inputBackings.has(b) ? 0 : b.byteLength), 0),
+    );
+    const owned = new Set([...inputBackings, ...backings]);
+    workingSet.ownedBackingPeakBytes = Math.max(
+      workingSet.ownedBackingPeakBytes,
+      [...owned].reduce((n, b) => n + b.byteLength, 0),
+    );
+  };
   try {
     let parser = parsers.get(job.channelToken);
     if (parser == undefined) {
@@ -54,6 +82,7 @@ self.onmessage = (message: MessageEvent<CloudPrepRequest | { releaseChannel: num
       job.settings,
       job.capacity,
       job.deriveCoordinates,
+      allocated,
     );
     const transfers = new Set<ArrayBuffer>();
     for (const array of [
@@ -66,12 +95,13 @@ self.onmessage = (message: MessageEvent<CloudPrepRequest | { releaseChannel: num
       if (array.buffer instanceof ArrayBuffer) transfers.add(array.buffer);
     }
     // These arrays were allocated by this job and are immutable after ownership moves to main.
-    sendWithTransfer({ id: job.id, event, prepared }, [...transfers]);
+    sendWithTransfer({ id: job.id, event, prepared, workingSet }, [...transfers]);
   } catch (error) {
     send({
       id: job.id,
       error: error instanceof Error ? error.message : String(error),
       invalidCloud,
+      workingSet,
     });
   }
 };

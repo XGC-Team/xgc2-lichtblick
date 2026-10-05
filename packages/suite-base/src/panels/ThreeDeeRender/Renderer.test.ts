@@ -28,10 +28,20 @@ import { NavPath, TFMessage } from "@lichtblick/suite-base/panels/ThreeDeeRender
 import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
-import { RendererConfig } from "./IRenderer";
+import { RendererConfig, type IRenderer } from "./IRenderer";
 import { DynamicBufferGeometry } from "./DynamicBufferGeometry";
 import { preparePointCloud } from "./renderables/pointClouds/preparePointCloud";
-import { DEFAULT_POINT_SETTINGS } from "./renderables/pointExtensionUtils";
+import {
+  DEFAULT_POINT_SETTINGS,
+  pointCloudMaterial,
+  createPickingMaterial,
+  createInstancePickingMaterial,
+} from "./renderables/pointExtensionUtils";
+import {
+  PointCloudHistoryRenderable,
+  createStixelMaterial,
+  type LayerSettingsPointClouds,
+} from "./renderables/PointClouds";
 
 jest.mock("./Picker", () => {
   const actual = jest.requireActual("./Picker");
@@ -2723,6 +2733,14 @@ describe("native prepared point cloud attributes", () => {
       is_bigendian: false,
       is_dense: true,
     };
+    let workerCapacityPeak = 0;
+    const observe = (arrays: readonly ArrayBufferView[]) => {
+      const buffers = new Set(arrays.map((a) => a.buffer));
+      workerCapacityPeak = Math.max(
+        workerCapacityPeak,
+        [...buffers].reduce((n, b) => n + b.byteLength, 0),
+      );
+    };
     const prepared = preparePointCloud(
       input,
       "sensor_msgs/PointCloud2",
@@ -2735,7 +2753,10 @@ describe("native prepared point cloud attributes", () => {
         colorFieldComputed: undefined,
       },
       4,
+      true,
+      observe,
     );
+    expect(workerCapacityPeak).toBe(216); // Raw24 + XYZ48 + RGBA16 + stixels128 actual backing bytes.
     expect(prepared.pointCount).toBe(2);
     expect(prepared.positions.length).toBe(12);
     expect(Array.from(prepared.positions.subarray(0, 6))).toEqual([-2, 1, -3, 4, 5, 6]);
@@ -2778,5 +2799,62 @@ describe("native prepared point cloud attributes", () => {
     expect(Array.from(nextPosition)).toEqual(new Array(12).fill(0));
     geometry.removeEventListener("dispose", disposed);
     geometry.dispose();
+    const settings: LayerSettingsPointClouds = {
+      ...DEFAULT_POINT_SETTINGS,
+      visible: true,
+      colorField: "x",
+      colorMode: "flat",
+      stixelsEnabled: true,
+      colorFieldComputed: undefined,
+    };
+    const three = { ...input, width: 3, row_step: 36, data: new Uint8Array(36) };
+    const four = { ...input, width: 4, row_step: 48, data: new Uint8Array(48) };
+    const first = preparePointCloud(three, "sensor_msgs/PointCloud2", settings, 0);
+    const second = preparePointCloud(four, "sensor_msgs/PointCloud2", settings, 5);
+    const renderer = {
+      normalizeFrameId: (frame: string) => frame,
+      settings: { errors: { addToTopic: jest.fn() } },
+    } as unknown as IRenderer;
+    const history = new PointCloudHistoryRenderable("/cloud", renderer, {
+      receiveTime: 1n,
+      messageTime: 1n,
+      frameId: "world",
+      pose: { position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } },
+      settingsPath: ["topics", "/cloud"],
+      settings,
+      topic: "/cloud",
+      latestPointCloud: first.pointCloud,
+      latestOriginalMessage: three,
+      material: pointCloudMaterial(settings),
+      pickingMaterial: createPickingMaterial(settings),
+      instancePickingMaterial: createInstancePickingMaterial(settings),
+      stixelMaterial: createStixelMaterial(settings),
+    });
+    history.updatePointCloud(first.pointCloud, three, settings, 1n);
+    history.updatePointCloud(second.pointCloud, four, settings, 2n); // Original ordered growth remains points5/stixels9.
+    const replay = {
+      topic: "/cloud",
+      schemaName: "sensor_msgs/PointCloud2",
+      receiveTime: { sec: 0, nsec: 0 },
+      sizeInBytes: 48,
+      message: four,
+    };
+    expect(history.preparedCapacity).toBe(5);
+    expect(history.canReusePreparedCoordinates(replay, settings)).toBe(false);
+    const bad = preparePointCloud(four, "sensor_msgs/PointCloud2", settings, 5, false);
+    const oldReceiveTime = history.userData.receiveTime,
+      oldOriginal = history.userData.latestOriginalMessage;
+    const positionsBefore = history.preparedUsage().cpuArrays[2]!,
+      colorsBefore = history.preparedUsage().cpuArrays[3]!;
+    expect(() => history.updatePointCloud(bad.pointCloud, four, settings, 99n, bad)).toThrow(
+      "Prepared color capacity changed",
+    );
+    expect(history.userData.receiveTime).toBe(oldReceiveTime);
+    expect(history.userData.latestOriginalMessage).toBe(oldOriginal);
+    expect(history.preparedUsage().cpuArrays[2]).toBe(positionsBefore);
+    expect(history.preparedUsage().cpuArrays[3]).toBe(colorsBefore);
+    history.updatePointCloud(second.pointCloud, four, settings, 3n, second);
+    expect(history.canReusePreparedCoordinates(replay, settings)).toBe(true);
+    history.dispose();
   });
 });

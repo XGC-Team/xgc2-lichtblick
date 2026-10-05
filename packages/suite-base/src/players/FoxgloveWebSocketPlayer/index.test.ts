@@ -205,11 +205,24 @@ describe("native cloud preparation ownership", () => {
     const jobs: CloudPrepRequest[] = [];
     const worker = {
       onmessage: undefined as undefined | ((event: { data: CloudPrepResponse }) => void),
-      onerror: undefined,
+      onerror: undefined as undefined | null | ((error: { message: string }) => void),
       postMessage: jest.fn((job: CloudPrepRequest) => jobs.push(job)),
       terminate: jest.fn(),
     };
-    const createWorker = jest.fn(() => worker);
+    const workers = [worker];
+    let workerConstructions = 0;
+    const createWorker = jest.fn(() => {
+      if (workerConstructions++ === 0) return worker;
+      const next = {
+        ...worker,
+        onmessage: undefined,
+        onerror: undefined,
+        postMessage: jest.fn((job: CloudPrepRequest) => jobs.push(job)),
+        terminate: jest.fn(),
+      };
+      workers.push(next);
+      return next;
+    });
     Object.defineProperty(globalThis, "Worker", {
       value: createWorker,
       configurable: true,
@@ -263,7 +276,7 @@ describe("native cloud preparation ownership", () => {
         sizeInBytes: value == undefined ? 0 : 1,
         message: { points: value == undefined ? [] : [value] },
       };
-      worker.onmessage!({
+      workers[workers.length - 1]!.onmessage!({
         data: {
           id: job.id,
           event,
@@ -336,11 +349,53 @@ describe("native cloud preparation ownership", () => {
       expect(jobs).toHaveLength(4);
       finish(jobs[3]!, undefined);
       expect(commit).toHaveBeenCalledTimes(3);
-      subscribe({ ...consumer, revision: "color3" });
+      const lastValid = latest;
+      handlers.get("message")!({
+        subscriptionId: 1,
+        data: new DataView(new Uint8Array([3]).buffer),
+      });
       expect(jobs).toHaveLength(5);
+      commit.mockImplementationOnce(() => {
+        throw new Error("fixture commit refusal");
+      });
+      finish(jobs[4]!, 3);
+      expect(commit).toHaveBeenCalledTimes(4);
+      expect(latest).toBe(lastValid);
+      expect(jobs).toHaveLength(5);
+      subscribe({ ...consumer, revision: "color2" });
+      expect(jobs).toHaveLength(5); // Same rejected domain is not retried.
+      subscribe({ ...consumer, revision: "color3" });
+      expect(jobs).toHaveLength(6);
+      expect(Array.from(jobs[5]!.raw!)).toEqual([3]); // Rejected latest stays in the original raw owner for a new revision.
+      finish(jobs[5]!, 3);
+      expect(commit).toHaveBeenCalledTimes(5);
+      const recovered = latest;
+      subscribe({ ...consumer, revision: "color4" });
+      expect(jobs).toHaveLength(7);
+      const retiredError = worker.onerror!;
+      retiredError({ message: "fixture module-load failure" });
+      expect(worker.terminate).toHaveBeenCalledTimes(1);
+      expect(jobs).toHaveLength(7);
+      expect(latest).toBe(recovered);
+      subscribe({ ...consumer, revision: "color5" });
+      expect(jobs).toHaveLength(8);
+      expect(workers).toHaveLength(2);
+      retiredError({ message: "late retired worker error" });
+      expect(workers[1]!.terminate).not.toHaveBeenCalled();
+      finish(jobs[7]!, undefined);
+      expect(commit).toHaveBeenCalledTimes(6);
+      subscribe({ ...consumer, revision: "color6" });
+      expect(jobs).toHaveLength(9);
       player.setSubscriptions([]);
-      finish(jobs[4]!, undefined);
-      expect(commit).toHaveBeenCalledTimes(3);
+      finish(jobs[8]!, undefined);
+      expect(commit).toHaveBeenCalledTimes(6);
+      const errors = jest.mocked(console.error).mock.calls;
+      expect(errors).toHaveLength(2);
+      expect(errors.map(([message, id]) => [message, id])).toEqual([
+        ["Player alert", "cloud-commit:/cloud"],
+        ["Player alert", "cloud-preparation:/cloud"],
+      ]);
+      jest.mocked(console.error).mockClear();
       expect(client.subscribe).toHaveBeenCalledTimes(1);
       expect(client.unsubscribe).toHaveBeenCalledTimes(1);
       release();
@@ -349,7 +404,7 @@ describe("native cloud preparation ownership", () => {
     } finally {
       release();
       player.close();
-      expect(worker.terminate).toHaveBeenCalledTimes(1);
+      for (const owned of workers) expect(owned.terminate).toHaveBeenCalledTimes(1);
       socket.mockRestore();
       if (workerDescriptor) Object.defineProperty(globalThis, "Worker", workerDescriptor);
       else Reflect.deleteProperty(globalThis, "Worker");

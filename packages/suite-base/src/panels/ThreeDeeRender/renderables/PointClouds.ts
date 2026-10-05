@@ -248,6 +248,27 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     receiveTime: bigint,
     prepared?: PreparedPointCloud,
   ): void {
+    // Validate dtype/itemSize/live/capacity and construct BOTH replacement sets before any
+    // observable metadata, material or geometry changes. Ordered growth remains independent.
+    let pointAdoption: (() => number) | undefined, stixelAdoption: (() => number) | undefined;
+    if (prepared != undefined) {
+      const count = Math.trunc(pointCloud.data.length / getStride(pointCloud));
+      if (prepared.pointCount !== count)
+        throw new Error("Prepared point count does not match its original sample");
+      const points = this.#pointsHistory.latest().renderable.geometry;
+      const stixels = this.#stixelsHistory.latest().renderable.geometry;
+      pointAdoption = prepared.coordinatesPrepared
+        ? points.prepareAdoption(count, { position: prepared.positions, color: prepared.colors })
+        : points.prepareAdoption(count, { color: prepared.colors }, true);
+      stixelAdoption = settings.stixelsEnabled
+        ? prepared.coordinatesPrepared
+          ? stixels.prepareAdoption(count * 2, {
+              position: prepared.stixelPositions,
+              color: prepared.stixelColors,
+            })
+          : stixels.prepareAdoption(count * 2, { color: prepared.stixelColors }, true)
+        : stixels.prepareAdoption(0, {});
+    }
     const messageTime = toNanoSec(getTimestamp(pointCloud));
     this.userData.receiveTime = receiveTime;
     this.userData.messageTime = messageTime;
@@ -281,14 +302,8 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     const pointCount = Math.trunc(pointCloud.data.length / getStride(pointCloud));
     const latestPoints = latestPointsEntry.renderable;
     let growOverlap = 0;
-    if (prepared != undefined) {
-      if (prepared.coordinatesPrepared)
-        growOverlap += latestPoints.geometry.adopt(pointCount, {
-          position: prepared.positions,
-          color: prepared.colors,
-        });
-      else latestPoints.geometry.adoptColors(pointCount, prepared.colors);
-    } else latestPoints.geometry.resize(pointCount);
+    if (pointAdoption != undefined) growOverlap += pointAdoption();
+    else latestPoints.geometry.resize(pointCount);
     const positionAttribute = latestPoints.geometry.attributes.position!;
     const colorAttribute = latestPoints.geometry.attributes.color!;
 
@@ -303,19 +318,9 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     latestStixelEntry.receiveTime = receiveTime;
     latestStixelEntry.messageTime = messageTime;
     latestStixelEntry.renderable.userData.pose = latestPointsEntry.renderable.userData.pose;
-    if (settings.stixelsEnabled) {
-      if (prepared != undefined) {
-        if (prepared.coordinatesPrepared)
-          growOverlap += latestStixelEntry.renderable.geometry.adopt(pointCount * 2, {
-            position: prepared.stixelPositions,
-            color: prepared.stixelColors,
-          });
-        else
-          latestStixelEntry.renderable.geometry.adoptColors(pointCount * 2, prepared.stixelColors);
-      } else latestStixelEntry.renderable.geometry.resize(pointCount * 2);
-    } else {
-      latestStixelEntry.renderable.geometry.resize(0);
-    }
+    if (stixelAdoption != undefined) growOverlap += stixelAdoption();
+    else if (settings.stixelsEnabled) latestStixelEntry.renderable.geometry.resize(pointCount * 2);
+    else latestStixelEntry.renderable.geometry.resize(0);
     const stixelPositionAttribute = latestStixelEntry.renderable.geometry.attributes.position!;
     const stixelColorAttribute = latestStixelEntry.renderable.geometry.attributes.color!;
     if (prepared == undefined) {
@@ -445,6 +450,29 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
   public get preparedCapacity(): number {
     return this.#pointsHistory.latest().renderable.geometry.itemCapacity;
   }
+  public canReusePreparedCoordinates(
+    event: MessageEvent,
+    settings: LayerSettingsPointClouds,
+  ): boolean {
+    if (
+      this.userData.latestOriginalMessage !== event.message ||
+      this.userData.settings.stixelsEnabled !== settings.stixelsEnabled
+    )
+      return false;
+    const count = Math.trunc(
+      this.userData.latestPointCloud.data.length / getStride(this.userData.latestPointCloud),
+    );
+    const points = this.#pointsHistory.latest().renderable.geometry;
+    const stixels = this.#stixelsHistory.latest().renderable.geometry;
+    return (
+      Number.isSafeInteger(count) &&
+      count >= 0 &&
+      points.drawRange.count === count &&
+      points.itemCapacity >= count &&
+      (!settings.stixelsEnabled ||
+        (stixels.drawRange.count === count * 2 && stixels.itemCapacity === points.itemCapacity * 2))
+    );
+  }
   public invalidPreparedCloud(message: string): void {
     this.#invalidError(message);
   }
@@ -563,14 +591,8 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
       inputKey,
       settings,
       capacity: () => this.renderables.get(topic)?.preparedCapacity ?? 0,
-      canReuseCoordinates: (event) => {
-        const current = this.renderables.get(topic);
-        return (
-          current != undefined &&
-          current.userData.latestOriginalMessage === event.message &&
-          current.userData.settings.stixelsEnabled === settings.stixelsEnabled
-        );
-      },
+      canReuseCoordinates: (event) =>
+        this.renderables.get(topic)?.canReusePreparedCoordinates(event, settings) === true,
       setEnabled: (enabled) => {
         if (enabled) this.#preparedTopics.add(topic);
         else this.#preparedTopics.delete(topic);

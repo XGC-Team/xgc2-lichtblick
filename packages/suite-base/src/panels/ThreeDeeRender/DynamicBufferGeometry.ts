@@ -50,14 +50,24 @@ export class DynamicBufferGeometry extends THREE.BufferGeometry {
     return Object.values(this.attributes).reduce((sum, a) => sum + a.array.byteLength, 0);
   }
 
-  /** Adopt one immutable prepared sample; never mutate arrays shared by another consumer. */
-  public adopt(itemCount: number, arrays: Readonly<Record<string, THREE.TypedArray>>): number {
-    if (itemCount === 0) {
-      this.setDrawRange(0, 0);
-      return 0;
-    }
+  /** Prepare replacements without modifying current attributes or draw metadata. */
+  public prepareAdoption(
+    itemCount: number,
+    arrays: Readonly<Record<string, THREE.TypedArray>>,
+    colorsOnly = false,
+  ): () => number {
+    if (!Number.isSafeInteger(itemCount) || itemCount < 0)
+      throw new Error("Invalid prepared live count");
+    if (itemCount === 0)
+      return () => {
+        this.setDrawRange(0, 0);
+        return 0;
+      };
+    const entries = Object.entries(this.attributes).filter(
+      ([name]) => !colorsOnly || name === "color",
+    );
     let capacity: number | undefined;
-    for (const [name, attribute] of Object.entries(this.attributes)) {
+    for (const [name, attribute] of entries) {
       const array = arrays[name];
       if (
         array == undefined ||
@@ -65,17 +75,19 @@ export class DynamicBufferGeometry extends THREE.BufferGeometry {
         array.length % attribute.itemSize !== 0
       )
         throw new Error(`Prepared attribute ${name} has incompatible dtype or itemSize`);
-      const n = array.length / attribute.itemSize;
-      if (n < itemCount || (capacity != undefined && capacity !== n))
+      const count = array.length / attribute.itemSize;
+      if (count < itemCount || (capacity != undefined && capacity !== count))
         throw new Error("Prepared attribute capacities disagree");
-      capacity = n;
+      capacity = count;
     }
     const nextCapacity = capacity ?? 0;
-    const grow = nextCapacity !== this.#itemCapacity;
+    if (colorsOnly && nextCapacity !== this.#itemCapacity)
+      throw new Error("Prepared color capacity changed without coordinate preparation");
+    const grow = !colorsOnly && nextCapacity !== this.#itemCapacity;
     const oldBytes = grow ? this.capacityBytes : 0;
     const replacements = new Map<string, THREE.BufferAttribute>();
     if (grow)
-      for (const [name, attribute] of Object.entries(this.attributes)) {
+      for (const [name, attribute] of entries) {
         const next = new THREE.BufferAttribute(
           arrays[name]!,
           attribute.itemSize,
@@ -84,43 +96,33 @@ export class DynamicBufferGeometry extends THREE.BufferGeometry {
         next.setUsage(this.#usage);
         replacements.set(name, next);
       }
-    // Disposal must still expose the old attached attributes to Three's GPU buffer owner.
-    if (grow) this.dispose();
-    for (const [name, old] of Object.entries(this.attributes)) {
-      const attribute = grow ? replacements.get(name)! : old;
-      if (grow) this.setAttribute(name, attribute);
-      else {
-        attribute.array = arrays[name]!;
-        // Three 0.156 does not update count after assigning array.
-        (attribute as { count: number }).count = nextCapacity;
+    // A PointCloud caller obtains BOTH plans before writing its complete sample. No cache or
+    // transaction owner: these replacements live only on the current synchronous call stack.
+    return () => {
+      if (grow) this.dispose(); // Three still sees the old attached attributes here.
+      for (const [name, old] of entries) {
+        const attribute = grow ? replacements.get(name)! : old;
+        if (grow) this.setAttribute(name, attribute);
+        else {
+          attribute.array = arrays[name]!;
+          (attribute as { count: number }).count = nextCapacity;
+        }
+        attribute.updateRange.offset = 0;
+        attribute.updateRange.count = itemCount * attribute.itemSize;
+        attribute.needsUpdate = true;
       }
-      attribute.updateRange.offset = 0;
-      attribute.updateRange.count = itemCount * attribute.itemSize;
-      attribute.needsUpdate = true;
-    }
-    this.#preparedArraysImmutable = true;
-    this.#itemCapacity = nextCapacity;
-    this.setDrawRange(0, itemCount);
-    return oldBytes + (grow ? this.capacityBytes : 0);
+      this.#preparedArraysImmutable = true;
+      this.#itemCapacity = nextCapacity;
+      this.setDrawRange(0, itemCount);
+      return oldBytes + (grow ? this.capacityBytes : 0);
+    };
   }
 
+  public adopt(itemCount: number, arrays: Readonly<Record<string, THREE.TypedArray>>): number {
+    return this.prepareAdoption(itemCount, arrays)();
+  }
   public adoptColors(itemCount: number, color: THREE.TypedArray): void {
-    if (itemCount === 0) {
-      this.setDrawRange(0, 0);
-      return;
-    }
-    const attribute = this.attributes.color!;
-    if (
-      color.constructor !== attribute.array.constructor ||
-      color.length !== this.#itemCapacity * attribute.itemSize
-    )
-      throw new Error("Prepared color capacity/dtype changed without coordinate preparation");
-    attribute.array = color;
-    attribute.updateRange.offset = 0;
-    attribute.updateRange.count = itemCount * attribute.itemSize;
-    attribute.needsUpdate = true;
-    this.#preparedArraysImmutable = true;
-    this.setDrawRange(0, itemCount);
+    this.prepareAdoption(itemCount, { color }, true)();
   }
 
   public resize(itemCount: number): void {

@@ -122,8 +122,10 @@ type PrepCommitFence = {
   revision: string;
   sequence: number;
 };
+type PrepProgress = { committed?: PrepCommitFence; rejected?: PrepCommitFence };
 type PrepJob = {
   id: number;
+  phase: "worker" | "returned";
   source: string;
   channel: ResolvedChannel;
   subscriptionId: SubscriptionId;
@@ -164,7 +166,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #prepConsumers = new Map<string, readonly NativeCloudConsumer[]>();
   // Metadata only. Raw stays in #parsedMessages; source opportunities retain insertion position.
   #prepReady = new Map<string, { consumerCursor: number }>();
-  #prepCommitted = new Map<object, PrepCommitFence>();
+  #prepProgress = new Map<object, PrepProgress>();
   #prepWorker?: Worker;
   #prepInFlight?: PrepJob;
   #prepJobSequence = 0;
@@ -1120,14 +1122,40 @@ export default class FoxgloveWebSocketPlayer implements Player {
     generation: number,
     sequence: number,
   ): boolean {
-    const committed = this.#prepCommitted.get(consumer.identity);
-    return (
-      committed == undefined ||
-      committed.channel !== channel ||
-      committed.generation !== generation ||
-      committed.revision !== consumer.revision ||
-      sequence > committed.sequence
+    const progress = this.#prepProgress.get(consumer.identity);
+    return ![progress?.committed, progress?.rejected].some(
+      (fence) =>
+        fence != undefined &&
+        fence.channel === channel &&
+        fence.generation === generation &&
+        fence.revision === consumer.revision &&
+        sequence <= fence.sequence,
     );
+  }
+
+  #rejectPrepAttempt(consumer: NativeCloudConsumer, job: PrepJob): void {
+    const previous = this.#prepProgress.get(consumer.identity);
+    this.#prepProgress.set(consumer.identity, {
+      ...previous,
+      rejected: {
+        channel: job.channel,
+        generation: job.generation,
+        revision: consumer.revision,
+        sequence: job.sequence,
+      },
+    });
+  }
+
+  #originalRetainedAtSequence(job: PrepJob): boolean {
+    return (this.#prepConsumers.get(job.source) ?? []).some((consumer) => {
+      const committed = this.#prepProgress.get(consumer.identity)?.committed;
+      return (
+        committed != undefined &&
+        committed.channel === job.channel &&
+        committed.generation === job.generation &&
+        committed.sequence >= job.sequence
+      );
+    });
   }
 
   #dispatchPrep(): void {
@@ -1199,6 +1227,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       const inputBacking = bytes?.buffer ?? new ArrayBuffer(0);
       this.#prepInFlight = {
         id,
+        phase: "worker",
         source: topic,
         channel,
         subscriptionId,
@@ -1241,8 +1270,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
             if (this.#prepWorker === worker) this.#completePrep(message.data);
           };
           this.#prepWorker.onerror = (error) => {
-            if (this.#prepWorker === worker)
-              this.#completePrep({ id: this.#prepInFlight?.id ?? -1, error: error.message });
+            if (this.#prepWorker !== worker) return;
+            const jobId = this.#prepInFlight?.id;
+            this.#prepWorker = undefined;
+            worker.onmessage = null;
+            worker.onerror = null;
+            worker.terminate();
+            if (jobId != undefined) this.#completePrep({ id: jobId, error: error.message });
           };
         }
         this.#prepWorker.postMessage(request, bytes == undefined ? [] : [bytes.buffer]);
@@ -1256,6 +1290,22 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #completePrep(result: CloudPrepResponse): void {
     const job = this.#prepInFlight;
     if (job == undefined || result.id !== job.id) return;
+    // The worker's once-returned input/derivation scope has ended. Transfer back is a phase
+    // transition, not a reason to charge the same backing twice because its old view is detached.
+    job.phase = "returned";
+    if (result.workingSet != undefined) {
+      this.#prepWorkingSet = {
+        ...this.#prepWorkingSet,
+        nativeCloudWorkerPreparationPeakBackingBytes: Math.max(
+          this.#prepWorkingSet.nativeCloudWorkerPreparationPeakBackingBytes ?? 0,
+          result.workingSet.ownedBackingPeakBytes,
+        ),
+        nativeCloudWorkerDerivedCapacityPeakBytes: Math.max(
+          this.#prepWorkingSet.nativeCloudWorkerDerivedCapacityPeakBytes ?? 0,
+          result.workingSet.derivedCapacityBytes,
+        ),
+      };
+    }
     if ("error" in result) {
       this.#alerts.addAlert(`cloud-preparation:${job.source}`, {
         severity: "error",
@@ -1278,20 +1328,19 @@ export default class FoxgloveWebSocketPlayer implements Player {
           current?.invalidCloud(result.error);
         }
       // Do not retry the same broken sample/config indefinitely. New ingress/revision can recover.
-      for (const consumer of job.consumers)
-        this.#prepCommitted.set(consumer.identity, {
-          channel: job.channel,
-          generation: job.generation,
-          revision: consumer.revision,
-          sequence: job.sequence,
-        });
+      for (const consumer of job.consumers) this.#rejectPrepAttempt(consumer, job);
+      const pending = this.#parsedMessages.peekKey(job.source);
+      const active =
+        this.#prepConsumers.get(job.source)?.filter((c) => !c.parked && c.isActive()) ?? [];
       if (
-        this.#parsedMessages.peekKey(job.source) != undefined &&
-        "kind" in this.#parsedMessages.peekKey(job.source)! &&
-        (this.#parsedMessages.peekKey(job.source) as SerializedCloud).ingressSequence ===
-          job.sequence
+        pending != undefined &&
+        "kind" in pending &&
+        pending.ingressSequence === job.sequence &&
+        active.every((c) => !this.#needsPrep(c, job.channel, job.generation, job.sequence)) &&
+        this.#originalRetainedAtSequence(job)
       )
         this.#parsedMessages.removeKey(job.source);
+
       this.#emitState();
     } else {
       job.result = result;
@@ -1321,14 +1370,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
           try {
             const usage = consumer.commit(originalEvent, result.prepared);
             if (usage == undefined) continue;
-            this.#prepCommitted.set(consumer.identity, {
-              channel: job.channel,
-              generation: job.generation,
-              revision: consumer.revision,
-              sequence: job.sequence,
+            this.#prepProgress.set(consumer.identity, {
+              committed: {
+                channel: job.channel,
+                generation: job.generation,
+                revision: consumer.revision,
+                sequence: job.sequence,
+              },
             });
             this.#capturePrepWorkingSet(usage.growOverlapBytes);
           } catch (error) {
+            this.#rejectPrepAttempt(consumer, job);
             this.#alerts.addAlert(`cloud-commit:${job.source}`, {
               severity: "error",
               message: `Failed to commit ${job.source}`,
@@ -1341,6 +1393,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           pending != undefined &&
           "kind" in pending &&
           pending.ingressSequence === job.sequence &&
+          this.#originalRetainedAtSequence(job) &&
           current
             .filter((c) => !c.parked && c.isActive())
             .every((c) => !this.#needsPrep(c, job.channel, job.generation, job.sequence))
@@ -1357,7 +1410,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #capturePrepWorkingSet(growOverlapBytes = 0): void {
     const rawBytes = this.#parsedMessages.getRetainedBackingBytes();
     const input = this.#prepInFlight?.inputBacking;
-    const inflightInputBytes = this.#prepInFlight?.inputByteLength ?? 0;
+    const inflightInputBytes =
+      this.#prepInFlight?.phase === "worker" ? this.#prepInFlight.inputByteLength : 0;
     const arrays = new Set<ArrayBufferLike>();
     let gpuCapacityBytes = 0;
     const seenConsumers = new Set<object>();
@@ -1381,8 +1435,12 @@ export default class FoxgloveWebSocketPlayer implements Player {
         arrays.add(array.buffer);
     const cpuCapacityBytes = [...arrays].reduce((sum, b) => sum + b.byteLength, 0);
     const all = new Set(arrays);
-    if (input != undefined) all.add(input);
+    if (input != undefined && this.#prepInFlight?.phase === "worker") all.add(input);
     this.#prepWorkingSet = {
+      nativeCloudWorkerPreparationPeakBackingBytes:
+        this.#prepWorkingSet.nativeCloudWorkerPreparationPeakBackingBytes ?? 0,
+      nativeCloudWorkerDerivedCapacityPeakBytes:
+        this.#prepWorkingSet.nativeCloudWorkerDerivedCapacityPeakBytes ?? 0,
       nativeCloudRawBytes: rawBytes,
       nativeCloudInflightInputBytes: inflightInputBytes,
       nativeCloudCpuCapacityBytes: cpuCapacityBytes,
@@ -1410,7 +1468,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#prepWorker = undefined;
     this.#prepInFlight = undefined;
     this.#prepReady.clear();
-    this.#prepCommitted.clear();
+    this.#prepProgress.clear();
     this.#prepWorkingSet = {};
   }
 
@@ -1483,8 +1541,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
     const identities = new Set(
       [...this.#prepConsumers.values()].flatMap((consumers) => consumers.map((c) => c.identity)),
     );
-    for (const identity of this.#prepCommitted.keys())
-      if (!identities.has(identity)) this.#prepCommitted.delete(identity);
+    for (const identity of this.#prepProgress.keys())
+      if (!identities.has(identity)) this.#prepProgress.delete(identity);
     for (const topic of this.#prepReady.keys())
       if (!this.#prepConsumers.has(topic)) this.#prepReady.delete(topic);
     for (const [topic, consumers] of this.#prepConsumers) {
