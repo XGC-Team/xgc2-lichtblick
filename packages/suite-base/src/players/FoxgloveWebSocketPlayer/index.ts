@@ -1134,6 +1134,18 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   #rejectPrepAttempt(consumer: NativeCloudConsumer, job: PrepJob): void {
+    if (
+      !this.#validPrepInput(job.channel, job.subscriptionId, job.generation) ||
+      !this.#prepConsumers
+        .get(job.source)
+        ?.some(
+          (current) =>
+            current.identity === consumer.identity &&
+            current.revision === consumer.revision &&
+            current.isActive(),
+        )
+    )
+      return;
     const previous = this.#prepProgress.get(consumer.identity);
     this.#prepProgress.set(consumer.identity, {
       ...previous,
