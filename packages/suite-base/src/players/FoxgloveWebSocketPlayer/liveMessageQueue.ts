@@ -10,6 +10,8 @@ export type ProtectedMessagePriority = "normal" | "high" | "critical";
 
 type LiveMessageQueueEntry<T> = {
   value: T;
+  /** Optional allocation metadata only; never changes the original per-entry cap charge. */
+  rawBacking?: ArrayBufferLike;
   sizeInBytes: number;
   /**
    * Stable stream identity. Replaceable entries with the same key may supersede each other; video
@@ -71,6 +73,8 @@ export class LiveMessageQueue<T> {
   readonly #videoStreamsAwaitingRecovery = new Set<string>();
   #maximumSizeBytes: number;
   #sizeInBytes = 0;
+  #backingCounts = new WeakMap<object, number>();
+  #retainedBackingBytes = 0;
 
   public constructor(maximumSizeBytes: number) {
     LiveMessageQueue.#validateByteCount(maximumSizeBytes, "maximumSizeBytes");
@@ -296,6 +300,21 @@ export class LiveMessageQueue<T> {
     return values;
   }
 
+  /** Peek the surviving sample by stable stream key without changing pressure age/order. */
+  public peekKey(key: string): T | undefined {
+    const indices = this.#replaceableEntriesByKey.get(key);
+    let latest: T | undefined;
+    for (const index of indices ?? []) latest = this.#entries[index]?.value;
+    return latest;
+  }
+
+  public getRetainedBackingBytes(): number {
+    return this.#retainedBackingBytes;
+  }
+  public hasRetainedBacking(backing: ArrayBufferLike): boolean {
+    return this.#backingCounts.has(backing);
+  }
+
   /** Reset both queued data and dependency state, e.g. for a new connection or a time seek. */
   public clear(): void {
     this.#resetEntries();
@@ -321,6 +340,11 @@ export class LiveMessageQueue<T> {
     this.#entries.push(entry);
     this.#entryCount++;
     this.#sizeInBytes += entry.sizeInBytes;
+    if (entry.rawBacking != undefined) {
+      const count = this.#backingCounts.get(entry.rawBacking) ?? 0;
+      if (count === 0) this.#retainedBackingBytes += entry.rawBacking.byteLength;
+      this.#backingCounts.set(entry.rawBacking, count + 1);
+    }
     if (entry.retention === "replaceable" && entry.key != undefined) {
       let indices = this.#replaceableEntriesByKey.get(entry.key);
       if (indices == undefined) {
@@ -339,6 +363,13 @@ export class LiveMessageQueue<T> {
     this.#entries[index] = undefined;
     this.#entryCount--;
     this.#sizeInBytes -= entry.sizeInBytes;
+    if (entry.rawBacking != undefined) {
+      const count = this.#backingCounts.get(entry.rawBacking)!;
+      if (count === 1) {
+        this.#backingCounts.delete(entry.rawBacking);
+        this.#retainedBackingBytes -= entry.rawBacking.byteLength;
+      } else this.#backingCounts.set(entry.rawBacking, count - 1);
+    }
     if (entry.retention === "replaceable" && entry.key != undefined) {
       const indices = this.#replaceableEntriesByKey.get(entry.key);
       indices?.delete(index);
@@ -407,6 +438,8 @@ export class LiveMessageQueue<T> {
     this.#head = 0;
     this.#entryCount = 0;
     this.#sizeInBytes = 0;
+    this.#backingCounts = new WeakMap();
+    this.#retainedBackingBytes = 0;
     this.#replaceableEntriesByKey.clear();
   }
 

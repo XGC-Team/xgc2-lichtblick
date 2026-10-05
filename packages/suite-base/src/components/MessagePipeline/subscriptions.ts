@@ -19,6 +19,8 @@ type Accumulator = {
   samplingRequest: Subscription["samplingRequest"];
   samplingAuthorized: Subscription["samplingAuthorized"];
   samplingParked: Subscription["samplingParked"];
+  nativeCloudConsumers: NonNullable<Subscription["nativeCloudConsumers"]>[number][];
+  nativeCloudPreparationAllowed: boolean;
 };
 
 function addFields(fields: Set<string>, values: readonly string[] | undefined): void {
@@ -42,12 +44,18 @@ function accumulate(groups: Record<string, Accumulator>, subscription: Subscript
       samplingRequest: subscription.samplingRequest,
       samplingAuthorized: subscription.samplingAuthorized,
       samplingParked: subscription.samplingParked,
+      nativeCloudConsumers: [...(subscription.nativeCloudConsumers ?? [])],
+      nativeCloudPreparationAllowed:
+        subscription.nativeCloudPreparationAllowed === true && subscription.preloadType !== "full",
     };
     addFields(group.fields, subscription.fields);
     groups[subscription.topic] = group;
     return;
   }
   group.count++;
+  group.nativeCloudConsumers.push(...(subscription.nativeCloudConsumers ?? []));
+  group.nativeCloudPreparationAllowed &&=
+    subscription.nativeCloudPreparationAllowed === true && subscription.preloadType !== "full";
   group.allEmpty = group.allEmpty && subscription.fields?.length === 0;
   if (!group.whole) {
     addFields(group.fields, subscription.fields);
@@ -84,8 +92,30 @@ function finish(groups: Record<string, Accumulator>, output: Subscription[]): vo
             samplingRequest: group.samplingRequest,
             samplingAuthorized: group.samplingAuthorized,
             samplingParked: group.samplingParked,
+            ...(group.nativeCloudConsumers.length > 0
+              ? {
+                  nativeCloudConsumers: group.nativeCloudConsumers,
+                  nativeCloudPreparationAllowed: group.nativeCloudPreparationAllowed
+                    ? (true as const)
+                    : undefined,
+                }
+              : {}),
           };
-    output.push(applySamplingGuardToSubscription(merged));
+    const guarded = applySamplingGuardToSubscription(merged);
+    output.push(
+      guarded.nativeCloudConsumers?.length
+        ? {
+            ...guarded,
+            nativeCloudPreparationAllowed:
+              group.nativeCloudPreparationAllowed &&
+              guarded.samplingAuthorized === true &&
+              guarded.samplingRequest?.mode === "latest-per-render-tick" &&
+              guarded.preloadType !== "full"
+                ? true
+                : undefined,
+          }
+        : guarded,
+    );
   }
 }
 
@@ -131,6 +161,18 @@ export function subscriptionsEqual(
           subscription.samplingRequest?.mode === other.samplingRequest?.mode &&
           subscription.samplingAuthorized === other.samplingAuthorized &&
           subscription.samplingParked === other.samplingParked &&
+          subscription.nativeCloudPreparationAllowed === other.nativeCloudPreparationAllowed &&
+          (subscription.nativeCloudConsumers?.length ?? 0) ===
+            (other.nativeCloudConsumers?.length ?? 0) &&
+          (subscription.nativeCloudConsumers ?? []).every((consumer, i) => {
+            const rightConsumer = other.nativeCloudConsumers?.[i];
+            return (
+              rightConsumer != undefined &&
+              consumer.identity === rightConsumer.identity &&
+              consumer.revision === rightConsumer.revision &&
+              consumer.parked === rightConsumer.parked
+            );
+          }) &&
           (subscription.fields === other.fields ||
             (subscription.fields != undefined &&
               subscription.fields.length === other.fields?.length &&

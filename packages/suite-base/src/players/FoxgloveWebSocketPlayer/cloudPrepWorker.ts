@@ -1,0 +1,77 @@
+import { estimateObjectSize } from "../messageMemoryEstimation";
+// SPDX-License-Identifier: MPL-2.0
+import type { Channel } from "@foxglove/ws-protocol";
+import type { MessageEvent as SuiteMessageEvent } from "@lichtblick/suite";
+import type { NativeCloudPreparation } from "../nativeCloudPreparation";
+import { preparePointCloud } from "../../panels/ThreeDeeRender/renderables/pointClouds/preparePointCloud";
+import type { PreparedPointCloud } from "../../panels/ThreeDeeRender/renderables/pointClouds/preparePointCloud";
+import { parseLiveChannel } from "./parseLiveChannel";
+export type CloudPrepRequest = {
+  id: number;
+  channelToken: number;
+  generation: number;
+  channel: Channel;
+  raw?: Uint8Array;
+  event?: SuiteMessageEvent;
+  receiveTime: SuiteMessageEvent["receiveTime"];
+  settings: NativeCloudPreparation["settings"];
+  capacity: number;
+  deriveCoordinates: boolean;
+};
+export type CloudPrepResponse =
+  | { id: number; event: SuiteMessageEvent; prepared: PreparedPointCloud }
+  | { id: number; error: string; invalidCloud?: boolean };
+const sendWithTransfer: (message: CloudPrepResponse, transfer: Transferable[]) => void =
+  self.postMessage;
+const send: (message: CloudPrepResponse) => void = self.postMessage;
+const parsers = new Map<number, ReturnType<typeof parseLiveChannel>>();
+self.onmessage = (message: MessageEvent<CloudPrepRequest | { releaseChannel: number }>) => {
+  if ("releaseChannel" in message.data) {
+    parsers.delete(message.data.releaseChannel);
+    return;
+  }
+  const job = message.data;
+  let invalidCloud = false;
+  try {
+    let parser = parsers.get(job.channelToken);
+    if (parser == undefined) {
+      parser = parseLiveChannel(job.channel);
+      parsers.set(job.channelToken, parser);
+    }
+    const event: SuiteMessageEvent = job.event ?? {
+      topic: job.channel.topic,
+      schemaName: job.channel.schemaName,
+      receiveTime: job.receiveTime,
+      sizeInBytes: job.raw!.byteLength,
+      message: parser!.deserialize(job.raw!),
+    };
+    if (job.event == undefined)
+      event.sizeInBytes = Math.max(event.sizeInBytes, estimateObjectSize(event.message));
+    invalidCloud = true;
+    const prepared = preparePointCloud(
+      event.message,
+      event.schemaName,
+      job.settings,
+      job.capacity,
+      job.deriveCoordinates,
+    );
+    const transfers = new Set<ArrayBuffer>();
+    for (const array of [
+      prepared.positions,
+      prepared.colors,
+      prepared.stixelPositions,
+      prepared.stixelColors,
+      prepared.pointCloud.data,
+    ]) {
+      if (array.buffer instanceof ArrayBuffer) transfers.add(array.buffer);
+    }
+    // These arrays were allocated by this job and are immutable after ownership moves to main.
+    sendWithTransfer({ id: job.id, event, prepared }, [...transfers]);
+  } catch (error) {
+    send({
+      id: job.id,
+      error: error instanceof Error ? error.message : String(error),
+      invalidCloud,
+    });
+  }
+};

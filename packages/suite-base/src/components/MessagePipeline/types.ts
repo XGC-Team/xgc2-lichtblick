@@ -27,6 +27,8 @@ export type MessagePipelineContext = Immutable<{
   subscriptions: SubscribePayload[];
   messageEventsBySubscriberId: Map<string, MessageEvent[]>;
   setSubscriptions: (id: string, subscriptionsForId: Immutable<SubscribePayload[]>) => void;
+  getLatestNativeCloud: (topic: string) => MessageEvent | undefined;
+  retainNativeCloud: (event: MessageEvent) => void;
   setPublishers: (id: string, publishersForId: AdvertiseOptions[]) => void;
   setParameter: (key: string, value: ParameterValue) => void;
   publish: (request: PublishPayload) => void;

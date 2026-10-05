@@ -195,6 +195,9 @@ export type RendererConfig = {
 };
 
 export type RendererSubscription<T = unknown> = {
+  nativeCloudPreparation?: (
+    topic: string,
+  ) => import("../../players/nativeCloudPreparation").NativeCloudPreparation | undefined;
   /** Preload the full history of topic messages as a best effort */
   preload?: boolean;
   /** Opt-in only when this handler needs an independent latest full snapshot, not history. */

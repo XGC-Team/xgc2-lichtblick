@@ -510,7 +510,7 @@ function PanelExtensionAdapter(
         });
       },
 
-      subscribe: (topics: ReadonlyArray<string | Subscription>) => {
+      subscribe: (topics: ReadonlyArray<string | BuiltinSubscription>) => {
         if (!isMounted()) {
           return;
         }
@@ -567,6 +567,12 @@ function PanelExtensionAdapter(
             preloadType,
             samplingRequest: samplingAllowed ? item.sampling : undefined,
             samplingAuthorized: samplingAllowed ? true : undefined,
+            ...(samplingAllowed && isNativePath && item.nativeCloudConsumer != undefined
+              ? {
+                  nativeCloudConsumers: [item.nativeCloudConsumer],
+                  nativeCloudPreparationAllowed: true as const,
+                }
+              : {}),
             ...(samplingAllowed && isNativePath && item.renderDemand === "parked"
               ? { samplingParked: true as const }
               : {}),
@@ -803,9 +809,49 @@ function PanelExtensionAdapter(
     // A nested React root may unmount in a later microtask, after the next init has published.
     // Its publisher callbacks must lose authority before the current publications are cleared.
     let active = true;
+    const consumerIdentity = {};
+    const consumerByPreparationKey = new Map<object, object>();
     const onUnmount = initPanel({
       panelElement,
       ...partialExtensionContext,
+      subscribe: (topics) => {
+        if (!active) return;
+        partialExtensionContext.subscribe(
+          topics.map((item) => {
+            if (typeof item === "string" || item.nativeCloudPreparation == undefined) return item;
+            const preparation = item.nativeCloudPreparation;
+            let identity = consumerByPreparationKey.get(preparation.key);
+            if (identity == undefined) {
+              identity = { init: consumerIdentity };
+              consumerByPreparationKey.set(preparation.key, identity);
+            }
+            return {
+              ...item,
+              nativeCloudConsumer: {
+                ...preparation,
+                identity,
+                parked: item.renderDemand === "parked",
+                isActive: () => active,
+                setEnabled: (enabled) => {
+                  if (active) preparation.setEnabled(enabled);
+                },
+                invalidCloud: (message) => {
+                  if (active) preparation.invalidCloud(message);
+                },
+                latest: () =>
+                  active ? getMessagePipelineContext().getLatestNativeCloud(item.topic) : undefined,
+                commit: (event, prepared) => {
+                  if (!active) return undefined;
+                  const usage = preparation.commit(event, prepared);
+                  if (!active) return undefined;
+                  getMessagePipelineContext().retainNativeCloud(event);
+                  return usage;
+                },
+              },
+            };
+          }),
+        );
+      },
       advertise:
         partialExtensionContext.advertise == undefined
           ? undefined

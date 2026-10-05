@@ -1,3 +1,18 @@
+import type {
+  NativeCloudPreparation,
+  NativeCloudCommitUsage,
+} from "../../../players/nativeCloudPreparation";
+import {
+  updateNormalizedPointCloudBuffers,
+  validateNormalizedPointCloud,
+  normalizePointCloud,
+  normalizePointCloud2,
+  getTimestamp,
+  getFrameId,
+  getStride,
+  getPose,
+  type PreparedPointCloud,
+} from "./pointClouds/preparePointCloud";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -5,11 +20,11 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { NumericType, PackedElementField, PointCloud } from "@foxglove/schemas";
+import { PointCloud } from "@foxglove/schemas";
 import * as _ from "lodash-es";
 import * as THREE from "three";
 
-import { Time, toNanoSec } from "@lichtblick/rostime";
+import { toNanoSec } from "@lichtblick/rostime";
 import { SettingsTreeAction, MessageEvent } from "@lichtblick/suite";
 import { DynamicBufferGeometry } from "@lichtblick/suite-base/panels/ThreeDeeRender/DynamicBufferGeometry";
 import {
@@ -30,43 +45,19 @@ import type { RosObject, RosValue } from "@lichtblick/suite-base/players/types";
 import {
   autoSelectColorSettings,
   colorHasTransparency,
-  getColorConverter,
   colorFieldComputedPrefix,
 } from "./colorMode";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
 import { BaseUserData, Renderable } from "../Renderable";
-import { PartialMessage, PartialMessageEvent, SceneExtension } from "../SceneExtension";
+import { PartialMessageEvent, SceneExtension } from "../SceneExtension";
 import { SettingsTreeEntry, SettingsTreeNodeWithActionHandler } from "../SettingsManager";
 import { POINTCLOUD_DATATYPES as FOXGLOVE_POINTCLOUD_DATATYPES } from "../foxglove";
-import {
-  normalizeByteArray,
-  normalizeHeader,
-  normalizeTime,
-  normalizePose,
-  numericTypeToPointFieldType,
-} from "../normalizeMessages";
-import {
-  PointCloud2,
-  POINTCLOUD_DATATYPES as ROS_POINTCLOUD_DATATYPES,
-  PointField,
-  PointFieldType,
-} from "../ros";
+import { PointCloud2, POINTCLOUD_DATATYPES as ROS_POINTCLOUD_DATATYPES } from "../ros";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
-import { makePose, Pose } from "../transforms";
-import { FieldReader, getReader, isSupportedField } from "./pointClouds/fieldReaders";
+import { makePose } from "../transforms";
+import { getReader, isSupportedField } from "./pointClouds/fieldReaders";
 
-type PointCloudFieldReaders = {
-  xReader: FieldReader;
-  yReader: FieldReader;
-  zReader: FieldReader;
-  packedColorReader: FieldReader;
-  redReader: FieldReader;
-  greenReader: FieldReader;
-  blueReader: FieldReader;
-  alphaReader: FieldReader;
-};
-
-type LayerSettingsPointClouds = LayerSettingsPointExtension & {
+export type LayerSettingsPointClouds = LayerSettingsPointExtension & {
   stixelsEnabled: boolean;
   colorFieldComputed: "distance" | undefined;
 };
@@ -88,8 +79,6 @@ type PointCloudHistoryUserData = BaseUserData & {
   stixelMaterial: THREE.LineBasicMaterial;
 };
 
-const NEEDS_MIN_MAX = ["gradient", "colormap"];
-
 const ALL_POINTCLOUD_DATATYPES = new Set<string>([
   ...FOXGLOVE_POINTCLOUD_DATATYPES,
   ...ROS_POINTCLOUD_DATATYPES,
@@ -97,25 +86,13 @@ const ALL_POINTCLOUD_DATATYPES = new Set<string>([
 
 const INVALID_POINTCLOUD = "INVALID_POINTCLOUD";
 
-const tempColor = { r: 0, g: 0, b: 0, a: 0 };
-const tempMinMaxColor: THREE.Vector2Tuple = [0, 0];
-const tempFieldReaders: PointCloudFieldReaders = {
-  xReader: zeroReader,
-  yReader: zeroReader,
-  zReader: zeroReader,
-  packedColorReader: zeroReader,
-  redReader: zeroReader,
-  greenReader: zeroReader,
-  blueReader: zeroReader,
-  alphaReader: zeroReader,
-};
-
 type PointCloudUserData = BaseUserData & {
   pointCloud: PointCloud | PointCloud2;
   originalMessage: Record<string, RosValue> | undefined;
 };
 
 class PointCloudRenderable extends PointsRenderable<PointCloudUserData> {
+  public localSampleBounds: THREE.Sphere | undefined;
   public override details(): Record<string, RosValue> {
     return this.userData.originalMessage ?? {};
   }
@@ -225,22 +202,8 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     super.dispose();
   }
 
-  public updatePointCloud(
-    this: PointCloudHistoryRenderable,
-    pointCloud: PointCloud | PointCloud2,
-    originalMessage: RosObject | undefined,
-    settings: LayerSettingsPointClouds,
-    receiveTime: bigint,
-  ): void {
-    const messageTime = toNanoSec(getTimestamp(pointCloud));
-    this.userData.receiveTime = receiveTime;
-    this.userData.messageTime = messageTime;
-    this.userData.frameId = this.renderer.normalizeFrameId(getFrameId(pointCloud));
-    this.userData.latestPointCloud = pointCloud;
-    this.userData.latestOriginalMessage = originalMessage;
-
+  public updateMaterialSettings(settings: LayerSettingsPointClouds): void {
     const prevSettings = this.userData.settings;
-    const prevIsDecay = prevSettings.decayTime > 0;
     this.userData.settings = settings;
 
     let material = this.userData.material;
@@ -270,27 +233,44 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     } else {
       material.size = settings.pointSize;
     }
+    this.userData.pickingMaterial.uniforms.pointSize!.value = Math.max(settings.pointSize, 8);
+    this.userData.instancePickingMaterial.uniforms.pointSize!.value = Math.max(
+      settings.pointSize,
+      8,
+    );
+  }
 
-    if (settings.colorField === colorFieldComputedPrefix + "distance") {
+  public updatePointCloud(
+    this: PointCloudHistoryRenderable,
+    pointCloud: PointCloud | PointCloud2,
+    originalMessage: RosObject | undefined,
+    settings: LayerSettingsPointClouds,
+    receiveTime: bigint,
+    prepared?: PreparedPointCloud,
+  ): void {
+    const messageTime = toNanoSec(getTimestamp(pointCloud));
+    this.userData.receiveTime = receiveTime;
+    this.userData.messageTime = messageTime;
+    this.userData.frameId = this.renderer.normalizeFrameId(getFrameId(pointCloud));
+    this.userData.latestPointCloud = pointCloud;
+    this.userData.latestOriginalMessage = originalMessage;
+
+    const prevIsDecay = this.userData.settings.decayTime > 0;
+    this.updateMaterialSettings(settings);
+    const pointsHistory = this.#pointsHistory,
+      stixelsHistory = this.#stixelsHistory;
+    if (settings.colorField === colorFieldComputedPrefix + "distance")
       settings.colorFieldComputed = "distance";
-    }
+    if (!settings.stixelsEnabled) stixelsHistory.clearHistory();
 
-    const stixelsEnabledChanged = prevSettings.stixelsEnabled !== settings.stixelsEnabled;
-    // when stixels are switched off we can clear its history
-    if (!settings.stixelsEnabled && stixelsEnabledChanged) {
-      stixelsHistory.clearHistory();
+    if (prepared == undefined) {
+      try {
+        validateNormalizedPointCloud(pointCloud, settings);
+      } catch (error) {
+        this.#invalidError(error instanceof Error ? error.message : String(error));
+        return;
+      }
     }
-
-    // Invalid point cloud checks
-    if (!this.#validatePointCloud(pointCloud)) {
-      return;
-    }
-
-    // Parse the fields and create typed readers for x/y/z and color
-    if (!this.#getPointCloudFieldReaders(tempFieldReaders, pointCloud, settings)) {
-      return;
-    }
-
     const latestPointsEntry = pointsHistory.latest();
     latestPointsEntry.receiveTime = receiveTime;
     latestPointsEntry.messageTime = messageTime;
@@ -300,7 +280,15 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
 
     const pointCount = Math.trunc(pointCloud.data.length / getStride(pointCloud));
     const latestPoints = latestPointsEntry.renderable;
-    latestPointsEntry.renderable.geometry.resize(pointCount);
+    let growOverlap = 0;
+    if (prepared != undefined) {
+      if (prepared.coordinatesPrepared)
+        growOverlap += latestPoints.geometry.adopt(pointCount, {
+          position: prepared.positions,
+          color: prepared.colors,
+        });
+      else latestPoints.geometry.adoptColors(pointCount, prepared.colors);
+    } else latestPoints.geometry.resize(pointCount);
     const positionAttribute = latestPoints.geometry.attributes.position!;
     const colorAttribute = latestPoints.geometry.attributes.color!;
 
@@ -316,31 +304,159 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     latestStixelEntry.messageTime = messageTime;
     latestStixelEntry.renderable.userData.pose = latestPointsEntry.renderable.userData.pose;
     if (settings.stixelsEnabled) {
-      latestStixelEntry.renderable.geometry.resize(pointCount * 2);
+      if (prepared != undefined) {
+        if (prepared.coordinatesPrepared)
+          growOverlap += latestStixelEntry.renderable.geometry.adopt(pointCount * 2, {
+            position: prepared.stixelPositions,
+            color: prepared.stixelColors,
+          });
+        else
+          latestStixelEntry.renderable.geometry.adoptColors(pointCount * 2, prepared.stixelColors);
+      } else latestStixelEntry.renderable.geometry.resize(pointCount * 2);
     } else {
       latestStixelEntry.renderable.geometry.resize(0);
     }
     const stixelPositionAttribute = latestStixelEntry.renderable.geometry.attributes.position!;
     const stixelColorAttribute = latestStixelEntry.renderable.geometry.attributes.color!;
-    // Iterate the point cloud data to update position and color attributes
-    this.#updatePointCloudBuffers(
-      pointCloud,
-      tempFieldReaders,
-      pointCount,
-      settings,
-      positionAttribute,
-      colorAttribute,
-      stixelPositionAttribute,
-      stixelColorAttribute,
+    if (prepared == undefined) {
+      try {
+        const result = updateNormalizedPointCloudBuffers(
+          pointCloud,
+          settings,
+          positionAttribute,
+          colorAttribute,
+          stixelPositionAttribute,
+          stixelColorAttribute,
+        );
+        this.#setSampleBounds(latestPoints, latestStixelEntry.renderable, result.bounds);
+        for (const problem of result.problems)
+          this.renderer.settings.errors.addToTopic(
+            this.userData.topic,
+            INVALID_POINTCLOUD,
+            problem,
+          );
+        for (const geometry of [latestPoints.geometry, latestStixelEntry.renderable.geometry])
+          for (const attribute of Object.values(geometry.attributes)) {
+            attribute.updateRange.offset = 0;
+            attribute.updateRange.count = geometry.drawRange.count * attribute.itemSize;
+          }
+      } catch (error) {
+        this.#invalidError(error instanceof Error ? error.message : String(error));
+      }
+    } else {
+      if (prepared.coordinatesPrepared)
+        this.#setSampleBounds(latestPoints, latestStixelEntry.renderable, prepared.bounds);
+      for (const problem of prepared.problems)
+        this.renderer.settings.errors.addToTopic(this.userData.topic, INVALID_POINTCLOUD, problem);
+    }
+    this.#lastGrowOverlap = growOverlap;
+  }
+
+  #lastGrowOverlap = 0;
+  #boundsSize = new THREE.Vector2();
+  #boundsCenter = new THREE.Vector3();
+  #setSampleBounds(
+    entry: PointCloudRenderable,
+    stixels: StixelsRenderable,
+    bounds: PreparedPointCloud["bounds"],
+  ): void {
+    const sphere =
+      bounds == undefined
+        ? undefined
+        : new THREE.Box3(
+            new THREE.Vector3(...(bounds.min as [number, number, number])),
+            new THREE.Vector3(...(bounds.max as [number, number, number])),
+          ).getBoundingSphere(new THREE.Sphere());
+    entry.localSampleBounds = sphere;
+    stixels.localSampleBounds = sphere;
+  }
+  #refreshBounds(drawable: PointCloudRenderable | StixelsRenderable): void {
+    const local = drawable.localSampleBounds;
+    if (local == undefined) {
+      drawable.setPointCloudFrustumCulling(false);
+      return;
+    }
+    const camera = this.renderer.cameraHandler.getActiveCamera();
+    camera.updateMatrixWorld();
+    this.renderer.gl.getDrawingBufferSize(this.#boundsSize);
+    drawable.updateWorldMatrix(true, false);
+    const scale = drawable.matrixWorld.getMaxScaleOnAxis();
+    this.#boundsCenter
+      .copy(local.center)
+      .applyMatrix4(drawable.matrixWorld)
+      .applyMatrix4(camera.matrixWorldInverse);
+    const radius = local.radius * scale;
+    const depth = -this.#boundsCenter.z;
+    const e = camera.projectionMatrix.elements;
+    const perspective = camera instanceof THREE.PerspectiveCamera;
+    const usable =
+      Number.isFinite(depth) &&
+      Number.isFinite(radius) &&
+      scale > 0 &&
+      this.#boundsSize.x > 0 &&
+      this.#boundsSize.y > 0 &&
+      Number.isFinite(e[0]) &&
+      Number.isFinite(e[5]) &&
+      e[0] !== 0 &&
+      e[5] !== 0 &&
+      depth - radius > camera.near &&
+      Number.isFinite(this.userData.settings.pointSize);
+    if (!usable) {
+      drawable.setPointCloudFrustumCulling(false);
+      return;
+    }
+    const distance = perspective ? depth + radius : 1;
+    const metersPerPixel = Math.max(
+      (2 * distance) / (this.#boundsSize.x * Math.abs(e[0]!)),
+      (2 * distance) / (this.#boundsSize.y * Math.abs(e[5]!)),
     );
+    const settings = this.userData.settings;
+    // Picking has at least an 8px footprint. The same conservative sphere serves both passes.
+    const pixelMargin =
+      Math.max(settings.pointSizeMode === "world" ? 0 : settings.pointSize, 8) *
+      0.5 *
+      metersPerPixel;
+    const worldMargin =
+      settings.pointSizeMode === "world" ? settings.pointSize * 0.5 * Math.max(1, scale) : 0;
+    const sphere = drawable.geometry.boundingSphere ?? new THREE.Sphere();
+    sphere.copy(local);
+    sphere.radius += (Math.SQRT2 * Math.max(pixelMargin, worldMargin)) / scale;
+    drawable.geometry.boundingSphere = sphere;
+    drawable.setPointCloudFrustumCulling(true);
+  }
+
+  public preparedUsage(): NativeCloudCommitUsage {
+    const geometries = [
+      this.#pointsHistory.latest().renderable.geometry,
+      this.#stixelsHistory.latest().renderable.geometry,
+    ];
+    return {
+      cpuArrays: [
+        ...(ArrayBuffer.isView(this.userData.latestOriginalMessage?.data)
+          ? [this.userData.latestOriginalMessage!.data as ArrayBufferView]
+          : []),
+        this.userData.latestPointCloud.data,
+        ...geometries.flatMap((g) => Object.values(g.attributes).map((a) => a.array)),
+      ],
+      gpuCapacityBytes: geometries.reduce((sum, g) => sum + g.capacityBytes, 0),
+      growOverlapBytes: this.#lastGrowOverlap,
+    };
+  }
+  public get preparedCapacity(): number {
+    return this.#pointsHistory.latest().renderable.geometry.itemCapacity;
+  }
+  public invalidPreparedCloud(message: string): void {
+    this.#invalidError(message);
   }
 
   public startFrame(currentTime: bigint, renderFrameId: string, fixedFrameId: string): void {
     this.#pointsHistory.updateHistoryFromCurrentTime(currentTime);
     this.#pointsHistory.updatePoses(currentTime, renderFrameId, fixedFrameId);
+    this.#pointsHistory.forEach((entry) => this.#refreshBounds(entry.renderable));
     if (this.userData.settings.stixelsEnabled) {
       this.#stixelsHistory.updateHistoryFromCurrentTime(currentTime);
       this.#stixelsHistory.updatePoses(currentTime, renderFrameId, fixedFrameId);
+      this.#stixelsHistory.forEach((entry) => this.#refreshBounds(entry.renderable));
     }
   }
 
@@ -407,328 +523,87 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     const lastEntry = this.#pointsHistory.latest();
     lastEntry.renderable.geometry.resize(0);
   }
-
-  #validatePointCloud(pointCloud: PointCloud | PointCloud2): boolean {
-    const maybeRos = pointCloud as Partial<PointCloud2>;
-    return maybeRos.header
-      ? this.#validateRosPointCloud(pointCloud as PointCloud2)
-      : this.#validateFoxglovePointCloud(pointCloud as PointCloud);
-  }
-
-  #validateFoxglovePointCloud(pointCloud: PointCloud): boolean {
-    const data = pointCloud.data;
-
-    if (data.length % pointCloud.point_stride !== 0) {
-      const message = `PointCloud data length ${data.length} is not a multiple of point_stride ${pointCloud.point_stride}`;
-      this.#invalidError(message);
-      return false;
-    }
-
-    if (pointCloud.fields.length === 0) {
-      const message = `PointCloud has no fields`;
-      this.#invalidError(message);
-      return false;
-    }
-
-    return true;
-  }
-
-  #validateRosPointCloud(pointCloud: PointCloud2): boolean {
-    const data = pointCloud.data;
-
-    if (pointCloud.is_bigendian) {
-      const message = `PointCloud2 is_bigendian=true is not supported`;
-      this.#invalidError(message);
-      return false;
-    }
-
-    if (data.length % pointCloud.point_step !== 0) {
-      const message = `PointCloud2 data length ${data.length} is not a multiple of point_step ${pointCloud.point_step}`;
-      this.#invalidError(message);
-      return false;
-    }
-
-    if (pointCloud.fields.length === 0) {
-      const message = `PointCloud2 has no fields`;
-      this.#invalidError(message);
-      return false;
-    }
-
-    if (data.length < pointCloud.height * pointCloud.row_step) {
-      const message = `PointCloud2 data length ${data.length} is less than height ${pointCloud.height} * row_step ${pointCloud.row_step}`;
-      this.renderer.settings.errors.addToTopic(this.userData.topic, INVALID_POINTCLOUD, message);
-      // Allow this error for now since we currently ignore row_step
-    }
-
-    if (pointCloud.width * pointCloud.point_step > pointCloud.row_step) {
-      const message = `PointCloud2 width ${pointCloud.width} * point_step ${pointCloud.point_step} is greater than row_step ${pointCloud.row_step}`;
-      this.renderer.settings.errors.addToTopic(this.userData.topic, INVALID_POINTCLOUD, message);
-      // Allow this error for now since we currently ignore row_step
-    }
-
-    return true;
-  }
-
-  #getPointCloudFieldReaders(
-    output: PointCloudFieldReaders,
-    pointCloud: PointCloud | PointCloud2,
-    settings: LayerSettingsPointClouds,
-  ): boolean {
-    let xReader: FieldReader | undefined;
-    let yReader: FieldReader | undefined;
-    let zReader: FieldReader | undefined;
-    let packedColorReader: FieldReader | undefined;
-    let redReader: FieldReader | undefined;
-    let greenReader: FieldReader | undefined;
-    let blueReader: FieldReader | undefined;
-    let alphaReader: FieldReader | undefined;
-
-    const stride = getStride(pointCloud);
-
-    // Determine the minimum bytes needed per point based on offset/size of each
-    // field, so we can ensure point_step is >= this value
-    let minBytesPerPoint = 0;
-
-    for (const field of pointCloud.fields) {
-      // Skip this field, we don't support counts other than 1
-      if (!isSupportedField(field)) {
-        continue;
-      }
-      const numericType = (field as Partial<PackedElementField>).type;
-      const type =
-        numericType != undefined
-          ? numericTypeToPointFieldType(numericType)
-          : (field as PointField).datatype;
-
-      if (field.offset < 0) {
-        const message = `PointCloud field "${field.name}" has invalid offset ${field.offset}. Must be >= 0`;
-        this.#invalidError(message);
-        return false;
-      }
-
-      if (field.name === "x") {
-        xReader = getReader(field, stride);
-        if (!xReader) {
-          const typeName = pointFieldTypeName(type);
-          const message = `PointCloud field "x" is invalid. type=${typeName}, offset=${field.offset}, stride=${stride}`;
-          this.#invalidError(message);
-          return false;
-        }
-      } else if (field.name === "y") {
-        yReader = getReader(field, stride);
-        if (!yReader) {
-          const typeName = pointFieldTypeName(type);
-          const message = `PointCloud field "y" is invalid. type=${typeName}, offset=${field.offset}, stride=${stride}`;
-          this.#invalidError(message);
-          return false;
-        }
-      } else if (field.name === "z") {
-        zReader = getReader(field, stride);
-        if (!zReader) {
-          const typeName = pointFieldTypeName(type);
-          const message = `PointCloud field "z" is invalid. type=${typeName}, offset=${field.offset}, stride=${stride}`;
-          this.#invalidError(message);
-          return false;
-        }
-      } else if (field.name === "red") {
-        redReader = getReader(field, stride, /*normalize*/ true);
-      } else if (field.name === "green") {
-        greenReader = getReader(field, stride, /*normalize*/ true);
-      } else if (field.name === "blue") {
-        blueReader = getReader(field, stride, /*normalize*/ true);
-      } else if (field.name === "alpha") {
-        alphaReader = getReader(field, stride, /*normalize*/ true);
-      }
-
-      const byteWidth = pointFieldWidth(type);
-      minBytesPerPoint = Math.max(minBytesPerPoint, field.offset + byteWidth);
-
-      if (field.name === settings.colorField) {
-        // If the selected color mode is rgb/rgba and the field only has one channel with at least a
-        // four byte width, force the color data to be interpreted as four individual bytes. This
-        // overcomes a common problem where the color field data type is set to float32 or something
-        // other than uint32
-        const forceType =
-          (settings.colorMode === "rgb" || settings.colorMode === "rgba") && byteWidth >= 4
-            ? numericType != undefined
-              ? NumericType.UINT32
-              : PointFieldType.UINT32
-            : undefined;
-        packedColorReader = getReader(field, stride, /*normalize*/ false, forceType);
-        if (!packedColorReader) {
-          const typeName = pointFieldTypeName(type);
-          const message = `PointCloud field "${field.name}" is invalid. type=${typeName}, offset=${field.offset}, stride=${stride}`;
-          this.#invalidError(message);
-          return false;
-        }
-      }
-    }
-
-    if (settings.colorFieldComputed === "distance") {
-      packedColorReader = (view: DataView, pointOffset: number) => {
-        return Math.hypot(
-          xReader?.(view, pointOffset) ?? 0,
-          yReader?.(view, pointOffset) ?? 0,
-          zReader?.(view, pointOffset) ?? 0,
-        );
-      };
-    }
-    if (minBytesPerPoint > stride) {
-      const message = `PointCloud stride ${stride} is less than minimum bytes per point ${minBytesPerPoint}`;
-      this.#invalidError(message);
-      return false;
-    }
-
-    const positionReaderCount = (xReader ? 1 : 0) + (yReader ? 1 : 0) + (zReader ? 1 : 0);
-    if (positionReaderCount < 2) {
-      const message = `PointCloud must contain at least two of x/y/z fields`;
-      this.#invalidError(message);
-      return false;
-    }
-
-    output.xReader = xReader ?? zeroReader;
-    output.yReader = yReader ?? zeroReader;
-    output.zReader = zReader ?? zeroReader;
-    output.packedColorReader = packedColorReader ?? xReader ?? yReader ?? zReader ?? zeroReader;
-    output.redReader = redReader ?? zeroReader;
-    output.greenReader = greenReader ?? zeroReader;
-    output.blueReader = blueReader ?? zeroReader;
-    output.alphaReader = alphaReader ?? zeroReader;
-    return true;
-  }
-
-  #minMaxColorValues(
-    output: THREE.Vector2Tuple,
-    colorReader: FieldReader,
-    view: DataView,
-    pointCount: number,
-    pointStep: number,
-    settings: LayerSettingsPointClouds,
-  ): void {
-    let minColorValue = settings.minValue ?? Number.POSITIVE_INFINITY;
-    let maxColorValue = settings.maxValue ?? Number.NEGATIVE_INFINITY;
-    if (
-      NEEDS_MIN_MAX.includes(settings.colorMode) &&
-      (settings.minValue == undefined || settings.maxValue == undefined)
-    ) {
-      for (let i = 0; i < pointCount; i++) {
-        const pointOffset = i * pointStep;
-        const colorValue = colorReader(view, pointOffset);
-        minColorValue = Math.min(minColorValue, colorValue);
-        maxColorValue = Math.max(maxColorValue, colorValue);
-      }
-      minColorValue = settings.minValue ?? minColorValue;
-      maxColorValue = settings.maxValue ?? maxColorValue;
-    }
-
-    output[0] = minColorValue;
-    output[1] = maxColorValue;
-  }
-
-  #updatePointCloudBuffers(
-    pointCloud: PointCloud | PointCloud2,
-    readers: PointCloudFieldReaders,
-    pointCount: number,
-    settings: LayerSettingsPointClouds,
-    positionAttribute: THREE.BufferAttribute,
-    colorAttribute: THREE.BufferAttribute,
-    stixelPositionAttribute: THREE.BufferAttribute,
-    stixelColorAttribute: THREE.BufferAttribute,
-  ): void {
-    const data = pointCloud.data;
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    const pointStep = getStride(pointCloud);
-    const {
-      xReader,
-      yReader,
-      zReader,
-      packedColorReader,
-      redReader,
-      greenReader,
-      blueReader,
-      alphaReader,
-    } = readers;
-
-    // Update position attribute
-    for (let i = 0; i < pointCount; i++) {
-      const pointOffset = i * pointStep;
-      const x = xReader(view, pointOffset);
-      const y = yReader(view, pointOffset);
-      const z = zReader(view, pointOffset);
-      positionAttribute.setXYZ(i, x, y, z);
-      if (settings.stixelsEnabled) {
-        stixelPositionAttribute.setXYZ(i * 2, x, y, z);
-        stixelPositionAttribute.setXYZ(i * 2 + 1, x, y, 0);
-      }
-    }
-
-    // Update color attribute
-    if (settings.colorMode === "rgba-fields") {
-      for (let i = 0; i < pointCount; i++) {
-        const pointOffset = i * pointStep;
-        const r = redReader(view, pointOffset);
-        const g = greenReader(view, pointOffset);
-        const b = blueReader(view, pointOffset);
-        const a = alphaReader(view, pointOffset);
-        colorAttribute.setXYZW(i, r, g, b, a);
-        if (settings.stixelsEnabled) {
-          stixelColorAttribute.setXYZW(i * 2, r, g, b, a);
-          stixelColorAttribute.setXYZW(i * 2 + 1, r, g, b, a);
-        }
-      }
-    } else {
-      // Iterate the point cloud data to determine min/max color values (if needed)
-      this.#minMaxColorValues(
-        tempMinMaxColor,
-        packedColorReader,
-        view,
-        pointCount,
-        pointStep,
-        settings,
-      );
-      const [minColorValue, maxColorValue] = tempMinMaxColor;
-
-      // Build a method to convert raw color field values to RGBA
-      const colorConverter = getColorConverter(
-        settings as typeof settings & { colorMode: typeof settings.colorMode },
-        minColorValue,
-        maxColorValue,
-      );
-
-      const isFlatColor = settings.colorMode === "flat";
-      if (isFlatColor && pointCount > 0) {
-        colorConverter(tempColor, 0);
-      }
-      for (let i = 0; i < pointCount; i++) {
-        if (!isFlatColor) {
-          const pointOffset = i * pointStep;
-          const colorValue = packedColorReader(view, pointOffset);
-          colorConverter(tempColor, colorValue);
-        }
-        colorAttribute.setXYZW(i, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
-        if (settings.stixelsEnabled) {
-          stixelColorAttribute.setXYZW(i * 2, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
-          stixelColorAttribute.setXYZW(
-            i * 2 + 1,
-            tempColor.r,
-            tempColor.g,
-            tempColor.b,
-            tempColor.a,
-          );
-        }
-      }
-    }
-
-    positionAttribute.needsUpdate = true;
-    colorAttribute.needsUpdate = true;
-    stixelPositionAttribute.needsUpdate = true;
-    stixelColorAttribute.needsUpdate = true;
-  }
 }
 
 export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
   public static extensionId = "foxglove.PointClouds";
   #fieldsByTopic = new Map<string, string[]>();
+  #preparedTopics = new Set<string>();
+  #prepRevisionSequence = 0;
+  #preparationByTopic = new Map<string, NativeCloudPreparation>();
+
+  #nativePreparation = (topic: string): NativeCloudPreparation | undefined => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      ...(this.renderer.config.topics[topic] as Partial<LayerSettingsPointClouds> | undefined),
+    };
+    if (settings.decayTime !== 0) return undefined;
+    // Only actual CPU geometry/color inputs belong to this configuration domain.
+    const preparationKey = (value: LayerSettingsPointClouds) =>
+      JSON.stringify({
+        stixelsEnabled: value.stixelsEnabled,
+        colorMode: value.colorMode,
+        colorField: value.colorField,
+        colorFieldComputed: value.colorFieldComputed,
+        flatColor: value.flatColor,
+        gradient: value.gradient,
+        colorMap: value.colorMap,
+        explicitAlpha: value.explicitAlpha,
+        minValue: value.minValue,
+        maxValue: value.maxValue,
+      });
+    const inputKey = preparationKey(settings);
+    const old = this.#preparationByTopic.get(topic);
+    if (old != undefined && old.inputKey === inputKey) return old;
+    const revision = String(++this.#prepRevisionSequence);
+    const request: NativeCloudPreparation = {
+      kind: "pointcloud",
+      key: old?.key ?? {},
+      revision,
+      inputKey,
+      settings,
+      capacity: () => this.renderables.get(topic)?.preparedCapacity ?? 0,
+      canReuseCoordinates: (event) => {
+        const current = this.renderables.get(topic);
+        return (
+          current != undefined &&
+          current.userData.latestOriginalMessage === event.message &&
+          current.userData.settings.stixelsEnabled === settings.stixelsEnabled
+        );
+      },
+      setEnabled: (enabled) => {
+        if (enabled) this.#preparedTopics.add(topic);
+        else this.#preparedTopics.delete(topic);
+      },
+      invalidCloud: (message) => {
+        this.renderables.get(topic)?.invalidPreparedCloud(message);
+        if (this.renderer.canvasVisibility() === "visible") this.renderer.queueAnimationFrame();
+      },
+      usage: () =>
+        this.renderables.get(topic)?.preparedUsage() ?? {
+          cpuArrays: [],
+          gpuCapacityBytes: 0,
+          growOverlapBytes: 0,
+        },
+      commit: (event, prepared) => {
+        const cloud = prepared.pointCloud;
+        this.#handlePointCloud(
+          event.topic,
+          event.schemaName,
+          cloud,
+          toNanoSec(event.receiveTime),
+          toNanoSec(getTimestamp(cloud)),
+          event.message as RosObject,
+          getFrameId(cloud),
+          prepared,
+        );
+        if (this.renderer.canvasVisibility() === "visible") this.renderer.queueAnimationFrame();
+        return this.renderables.get(topic)!.preparedUsage();
+      },
+    };
+    this.#preparationByTopic.set(topic, request);
+    return request;
+  };
 
   public constructor(renderer: IRenderer, name: string = PointClouds.extensionId) {
     super(name, renderer);
@@ -741,6 +616,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
         schemaNames: ROS_POINTCLOUD_DATATYPES,
         subscription: {
           handler: this.#handleRosPointCloud,
+          nativeCloudPreparation: this.#nativePreparation,
           filterQueue: this.#processMessageQueue.bind(this),
           supportsLatestPerRenderTick: (topic) =>
             (((this.renderer.config.topics[topic] ?? {}) as Partial<LayerSettingsPointClouds>)
@@ -752,6 +628,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
         schemaNames: FOXGLOVE_POINTCLOUD_DATATYPES,
         subscription: {
           handler: this.#handleFoxglovePointCloud,
+          nativeCloudPreparation: this.#nativePreparation,
           filterQueue: this.#processMessageQueue.bind(this),
           supportsLatestPerRenderTick: (topic) =>
             (((this.renderer.config.topics[topic] ?? {}) as Partial<LayerSettingsPointClouds>)
@@ -848,6 +725,24 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
     if (renderable) {
       const prevSettings = this.renderer.config.topics[topicName];
       const settings = { ...DEFAULT_SETTINGS, ...prevSettings };
+      if (this.#preparedTopics.has(topicName) && settings.decayTime === 0) {
+        if (
+          ["pointSize", "pointShape", "pointSizeMode", "frameLocked", "visible"].includes(path[2]!)
+        ) {
+          const current = renderable.userData.settings;
+          renderable.updateMaterialSettings({
+            ...current,
+            pointSize: settings.pointSize,
+            pointShape: settings.pointShape,
+            pointSizeMode: settings.pointSizeMode,
+            frameLocked: settings.frameLocked,
+            visible: settings.visible,
+          });
+          if (this.renderer.canvasVisibility() === "visible") this.renderer.queueAnimationFrame();
+        }
+        // Color/topology stays with its committed geometry until this revision's worker result.
+        return;
+      }
       renderable.updatePointCloud(
         renderable.userData.latestPointCloud,
         renderable.userData.latestOriginalMessage,
@@ -859,6 +754,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
 
   #handleFoxglovePointCloud = (messageEvent: PartialMessageEvent<PointCloud>): void => {
     const { topic, schemaName } = messageEvent;
+    if (this.#preparedTopics.has(topic)) return; // No parallel eligible main-thread CPU handler.
     const pointCloud = normalizePointCloud(messageEvent.message);
     const receiveTime = toNanoSec(messageEvent.receiveTime);
     const messageTime = toNanoSec(pointCloud.timestamp);
@@ -877,6 +773,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
 
   #handleRosPointCloud = (messageEvent: PartialMessageEvent<PointCloud2>): void => {
     const { topic, schemaName } = messageEvent;
+    if (this.#preparedTopics.has(topic)) return; // No parallel eligible main-thread CPU handler.
     const pointCloud = normalizePointCloud2(messageEvent.message);
     const receiveTime = toNanoSec(messageEvent.receiveTime);
     const messageTime = toNanoSec(pointCloud.header.stamp);
@@ -901,6 +798,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
     messageTime: bigint,
     originalMessage: RosObject,
     frameId: string,
+    prepared?: PreparedPointCloud,
   ): void {
     // Update the mapping of topic to point cloud field names if necessary
     let fields = this.#fieldsByTopic.get(topic);
@@ -923,14 +821,15 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
       // Set the initial settings from default values merged with any user settings
       const userSettings = (this.renderer.config.topics[topic] ??
         {}) as Partial<LayerSettingsPointClouds>;
-      const settings = { ...DEFAULT_SETTINGS, ...userSettings };
+      const settings = { ...DEFAULT_SETTINGS, ...userSettings, ...prepared?.settings };
 
       // want to avoid setting this if fields didn't update
-      if (settings.colorField == undefined && fieldsForTopicUpdated) {
-        autoSelectColorSettings(settings, fields, {
-          supportsPackedRgbModes: ROS_POINTCLOUD_DATATYPES.has(schemaName),
-          supportsRgbaFieldsMode: FOXGLOVE_POINTCLOUD_DATATYPES.has(schemaName),
-        });
+      if (userSettings.colorField == undefined && fieldsForTopicUpdated) {
+        if (prepared == undefined)
+          autoSelectColorSettings(settings, fields, {
+            supportsPackedRgbModes: ROS_POINTCLOUD_DATATYPES.has(schemaName),
+            supportsRgbaFieldsMode: FOXGLOVE_POINTCLOUD_DATATYPES.has(schemaName),
+          });
 
         // Update user settings with the newly selected color field
         this.renderer.updateConfig((draft) => {
@@ -968,109 +867,33 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
       this.renderables.set(topic, renderable);
     }
 
-    const { settings } = renderable.userData;
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      ...this.renderer.config.topics[topic],
+      ...prepared?.settings,
+      visible:
+        (this.renderer.config.topics[topic] as Partial<LayerSettingsPointClouds> | undefined)
+          ?.visible ?? DEFAULT_SETTINGS.visible,
+      frameLocked:
+        (this.renderer.config.topics[topic] as Partial<LayerSettingsPointClouds> | undefined)
+          ?.frameLocked ?? DEFAULT_SETTINGS.frameLocked,
+      pointSize:
+        (this.renderer.config.topics[topic] as Partial<LayerSettingsPointClouds> | undefined)
+          ?.pointSize ?? DEFAULT_SETTINGS.pointSize,
+      pointShape:
+        (this.renderer.config.topics[topic] as Partial<LayerSettingsPointClouds> | undefined)
+          ?.pointShape ?? DEFAULT_SETTINGS.pointShape,
+      pointSizeMode:
+        (this.renderer.config.topics[topic] as Partial<LayerSettingsPointClouds> | undefined)
+          ?.pointSizeMode ?? DEFAULT_SETTINGS.pointSizeMode,
+    };
 
     if (settings.decayTime > 0) {
       renderable.pushHistory(pointCloud, originalMessage, settings, receiveTime);
     }
 
-    renderable.updatePointCloud(pointCloud, originalMessage, settings, receiveTime);
+    renderable.updatePointCloud(pointCloud, originalMessage, settings, receiveTime, prepared);
   }
-}
-
-function pointFieldTypeName(type: PointFieldType): string {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  return PointFieldType[type] ?? `${type}`;
-}
-
-function pointFieldWidth(type: PointFieldType): number {
-  switch (type) {
-    case PointFieldType.INT8:
-    case PointFieldType.UINT8:
-      return 1;
-    case PointFieldType.INT16:
-    case PointFieldType.UINT16:
-      return 2;
-    case PointFieldType.INT32:
-    case PointFieldType.UINT32:
-    case PointFieldType.FLOAT32:
-      return 4;
-    case PointFieldType.FLOAT64:
-      return 8;
-    default:
-      return 0;
-  }
-}
-
-function zeroReader(): number {
-  return 0;
-}
-
-function normalizePointField(field: PartialMessage<PointField> | undefined): PointField {
-  if (!field) {
-    return { name: "", offset: 0, datatype: PointFieldType.UNKNOWN, count: 0 };
-  }
-  return {
-    name: field.name ?? "",
-    offset: field.offset ?? 0,
-    datatype: field.datatype ?? PointFieldType.UNKNOWN,
-    count: field.count ?? 0,
-  };
-}
-
-function normalizePackedElementField(
-  field: PartialMessage<PackedElementField> | undefined,
-): PackedElementField {
-  return {
-    name: field?.name ?? "",
-    offset: field?.offset ?? 0,
-    type: field?.type ?? 0,
-  };
-}
-
-function normalizePointCloud(message: PartialMessage<PointCloud>): PointCloud {
-  return {
-    timestamp: normalizeTime(message.timestamp),
-    frame_id: message.frame_id ?? "",
-    pose: normalizePose(message.pose),
-    point_stride: message.point_stride ?? 0,
-    fields: message.fields?.map(normalizePackedElementField) ?? [],
-    data: normalizeByteArray(message.data),
-  };
-}
-
-function normalizePointCloud2(message: PartialMessage<PointCloud2>): PointCloud2 {
-  return {
-    header: normalizeHeader(message.header),
-    height: message.height ?? 0,
-    width: message.width ?? 0,
-    fields: message.fields?.map(normalizePointField) ?? [],
-    is_bigendian: message.is_bigendian ?? false,
-    point_step: message.point_step ?? 0,
-    row_step: message.row_step ?? 0,
-    data: normalizeByteArray(message.data),
-    is_dense: message.is_dense ?? false,
-  };
-}
-
-function getTimestamp(pointCloud: PointCloud | PointCloud2): Time {
-  const maybeRos = pointCloud as Partial<PointCloud2>;
-  return maybeRos.header ? maybeRos.header.stamp : (pointCloud as PointCloud).timestamp;
-}
-
-function getFrameId(pointCloud: PointCloud | PointCloud2): string {
-  const maybeRos = pointCloud as Partial<PointCloud2>;
-  return maybeRos.header ? maybeRos.header.frame_id : (pointCloud as PointCloud).frame_id;
-}
-
-function getStride(pointCloud: PointCloud | PointCloud2): number {
-  const maybeRos = pointCloud as Partial<PointCloud2>;
-  return maybeRos.point_step ?? (pointCloud as PointCloud).point_stride;
-}
-
-function getPose(pointCloud: PointCloud | PointCloud2): Pose {
-  const maybeFoxglove = pointCloud as Partial<PointCloud>;
-  return maybeFoxglove.pose ?? makePose();
 }
 
 export function createStixelMaterial(settings: LayerSettingsPointClouds): THREE.LineBasicMaterial {
@@ -1092,6 +915,7 @@ function createStixelGeometry(topic: string, usage: THREE.Usage): DynamicBufferG
 }
 
 class StixelsRenderable extends Renderable<BaseUserData, /*TRenderer=*/ undefined> {
+  public localSampleBounds: THREE.Sphere | undefined;
   #stixels: THREE.LineSegments<DynamicBufferGeometry, THREE.LineBasicMaterial>;
   public readonly geometry: DynamicBufferGeometry;
 
@@ -1116,6 +940,10 @@ class StixelsRenderable extends Renderable<BaseUserData, /*TRenderer=*/ undefine
 
   public override dispose(): void {
     this.#stixels.geometry.dispose();
+  }
+
+  public setPointCloudFrustumCulling(enabled: boolean): void {
+    this.#stixels.frustumCulled = enabled;
   }
 
   public updateMaterial(material: THREE.LineBasicMaterial) {

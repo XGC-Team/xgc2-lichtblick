@@ -1,3 +1,10 @@
+import {
+  getNativeCloudProvenance,
+  setNativeCloudProvenance,
+  type NativeCloudConsumer,
+} from "../nativeCloudPreparation";
+import type { InternalSubscribePayload } from "../types";
+import type { CloudPrepRequest, CloudPrepResponse } from "./cloudPrepWorker";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -19,13 +26,13 @@ import {
   BinaryOpcode,
   IWebSocket,
 } from "@foxglove/ws-protocol";
-import * as base64 from "@protobufjs/base64";
 import * as _ from "lodash-es";
 import { v4 as uuidv4 } from "uuid";
 
 import { debouncePromise } from "@lichtblick/den/async";
 import Log from "@lichtblick/log";
 import { parseChannel } from "@lichtblick/mcap-support";
+import { parseLiveChannel } from "./parseLiveChannel";
 import { MessageDefinition, isMsgDefEqual } from "@lichtblick/message-definition";
 import CommonRosTypes from "@lichtblick/rosmsg-msgs-common";
 import { MessageWriter as Ros1MessageWriter } from "@lichtblick/rosmsg-serialization";
@@ -100,6 +107,34 @@ const PLAYER_MEMORY_CAPS = resolvePlayerMemoryCaps(
   (globalThis as { location?: { search?: string } }).location?.search,
 );
 
+type SerializedCloud = {
+  kind: "serialized-pointcloud";
+  data: ArrayBufferView;
+  channel: ResolvedChannel;
+  subscriptionId: SubscriptionId;
+  generation: number;
+  receiveTime: Time;
+  ingressSequence: number;
+};
+type PrepCommitFence = {
+  channel: ResolvedChannel;
+  generation: number;
+  revision: string;
+  sequence: number;
+};
+type PrepJob = {
+  id: number;
+  source: string;
+  channel: ResolvedChannel;
+  subscriptionId: SubscriptionId;
+  generation: number;
+  sequence: number;
+  consumers: readonly NativeCloudConsumer[];
+  inputBacking: ArrayBufferLike;
+  inputByteLength: number;
+  originalEvent?: MessageEvent;
+  result?: Extract<CloudPrepResponse, { event: MessageEvent }>;
+};
 export default class FoxgloveWebSocketPlayer implements Player {
   readonly #sourceId: string;
 
@@ -122,17 +157,20 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #latestSnapshotTopics = new Set<string>();
   #parkedSnapshotTopics = new Set<string>();
   #messageGeneration = 0;
-  #parsedMessages = new LiveMessageQueue<
-    | MessageEvent
-    | {
-        kind: "serialized-pointcloud";
-        data: ArrayBufferView;
-        channel: ResolvedChannel;
-        subscriptionId: SubscriptionId;
-        generation: number;
-        receiveTime: Time;
-      }
-  >(PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes);
+  #parsedMessages = new LiveMessageQueue<MessageEvent | SerializedCloud>(
+    PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes,
+  );
+  #ingressSequence = 0;
+  #prepConsumers = new Map<string, readonly NativeCloudConsumer[]>();
+  // Metadata only. Raw stays in #parsedMessages; source opportunities retain insertion position.
+  #prepReady = new Map<string, { consumerCursor: number }>();
+  #prepCommitted = new Map<object, PrepCommitFence>();
+  #prepWorker?: Worker;
+  #prepInFlight?: PrepJob;
+  #prepJobSequence = 0;
+  #prepChannelTokens = new WeakMap<ResolvedChannel, number>();
+  #prepChannelTokenSequence = 0;
+  #prepWorkingSet: Record<string, number> = {};
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
   #presence: PlayerPresence = PlayerPresence.INITIALIZING;
@@ -301,6 +339,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       // No later decode/TF-dependent render may use entries from a disconnected generation.
       this.#parsedMessages.clear();
       this.#messageGeneration++;
+      this.#resetPrepWorker();
       this.#numTimeSeeks++;
 
       if (this.#getParameterInterval != undefined) {
@@ -451,55 +490,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       for (const channel of newChannels) {
         let parsedChannel;
         try {
-          let schemaEncoding;
-          let schemaData;
-          if (
-            channel.encoding === "json" &&
-            (channel.schemaEncoding == undefined || channel.schemaEncoding === "jsonschema")
-          ) {
-            schemaEncoding = "jsonschema";
-            schemaData = textEncoder.encode(channel.schema);
-          } else if (
-            channel.encoding === "protobuf" &&
-            (channel.schemaEncoding == undefined || channel.schemaEncoding === "protobuf")
-          ) {
-            schemaEncoding = "protobuf";
-            schemaData = new Uint8Array(base64.length(channel.schema));
-            if (base64.decode(channel.schema, schemaData, 0) !== schemaData.byteLength) {
-              throw new Error(`Failed to decode base64 schema on channel ${channel.id}`);
-            }
-          } else if (
-            channel.encoding === "flatbuffer" &&
-            (channel.schemaEncoding == undefined || channel.schemaEncoding === "flatbuffer")
-          ) {
-            schemaEncoding = "flatbuffer";
-            schemaData = new Uint8Array(base64.length(channel.schema));
-            if (base64.decode(channel.schema, schemaData, 0) !== schemaData.byteLength) {
-              throw new Error(`Failed to decode base64 schema on channel ${channel.id}`);
-            }
-          } else if (
-            channel.encoding === "ros1" &&
-            (channel.schemaEncoding == undefined || channel.schemaEncoding === "ros1msg")
-          ) {
-            schemaEncoding = "ros1msg";
-            schemaData = textEncoder.encode(channel.schema);
-          } else if (
-            channel.encoding === "cdr" &&
-            (channel.schemaEncoding == undefined ||
-              ["ros2idl", "ros2msg", "omgidl"].includes(channel.schemaEncoding))
-          ) {
-            schemaEncoding = channel.schemaEncoding ?? "ros2msg";
-            schemaData = textEncoder.encode(channel.schema);
-          } else {
-            const msg = channel.schemaEncoding
-              ? `Unsupported combination of message / schema encoding: (${channel.encoding} / ${channel.schemaEncoding})`
-              : `Unsupported message encoding ${channel.encoding}`;
-            throw new Error(msg);
-          }
-          parsedChannel = parseChannel({
-            messageEncoding: channel.encoding,
-            schema: { name: channel.schemaName, encoding: schemaEncoding, data: schemaData },
-          });
+          parsedChannel = parseLiveChannel(channel);
         } catch (error) {
           this.#unsupportedChannelIds.add(channel.id);
           this.#alerts.addAlert(`schema:${channel.topic}`, {
@@ -541,8 +532,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
           }
           continue;
         }
-        for (const [subId, { channel }] of this.#resolvedSubscriptionsById) {
+        const prepToken = this.#prepChannelTokens.get(chanInfo);
+        if (prepToken != undefined) this.#prepWorker?.postMessage({ releaseChannel: prepToken });
+        for (const [subId, resolved] of this.#resolvedSubscriptionsById) {
+          const { channel } = resolved;
           if (channel.id === id) {
+            const resolvedToken = this.#prepChannelTokens.get(resolved);
+            if (resolvedToken != undefined)
+              this.#prepWorker?.postMessage({ releaseChannel: resolvedToken });
             this.#parsedMessages.removeKey(channel.topic);
             this.#resolvedSubscriptionsById.delete(subId);
             this.#resolvedSubscriptionsByTopic.delete(channel.topic);
@@ -580,16 +577,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         const latestSnapshot = independentCloud && this.#latestSnapshotTopics.has(topic);
         // This one existing queue owns serialized complete clouds until the render barrier opens.
         // Retain the original view/backing bytes without another copy or pending buffer.
-        let queued:
-          | MessageEvent
-          | {
-              kind: "serialized-pointcloud";
-              data: ArrayBufferView;
-              channel: ResolvedChannel;
-              subscriptionId: SubscriptionId;
-              generation: number;
-              receiveTime: Time;
-            };
+        let queued: MessageEvent | SerializedCloud;
         let sizeInBytes: number;
         let retention: LiveMessageRetention;
         let isVideoRecoveryPoint: boolean | undefined;
@@ -601,6 +589,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
             subscriptionId,
             generation: this.#messageGeneration,
             receiveTime,
+            ingressSequence: ++this.#ingressSequence,
           };
           sizeInBytes = data.buffer.byteLength;
           retention = "replaceable";
@@ -627,9 +616,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
               ? inspectAnnexBVideoFrame(videoData).isRecoveryPoint
               : undefined;
         }
+        if (independentCloud && !("kind" in queued))
+          setNativeCloudProvenance(queued, {
+            channel: chanInfo,
+            subscriptionId,
+            generation: this.#messageGeneration,
+            ingressSequence: ++this.#ingressSequence,
+          });
         const enqueueResult = this.#parsedMessages.enqueue(
           {
             value: queued,
+            rawBacking: "kind" in queued ? queued.data.buffer : undefined,
             sizeInBytes,
             key: topic,
             retention,
@@ -640,7 +637,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         );
         emitMessageState =
           !latestSnapshot ||
-          !this.#parkedSnapshotTopics.has(topic) ||
+          (!this.#parkedSnapshotTopics.has(topic) && !this.#prepConsumers.has(topic)) ||
           !enqueueResult.accepted ||
           (enqueueResult.capacityDroppedEntries ?? 0) > 0;
         if ((enqueueResult.capacityDroppedEntries ?? 0) > 0 || enqueueResult.sizeLimitExceeded) {
@@ -656,9 +653,15 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
         if ((enqueueResult.droppedProtectedEntries ?? 0) > 0) {
           this.#parsedMessages.clear();
+          this.#messageGeneration++;
+          this.#resetPrepWorker();
           this.#numTimeSeeks++;
           this.#client?.close();
           return;
+        }
+
+        if (enqueueResult.accepted && latestSnapshot && this.#prepConsumers.has(topic)) {
+          this.#markPrepReady(topic);
         }
 
         // Update the message count for this topic. Count in place: #emitState
@@ -709,6 +712,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       if (this.#clockTime != undefined && isLessThan(time, this.#clockTime)) {
         this.#numTimeSeeks++;
         this.#messageGeneration++;
+        this.#resetPrepWorker();
         this.#parsedMessages.clear();
       }
 
@@ -1024,7 +1028,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     const messages: MessageEvent[] = [];
     for (const queued of this.#parsedMessages.drain(
       (queued) =>
-        !("kind" in queued) || !this.#parkedSnapshotTopics.has(queued.channel.channel.topic),
+        !("kind" in queued) ||
+        (!this.#parkedSnapshotTopics.has(queued.channel.channel.topic) &&
+          !this.#prepConsumers.has(queued.channel.channel.topic)),
     )) {
       if (!("kind" in queued)) {
         messages.push(queued);
@@ -1037,13 +1043,20 @@ export default class FoxgloveWebSocketPlayer implements Player {
         continue;
       try {
         const message = queued.channel.parsedChannel.deserialize(queued.data);
-        messages.push({
+        const event: MessageEvent = {
           topic: queued.channel.channel.topic,
           receiveTime: queued.receiveTime,
           schemaName: queued.channel.channel.schemaName,
           message,
           sizeInBytes: Math.max(queued.data.byteLength, estimateObjectSize(message)),
+        };
+        setNativeCloudProvenance(event, {
+          channel: queued.channel,
+          subscriptionId: queued.subscriptionId,
+          generation: queued.generation,
+          ingressSequence: queued.ingressSequence,
         });
+        messages.push(event);
       } catch (error) {
         this.#alerts.addAlert(`message:${queued.channel.channel.topic}`, {
           severity: "error",
@@ -1052,10 +1065,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
         });
       }
     }
+    this.#dispatchPrep();
     return this.#listener({
       name: this.#name,
       presence: this.#presence,
-      progress: {},
+      progress: { memoryInfo: this.#prepWorkingSet },
       capabilities: this.#playerCapabilities,
       profile: this.#profile,
       playerId: this.#id,
@@ -1082,6 +1096,324 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
   });
 
+  #markPrepReady(topic: string): void {
+    if (!this.#prepConsumers.get(topic)?.some((c) => !c.parked && c.isActive())) return;
+    if (!this.#prepReady.has(topic)) this.#prepReady.set(topic, { consumerCursor: 0 });
+    this.#dispatchPrep();
+  }
+
+  #validPrepInput(
+    channel: ResolvedChannel,
+    subscriptionId: SubscriptionId,
+    generation: number,
+  ): boolean {
+    return (
+      !this.#closed &&
+      generation === this.#messageGeneration &&
+      this.#resolvedSubscriptionsById.get(subscriptionId) === channel
+    );
+  }
+
+  #needsPrep(
+    consumer: NativeCloudConsumer,
+    channel: ResolvedChannel,
+    generation: number,
+    sequence: number,
+  ): boolean {
+    const committed = this.#prepCommitted.get(consumer.identity);
+    return (
+      committed == undefined ||
+      committed.channel !== channel ||
+      committed.generation !== generation ||
+      committed.revision !== consumer.revision ||
+      sequence > committed.sequence
+    );
+  }
+
+  #dispatchPrep(): void {
+    if (this.#closed || this.#prepInFlight != undefined) return;
+    // Service and then rotate only ready metadata. Supersede never changes this opportunity order.
+    for (const [topic, opportunity] of this.#prepReady) {
+      const consumers = this.#prepConsumers.get(topic);
+      if (consumers == undefined) {
+        this.#prepReady.delete(topic);
+        continue;
+      }
+      const queued = this.#parsedMessages.peekKey(topic);
+      const raw = queued != undefined && "kind" in queued ? queued : undefined;
+      const active = consumers.filter((c) => !c.parked && c.isActive());
+      let selected: NativeCloudConsumer | undefined;
+      let event: MessageEvent | undefined;
+      let channel: ResolvedChannel | undefined;
+      let subscriptionId: SubscriptionId | undefined;
+      let generation: number | undefined;
+      let sequence: number | undefined;
+      for (let offset = 0; offset < active.length; offset++) {
+        const index = (opportunity.consumerCursor + offset) % active.length;
+        const consumer = active[index]!;
+        const latest = raw == undefined ? consumer.latest() : undefined;
+        const provenance = latest && getNativeCloudProvenance(latest);
+        const inputChannel = raw?.channel ?? (provenance?.channel as ResolvedChannel | undefined);
+        const inputSub = raw?.subscriptionId ?? provenance?.subscriptionId;
+        const inputGeneration = raw?.generation ?? provenance?.generation;
+        const inputSequence = raw?.ingressSequence ?? provenance?.ingressSequence;
+        if (
+          inputChannel == undefined ||
+          inputSub == undefined ||
+          inputGeneration == undefined ||
+          inputSequence == undefined ||
+          !this.#validPrepInput(inputChannel, inputSub, inputGeneration) ||
+          !this.#needsPrep(consumer, inputChannel, inputGeneration, inputSequence)
+        )
+          continue;
+        selected = consumer;
+        event = latest;
+        channel = inputChannel;
+        subscriptionId = inputSub;
+        generation = inputGeneration;
+        sequence = inputSequence;
+        opportunity.consumerCursor = index + 1;
+        break;
+      }
+      if (
+        selected == undefined ||
+        channel == undefined ||
+        subscriptionId == undefined ||
+        generation == undefined ||
+        sequence == undefined
+      ) {
+        this.#prepReady.delete(topic);
+        continue;
+      }
+      const compatible = active.filter(
+        (c) =>
+          c.inputKey === selected!.inputKey && this.#needsPrep(c, channel!, generation!, sequence!),
+      );
+      // Raw is still the sole pending owner (other settings/consumers may need it). Transfer only
+      // this job's bounded copy, never detach a retained original or another consumer's view.
+      const bytes =
+        raw == undefined
+          ? undefined
+          : new Uint8Array(raw.data.buffer, raw.data.byteOffset, raw.data.byteLength).slice();
+      const id = ++this.#prepJobSequence;
+      const inputBacking = bytes?.buffer ?? new ArrayBuffer(0);
+      this.#prepInFlight = {
+        id,
+        source: topic,
+        channel,
+        subscriptionId,
+        generation,
+        sequence,
+        consumers: compatible,
+        inputBacking,
+        inputByteLength: bytes?.buffer.byteLength ?? event?.sizeInBytes ?? 0,
+        originalEvent: event,
+      };
+      this.#prepReady.delete(topic);
+      this.#prepReady.set(topic, opportunity);
+      let channelToken = this.#prepChannelTokens.get(channel);
+      if (channelToken == undefined) {
+        channelToken = ++this.#prepChannelTokenSequence;
+        this.#prepChannelTokens.set(channel, channelToken);
+      }
+      const request: CloudPrepRequest = {
+        id,
+        channelToken,
+        generation,
+        channel: channel.channel,
+        raw: bytes,
+        event,
+        receiveTime: raw?.receiveTime ?? event!.receiveTime,
+        settings: selected.settings,
+        capacity: Math.max(...compatible.map((c) => c.capacity())),
+        deriveCoordinates:
+          event == undefined ||
+          !compatible.every(
+            (c) => c.canReuseCoordinates(event!) && c.capacity() === selected!.capacity(),
+          ),
+      };
+      this.#capturePrepWorkingSet();
+      try {
+        if (this.#prepWorker == undefined) {
+          this.#prepWorker = new Worker(new URL("./cloudPrepWorker", import.meta.url));
+          const worker = this.#prepWorker;
+          this.#prepWorker.onmessage = (message: { data: CloudPrepResponse }) => {
+            if (this.#prepWorker === worker) this.#completePrep(message.data);
+          };
+          this.#prepWorker.onerror = (error) => {
+            if (this.#prepWorker === worker)
+              this.#completePrep({ id: this.#prepInFlight?.id ?? -1, error: error.message });
+          };
+        }
+        this.#prepWorker.postMessage(request, bytes == undefined ? [] : [bytes.buffer]);
+      } catch (error) {
+        this.#completePrep({ id, error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+  }
+
+  #completePrep(result: CloudPrepResponse): void {
+    const job = this.#prepInFlight;
+    if (job == undefined || result.id !== job.id) return;
+    if ("error" in result) {
+      this.#alerts.addAlert(`cloud-preparation:${job.source}`, {
+        severity: "error",
+        message: `Failed to prepare ${job.source}`,
+        error: new Error(result.error),
+      });
+      if (
+        result.invalidCloud === true &&
+        this.#validPrepInput(job.channel, job.subscriptionId, job.generation)
+      )
+        for (const dispatched of job.consumers) {
+          const current = this.#prepConsumers
+            .get(job.source)
+            ?.find(
+              (c) =>
+                c.identity === dispatched.identity &&
+                c.revision === dispatched.revision &&
+                c.isActive(),
+            );
+          current?.invalidCloud(result.error);
+        }
+      // Do not retry the same broken sample/config indefinitely. New ingress/revision can recover.
+      for (const consumer of job.consumers)
+        this.#prepCommitted.set(consumer.identity, {
+          channel: job.channel,
+          generation: job.generation,
+          revision: consumer.revision,
+          sequence: job.sequence,
+        });
+      if (
+        this.#parsedMessages.peekKey(job.source) != undefined &&
+        "kind" in this.#parsedMessages.peekKey(job.source)! &&
+        (this.#parsedMessages.peekKey(job.source) as SerializedCloud).ingressSequence ===
+          job.sequence
+      )
+        this.#parsedMessages.removeKey(job.source);
+      this.#emitState();
+    } else {
+      job.result = result;
+      this.#capturePrepWorkingSet();
+      const originalEvent = job.originalEvent ?? result.event;
+      setNativeCloudProvenance(originalEvent, {
+        channel: job.channel,
+        subscriptionId: job.subscriptionId,
+        generation: job.generation,
+        ingressSequence: job.sequence,
+      });
+      if (this.#validPrepInput(job.channel, job.subscriptionId, job.generation)) {
+        const current = this.#prepConsumers.get(job.source) ?? [];
+        for (const dispatched of job.consumers) {
+          const consumer = current.find(
+            (c) =>
+              c.identity === dispatched.identity &&
+              c.revision === dispatched.revision &&
+              c.isActive(),
+          );
+          // Parked still owns a legitimately dispatched job; adopt CPU only, no new hidden prep.
+          if (
+            consumer == undefined ||
+            !this.#needsPrep(consumer, job.channel, job.generation, job.sequence)
+          )
+            continue;
+          try {
+            const usage = consumer.commit(originalEvent, result.prepared);
+            if (usage == undefined) continue;
+            this.#prepCommitted.set(consumer.identity, {
+              channel: job.channel,
+              generation: job.generation,
+              revision: consumer.revision,
+              sequence: job.sequence,
+            });
+            this.#capturePrepWorkingSet(usage.growOverlapBytes);
+          } catch (error) {
+            this.#alerts.addAlert(`cloud-commit:${job.source}`, {
+              severity: "error",
+              message: `Failed to commit ${job.source}`,
+              error,
+            });
+          }
+        }
+        const pending = this.#parsedMessages.peekKey(job.source);
+        if (
+          pending != undefined &&
+          "kind" in pending &&
+          pending.ingressSequence === job.sequence &&
+          current
+            .filter((c) => !c.parked && c.isActive())
+            .every((c) => !this.#needsPrep(c, job.channel, job.generation, job.sequence))
+        )
+          this.#parsedMessages.removeKey(job.source);
+      }
+    }
+    // One result is synchronously committed/rejected before the next opportunity. No completed queue.
+    this.#prepInFlight = undefined;
+    this.#capturePrepWorkingSet();
+    this.#dispatchPrep();
+  }
+
+  #capturePrepWorkingSet(growOverlapBytes = 0): void {
+    const rawBytes = this.#parsedMessages.getRetainedBackingBytes();
+    const input = this.#prepInFlight?.inputBacking;
+    const inflightInputBytes = this.#prepInFlight?.inputByteLength ?? 0;
+    const arrays = new Set<ArrayBufferLike>();
+    let gpuCapacityBytes = 0;
+    const seenConsumers = new Set<object>();
+    for (const consumers of this.#prepConsumers.values())
+      for (const consumer of consumers) {
+        if (seenConsumers.has(consumer.identity)) continue;
+        seenConsumers.add(consumer.identity);
+        const usage = consumer.usage();
+        for (const array of usage.cpuArrays) arrays.add(array.buffer);
+        gpuCapacityBytes += usage.gpuCapacityBytes;
+      }
+    const result = this.#prepInFlight?.result;
+    if (result != undefined)
+      for (const array of [
+        result.prepared.positions,
+        result.prepared.colors,
+        result.prepared.stixelPositions,
+        result.prepared.stixelColors,
+        result.prepared.pointCloud.data,
+      ])
+        arrays.add(array.buffer);
+    const cpuCapacityBytes = [...arrays].reduce((sum, b) => sum + b.byteLength, 0);
+    const all = new Set(arrays);
+    if (input != undefined) all.add(input);
+    this.#prepWorkingSet = {
+      nativeCloudRawBytes: rawBytes,
+      nativeCloudInflightInputBytes: inflightInputBytes,
+      nativeCloudCpuCapacityBytes: cpuCapacityBytes,
+      nativeCloudObservedMainCpuPeakCapacityBytes: Math.max(
+        this.#prepWorkingSet.nativeCloudObservedMainCpuPeakCapacityBytes ?? 0,
+        cpuCapacityBytes,
+      ),
+      nativeCloudUniqueBackingBytes:
+        rawBytes +
+        [...all].reduce(
+          (sum, b) => sum + (this.#parsedMessages.hasRetainedBacking(b) ? 0 : b.byteLength),
+          0,
+        ) +
+        (input?.byteLength === 0 ? inflightInputBytes : 0),
+      nativeCloudGpuCapacityEstimateBytes: gpuCapacityBytes,
+      nativeCloudGrowOverlapEstimateBytes: Math.max(
+        this.#prepWorkingSet.nativeCloudGrowOverlapEstimateBytes ?? 0,
+        growOverlapBytes,
+      ),
+    };
+  }
+
+  #resetPrepWorker(): void {
+    this.#prepWorker?.terminate();
+    this.#prepWorker = undefined;
+    this.#prepInFlight = undefined;
+    this.#prepReady.clear();
+    this.#prepCommitted.clear();
+    this.#prepWorkingSet = {};
+  }
+
   public setListener(listener: (arg0: PlayerState) => Promise<void>): void {
     this.#listener = listener;
     this.#emitState();
@@ -1089,6 +1421,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
   public close(): void {
     this.#closed = true;
+    this.#resetPrepWorker();
     this.#client?.close();
     if (this.#openTimeout != undefined) {
       clearTimeout(this.#openTimeout);
@@ -1132,7 +1465,35 @@ export default class FoxgloveWebSocketPlayer implements Player {
     );
     const resumed = [...oldParked].some((topic) => !this.#parkedSnapshotTopics.has(topic));
     if (resumed) this.#emitState();
+    const previous = this.#prepConsumers;
+    this.#prepConsumers = new Map();
+    for (const request of subscriptions as InternalSubscribePayload[]) {
+      if (
+        request.nativeCloudPreparationAllowed === true &&
+        this.#latestSnapshotTopics.has(request.topic) &&
+        request.nativeCloudConsumers?.length
+      )
+        this.#prepConsumers.set(request.topic, request.nativeCloudConsumers);
+    }
+    for (const consumers of previous.values())
+      for (const consumer of consumers) consumer.setEnabled(false);
+    for (const request of subscriptions as InternalSubscribePayload[])
+      for (const consumer of request.nativeCloudConsumers ?? [])
+        consumer.setEnabled(this.#prepConsumers.has(request.topic));
+    const identities = new Set(
+      [...this.#prepConsumers.values()].flatMap((consumers) => consumers.map((c) => c.identity)),
+    );
+    for (const identity of this.#prepCommitted.keys())
+      if (!identities.has(identity)) this.#prepCommitted.delete(identity);
+    for (const topic of this.#prepReady.keys())
+      if (!this.#prepConsumers.has(topic)) this.#prepReady.delete(topic);
+    for (const [topic, consumers] of this.#prepConsumers) {
+      if (consumers.some((c) => !c.parked && c.isActive())) this.#markPrepReady(topic);
+      else this.#prepReady.delete(topic);
+    }
+    if ([...previous.keys()].some((topic) => !this.#prepConsumers.has(topic))) this.#emitState();
     this.#workerSocket?.setLatestSnapshotTopics([...this.#latestSnapshotTopics]);
+    this.#dispatchPrep();
     const newTopics = new Set(subscriptions.map(({ topic }) => topic));
 
     if (!this.#client || this.#closed) {
@@ -1501,6 +1862,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
   #resetSessionState(): void {
     this.#messageGeneration++;
+    this.#resetPrepWorker();
     this.#startTime = undefined;
     this.#endTime = undefined;
     this.#clockTime = undefined;

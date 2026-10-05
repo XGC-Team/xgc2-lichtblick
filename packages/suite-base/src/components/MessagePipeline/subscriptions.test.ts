@@ -1,3 +1,5 @@
+import type { NativeCloudConsumer } from "../../players/nativeCloudPreparation";
+import { subscriptionsEqual } from "./subscriptions";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -245,4 +247,37 @@ it("parks a native snapshot only when every same-topic consumer is parked and au
       (request) => request.samplingParked == undefined,
     ),
   ).toBe(true);
+});
+
+it("preserves every native prep consumer and vetoes the path for ordered or full demand", () => {
+  const a = { identity: {}, revision: "color0", parked: false } as NativeCloudConsumer;
+  const b = { identity: {}, revision: "color0", parked: true } as NativeCloudConsumer;
+  const request = (
+    consumer: NativeCloudConsumer,
+  ): import("../../players/types").InternalSubscribePayload => ({
+    topic: "/cloud",
+    preloadType: "partial",
+    samplingRequest: { mode: "latest-per-render-tick" },
+    samplingAuthorized: true,
+    nativeCloudConsumers: [consumer],
+    nativeCloudPreparationAllowed: true,
+  });
+  const merged = mergeSubscriptions([request(a), request(b)]);
+  expect(merged[0]!.nativeCloudConsumers).toEqual([a, b]);
+  expect(merged[0]!.nativeCloudPreparationAllowed).toBe(true);
+  expect(
+    subscriptionsEqual(
+      merged,
+      mergeSubscriptions([request(a), request({ ...b, revision: "color1" })]),
+    ),
+  ).toBe(false);
+  expect(
+    subscriptionsEqual(merged, mergeSubscriptions([request(a), request({ ...b, parked: false })])),
+  ).toBe(false);
+  expect(
+    mergeSubscriptions([request(a), request(b), { topic: "/cloud" }])[0]!
+      .nativeCloudPreparationAllowed,
+  ).toBeUndefined();
+  const history = mergeSubscriptions([request(a), { topic: "/cloud", preloadType: "full" }]);
+  expect(history.every((item) => item.nativeCloudPreparationAllowed !== true)).toBe(true);
 });

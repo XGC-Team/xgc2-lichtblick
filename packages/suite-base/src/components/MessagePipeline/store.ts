@@ -1,3 +1,7 @@
+import {
+  getNativeCloudProvenance,
+  shouldRetainNativeCloud,
+} from "../../players/nativeCloudPreparation";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -145,6 +149,17 @@ export function createMessagePipelineStore({
       setSubscriptions(id, payloads) {
         get().dispatch({ type: "update-subscriber", id, payloads });
       },
+      getLatestNativeCloud(topic) {
+        return get().lastMessageEventByTopic.get(topic);
+      },
+      retainNativeCloud(event) {
+        const map = get().lastMessageEventByTopic;
+        const current = map.get(event.topic);
+        const incoming = getNativeCloudProvenance(event);
+        if (incoming == undefined) return;
+        // Retain in this existing owner; late ordinary frames cannot replace a newer prep sample.
+        if (shouldRetainNativeCloud(event, current)) map.set(event.topic, event);
+      },
       setPublishers(id, payloads) {
         get().dispatch({ type: "set-publishers", id, payloads });
         get().player?.setPublishers(get().allPublishers);
@@ -276,11 +291,18 @@ function updateSubscriberAction(
     }
   }
 
+  const merged = mergeSubscriptions(Array.from(subscriptionsById.values()).flat());
+
   // Inject the last message on new topics for this subscriber
   const messagesForSubscriber = [];
   for (const topic of newTopicsForId) {
     const msgEvent = lastMessageEventByTopic.get(topic);
-    if (msgEvent) {
+    if (
+      msgEvent &&
+      !merged.some(
+        (payload) => payload.topic === topic && payload.nativeCloudPreparationAllowed === true,
+      )
+    ) {
       messagesForSubscriber.push(msgEvent);
     }
   }
@@ -299,7 +321,6 @@ function updateSubscriberAction(
     newMessagesBySubscriberId.set(action.id, messagesForSubscriber);
   }
 
-  const merged = mergeSubscriptions(Array.from(subscriptionsById.values()).flat());
   // Adding an equivalent panel must not invalidate player caches or restart its subscriptions.
   const subscriptions = subscriptionsEqual(merged, prevState.public.subscriptions)
     ? prevState.public.subscriptions

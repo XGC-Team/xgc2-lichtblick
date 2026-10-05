@@ -330,6 +330,9 @@ export type SubscribePayload = {
  * merged subscription.
  */
 export type InternalSubscribePayload = SubscribePayload & {
+  nativeCloudConsumers?: readonly import("./nativeCloudPreparation").NativeCloudConsumer[];
+  /** True only when every merged consumer supports the same internal prepared path. */
+  nativeCloudPreparationAllowed?: true;
   samplingAuthorized?: true;
   /** Only true after every same-topic authorized native consumer is parked. */
   samplingParked?: true;

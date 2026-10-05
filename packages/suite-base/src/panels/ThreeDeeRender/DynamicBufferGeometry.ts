@@ -15,6 +15,7 @@ export class DynamicBufferGeometry extends THREE.BufferGeometry {
   #attributeConstructors = new Map<string, TypedArrayConstructor<THREE.TypedArray>>();
   #usage: THREE.Usage;
   #itemCapacity = 0;
+  #preparedArraysImmutable = false;
 
   public constructor(usage: THREE.Usage = THREE.DynamicDrawUsage) {
     super();
@@ -42,10 +43,98 @@ export class DynamicBufferGeometry extends THREE.BufferGeometry {
     return this.setAttribute(name, attribute);
   }
 
+  public get itemCapacity(): number {
+    return this.#itemCapacity;
+  }
+  public get capacityBytes(): number {
+    return Object.values(this.attributes).reduce((sum, a) => sum + a.array.byteLength, 0);
+  }
+
+  /** Adopt one immutable prepared sample; never mutate arrays shared by another consumer. */
+  public adopt(itemCount: number, arrays: Readonly<Record<string, THREE.TypedArray>>): number {
+    if (itemCount === 0) {
+      this.setDrawRange(0, 0);
+      return 0;
+    }
+    let capacity: number | undefined;
+    for (const [name, attribute] of Object.entries(this.attributes)) {
+      const array = arrays[name];
+      if (
+        array == undefined ||
+        array.constructor !== attribute.array.constructor ||
+        array.length % attribute.itemSize !== 0
+      )
+        throw new Error(`Prepared attribute ${name} has incompatible dtype or itemSize`);
+      const n = array.length / attribute.itemSize;
+      if (n < itemCount || (capacity != undefined && capacity !== n))
+        throw new Error("Prepared attribute capacities disagree");
+      capacity = n;
+    }
+    const nextCapacity = capacity ?? 0;
+    const grow = nextCapacity !== this.#itemCapacity;
+    const oldBytes = grow ? this.capacityBytes : 0;
+    const replacements = new Map<string, THREE.BufferAttribute>();
+    if (grow)
+      for (const [name, attribute] of Object.entries(this.attributes)) {
+        const next = new THREE.BufferAttribute(
+          arrays[name]!,
+          attribute.itemSize,
+          attribute.normalized,
+        );
+        next.setUsage(this.#usage);
+        replacements.set(name, next);
+      }
+    // Disposal must still expose the old attached attributes to Three's GPU buffer owner.
+    if (grow) this.dispose();
+    for (const [name, old] of Object.entries(this.attributes)) {
+      const attribute = grow ? replacements.get(name)! : old;
+      if (grow) this.setAttribute(name, attribute);
+      else {
+        attribute.array = arrays[name]!;
+        // Three 0.156 does not update count after assigning array.
+        (attribute as { count: number }).count = nextCapacity;
+      }
+      attribute.updateRange.offset = 0;
+      attribute.updateRange.count = itemCount * attribute.itemSize;
+      attribute.needsUpdate = true;
+    }
+    this.#preparedArraysImmutable = true;
+    this.#itemCapacity = nextCapacity;
+    this.setDrawRange(0, itemCount);
+    return oldBytes + (grow ? this.capacityBytes : 0);
+  }
+
+  public adoptColors(itemCount: number, color: THREE.TypedArray): void {
+    if (itemCount === 0) {
+      this.setDrawRange(0, 0);
+      return;
+    }
+    const attribute = this.attributes.color!;
+    if (
+      color.constructor !== attribute.array.constructor ||
+      color.length !== this.#itemCapacity * attribute.itemSize
+    )
+      throw new Error("Prepared color capacity/dtype changed without coordinate preparation");
+    attribute.array = color;
+    attribute.updateRange.offset = 0;
+    attribute.updateRange.count = itemCount * attribute.itemSize;
+    attribute.needsUpdate = true;
+    this.#preparedArraysImmutable = true;
+    this.setDrawRange(0, itemCount);
+  }
+
   public resize(itemCount: number): void {
     this.setDrawRange(0, itemCount);
 
     if (itemCount <= this.#itemCapacity) {
+      if (itemCount > 0 && this.#preparedArraysImmutable) {
+        // Ordered/history writers must not mutate a sample shared with another renderer.
+        for (const [name, attribute] of Object.entries(this.attributes)) {
+          const constructor = this.#attributeConstructors.get(name)!;
+          attribute.array = new constructor(this.#itemCapacity * attribute.itemSize);
+        }
+        this.#preparedArraysImmutable = false;
+      }
       return;
     }
 
@@ -73,6 +162,7 @@ export class DynamicBufferGeometry extends THREE.BufferGeometry {
     for (const [attributeName, attribute] of replacements) {
       this.setAttribute(attributeName, attribute);
     }
+    this.#preparedArraysImmutable = false;
     this.#itemCapacity = capacity;
   }
 }

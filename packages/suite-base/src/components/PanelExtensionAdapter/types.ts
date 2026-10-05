@@ -66,6 +66,9 @@ export type MessagePathDropConfig = {
 export type BuiltinSubscription = Subscription & {
   /** Presentation demand only; full/history/unsupported consumers can never park shared raw. */
   renderDemand?: "parked";
+  nativeCloudPreparation?: import("../../players/nativeCloudPreparation").NativeCloudPreparation;
+  /** Init-owned after the adapter resolves the native path, never a wire field. */
+  nativeCloudConsumer?: import("../../players/nativeCloudPreparation").NativeCloudConsumer;
 };
 
 export type BuiltinPanelExtensionContext = {

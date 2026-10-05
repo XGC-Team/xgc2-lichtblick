@@ -222,6 +222,11 @@ export class PointsRenderable<TUserData extends BaseUserData = BaseUserData> ext
     this.#points.geometry.dispose();
   }
 
+  /** Explicit complete-cloud opt-in; LaserScan's shader-derived range geometry stays unchanged. */
+  public setPointCloudFrustumCulling(enabled: boolean): void {
+    this.#points.frustumCulled = enabled;
+  }
+
   public updateMaterial(material: Material): void {
     this.#points.material = material;
   }

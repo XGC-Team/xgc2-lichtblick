@@ -29,6 +29,9 @@ import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { RendererConfig } from "./IRenderer";
+import { DynamicBufferGeometry } from "./DynamicBufferGeometry";
+import { preparePointCloud } from "./renderables/pointClouds/preparePointCloud";
+import { DEFAULT_POINT_SETTINGS } from "./renderables/pointExtensionUtils";
 
 jest.mock("./Picker", () => {
   const actual = jest.requireActual("./Picker");
@@ -2697,5 +2700,83 @@ describe("Renderer resetAllFramesCursor event handling", () => {
 
     // Then: Event should not be emitted for forward seek
     expect(resetListener).not.toHaveBeenCalled();
+  });
+});
+
+describe("native prepared point cloud attributes", () => {
+  it("adopts immutable prepared arrays with exact live ranges and preserves the original point and stixel semantics", () => {
+    const bytes = new Uint8Array(24);
+    const view = new DataView(bytes.buffer);
+    [-2, 1, -3, 4, 5, 6].forEach((value, index) => view.setFloat32(index * 4, value, true));
+    const input = {
+      header: { frame_id: "world", stamp: { sec: 7, nsec: 8 } },
+      point_step: 12,
+      row_step: 24,
+      width: 2,
+      height: 1,
+      fields: [
+        { name: "x", offset: 0, datatype: 7, count: 1 },
+        { name: "y", offset: 4, datatype: 7, count: 1 },
+        { name: "z", offset: 8, datatype: 7, count: 1 },
+      ],
+      data: bytes,
+      is_bigendian: false,
+      is_dense: true,
+    };
+    const prepared = preparePointCloud(
+      input,
+      "sensor_msgs/PointCloud2",
+      {
+        ...DEFAULT_POINT_SETTINGS,
+        colorField: "x",
+        colorMode: "flat",
+        flatColor: "#ff00ff66",
+        stixelsEnabled: true,
+        colorFieldComputed: undefined,
+      },
+      4,
+    );
+    expect(prepared.pointCount).toBe(2);
+    expect(prepared.positions.length).toBe(12);
+    expect(Array.from(prepared.positions.subarray(0, 6))).toEqual([-2, 1, -3, 4, 5, 6]);
+    expect(Array.from(prepared.colors.subarray(0, 8))).toEqual([
+      255, 0, 255, 102, 255, 0, 255, 102,
+    ]);
+    expect(Array.from(prepared.stixelPositions.subarray(0, 12))).toEqual([
+      -2, 1, -3, -2, 1, 0, 4, 5, 6, 4, 5, 0,
+    ]);
+    expect(prepared.bounds).toEqual({ min: [-2, 1, -3], max: [4, 5, 6] });
+    const geometry = new DynamicBufferGeometry();
+    geometry.createAttribute("position", Float32Array, 3);
+    geometry.createAttribute("color", Uint8Array, 4, true);
+    const disposed = jest.fn(() =>
+      expect(geometry.attributes.position!.array).not.toBe(prepared.positions),
+    );
+    geometry.addEventListener("dispose", disposed);
+    geometry.adopt(2, { position: prepared.positions, color: prepared.colors });
+    expect(disposed).toHaveBeenCalledTimes(1);
+    const position = geometry.attributes.position!,
+      color = geometry.attributes.color!;
+    expect(position.array).toBe(prepared.positions);
+    expect(position.count).toBe(4);
+    expect(geometry.itemCapacity).toBe(4);
+    expect(position.updateRange).toEqual({ offset: 0, count: 6 });
+    expect(color.updateRange).toEqual({ offset: 0, count: 8 });
+    const nextPosition = new Float32Array(12),
+      nextColor = new Uint8Array(16);
+    geometry.adopt(1, { position: nextPosition, color: nextColor });
+    expect(geometry.attributes.position).toBe(position);
+    expect(disposed).toHaveBeenCalledTimes(1);
+    expect(position.updateRange.count).toBe(3);
+    expect(color.updateRange.count).toBe(4);
+    const version = position.version;
+    geometry.adopt(0, { position: new Float32Array(0), color: new Uint8Array(0) });
+    expect(geometry.drawRange.count).toBe(0);
+    expect(position.version).toBe(version);
+    geometry.resize(1);
+    expect(position.array).not.toBe(nextPosition); // Ordered fallback cannot mutate another consumer's immutable sample.
+    expect(Array.from(nextPosition)).toEqual(new Array(12).fill(0));
+    geometry.removeEventListener("dispose", disposed);
+    geometry.dispose();
   });
 });

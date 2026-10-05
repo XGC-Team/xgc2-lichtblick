@@ -694,3 +694,33 @@ it("extracts runnable messages in order without moving parked snapshots out of t
   expect(queue.drain()).toEqual(["cloud-empty"]);
   expect(queue.getSizeInBytes()).toBe(0);
 });
+
+it("accounts shared raw backing without changing per-entry admission or pressure order", () => {
+  const queue = new LiveMessageQueue<string>(48);
+  const backing = new ArrayBuffer(24),
+    next = new ArrayBuffer(16);
+  for (const key of ["a", "b"])
+    expect(
+      queue.enqueue({
+        value: key,
+        key,
+        sizeInBytes: 24,
+        retention: "replaceable",
+        rawBacking: backing,
+      }).accepted,
+    ).toBe(true);
+  expect(queue.getSizeInBytes()).toBe(48);
+  expect(queue.getRetainedBackingBytes()).toBe(24);
+  queue.enqueue(
+    { value: "new-a", key: "a", sizeInBytes: 16, retention: "replaceable", rawBacking: next },
+    { supersedeReplaceable: true },
+  );
+  expect(queue.getRetainedBackingBytes()).toBe(40);
+  expect(queue.getSizeInBytes()).toBe(40);
+  expect(queue.drain((value) => value === "b")).toEqual(["b"]);
+  expect(queue.hasRetainedBacking(backing)).toBe(false);
+  expect(queue.getRetainedBackingBytes()).toBe(16);
+  expect(queue.drain()).toEqual(["new-a"]);
+  expect(queue.getRetainedBackingBytes()).toBe(0);
+  expect(queue.getSizeInBytes()).toBe(0);
+});

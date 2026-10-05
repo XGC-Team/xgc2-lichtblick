@@ -665,6 +665,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           preload: rendererSubscription.preload,
           convertTo,
           sampling,
+          ...(nativePath && sampling != undefined && context.dataSourceIsLive
+            ? { nativeCloudPreparation: rendererSubscription.nativeCloudPreparation?.(topic.name) }
+            : {}),
           ...(nativePath && sampling != undefined && canvasVisibility === "hidden"
             ? { renderDemand: "parked" as const }
             : {}),
@@ -692,6 +695,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   }, [
     topics,
     canvasVisibility,
+    context.dataSourceIsLive,
     config.topics,
     // Need to update subscriptions when imagemode topics change
     // shouldSubscribe values will be re-evaluated

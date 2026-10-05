@@ -1,3 +1,4 @@
+import { shouldRetainNativeCloud } from "../../players/nativeCloudPreparation";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -57,7 +58,8 @@ export function dispatchMessages<T extends { readonly topic: string }>(
 ): Map<string, readonly T[]> {
   const buckets: (T[] | undefined)[] = new Array(plan.groups.length);
   for (const message of messages) {
-    lastMessageByTopic.set(message.topic, message);
+    if (shouldRetainNativeCloud(message, lastMessageByTopic.get(message.topic)))
+      lastMessageByTopic.set(message.topic, message);
     const groups = plan.groupsByTopic.get(message.topic);
     if (groups == undefined) {
       continue;

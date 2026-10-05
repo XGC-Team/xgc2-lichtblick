@@ -1,3 +1,7 @@
+import { compileMessageDispatch, dispatchMessages } from "./messageDispatch";
+import { setNativeCloudProvenance } from "../../players/nativeCloudPreparation";
+import type { InternalSubscribePayload } from "../../players/types";
+import type { MessageEvent } from "@lichtblick/suite";
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
@@ -40,4 +44,55 @@ describe("message pipeline subscription invalidation", () => {
     expect(store.getState().messageDispatchPlan.groups).toEqual([]);
     expect(store.getState().lastMessageEventByTopic.size).toBe(0);
   });
+});
+
+it("retains one original native cloud for revision replay without dispatching an eligible CPU handler", () => {
+  const store = createMessagePipelineStore({
+    initialPlayer: undefined,
+    promisesToWaitForRef: { current: [] },
+  });
+  const channel = {};
+  const current: MessageEvent = {
+    topic: "/cloud",
+    schemaName: "foxglove.PointCloud",
+    receiveTime: { sec: 1, nsec: 0 },
+    sizeInBytes: 0,
+    message: { data: new Uint8Array(0) },
+  };
+  setNativeCloudProvenance(current, {
+    channel,
+    subscriptionId: 1,
+    generation: 2,
+    ingressSequence: 4,
+  });
+  store.getState().public.retainNativeCloud(current);
+  const older = { ...current };
+  setNativeCloudProvenance(older, {
+    channel,
+    subscriptionId: 1,
+    generation: 2,
+    ingressSequence: 3,
+  });
+  store.getState().public.retainNativeCloud(older);
+  const history = dispatchMessages(
+    [older],
+    compileMessageDispatch(new Map([["history", [{ topic: "/cloud" }]]])),
+    store.getState().lastMessageEventByTopic,
+  );
+  expect(history.get("history")).toEqual([older]); // Ordered delivery is not filtered; only latest replay is monotonic.
+  expect(store.getState().public.getLatestNativeCloud("/cloud")).toBe(current);
+  store.getState().public.setSubscriptions("native", [
+    {
+      topic: "/cloud",
+      samplingAuthorized: true,
+      samplingRequest: { mode: "latest-per-render-tick" },
+      nativeCloudConsumers: [
+        { identity: {} } as import("../../players/nativeCloudPreparation").NativeCloudConsumer,
+      ],
+      nativeCloudPreparationAllowed: true,
+    } as InternalSubscribePayload,
+  ]);
+  expect(store.getState().public.messageEventsBySubscriberId.get("native")).toBeUndefined();
+  store.getState().public.setSubscriptions("native", []);
+  expect(store.getState().public.getLatestNativeCloud("/cloud")).toBeUndefined();
 });
