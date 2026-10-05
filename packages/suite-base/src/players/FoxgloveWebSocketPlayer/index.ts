@@ -1504,11 +1504,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   public setSubscriptions(subscriptions: SubscribePayload[]): void {
+    // Public subscriptions keep their existing interface. Optional native-demand fields are
+    // interpreted only through this internal pipeline view.
+    const internalSubscriptions: readonly InternalSubscribePayload[] = subscriptions;
     const fullTopics = new Set(
-      subscriptions.filter((item) => item.preloadType === "full").map((item) => item.topic),
+      internalSubscriptions.filter((item) => item.preloadType === "full").map((item) => item.topic),
     );
     this.#latestSnapshotTopics = new Set(
-      applySamplingGuardToSubscriptions(subscriptions)
+      applySamplingGuardToSubscriptions(internalSubscriptions)
         .filter(
           (subscription) =>
             subscription.samplingRequest?.mode === "latest-per-render-tick" &&
@@ -1519,12 +1522,12 @@ export default class FoxgloveWebSocketPlayer implements Player {
     );
     const oldParked = this.#parkedSnapshotTopics;
     const activeTopics = new Set(
-      subscriptions
+      internalSubscriptions
         .filter((request) => request.samplingParked !== true)
         .map((request) => request.topic),
     );
     this.#parkedSnapshotTopics = new Set(
-      applySamplingGuardToSubscriptions(subscriptions)
+      applySamplingGuardToSubscriptions(internalSubscriptions)
         .filter(
           (subscription) =>
             subscription.samplingParked === true &&
@@ -1537,7 +1540,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     if (resumed) this.#emitState();
     const previous = this.#prepConsumers;
     this.#prepConsumers = new Map();
-    for (const request of subscriptions as InternalSubscribePayload[]) {
+    for (const request of internalSubscriptions) {
       if (
         request.nativeCloudPreparationAllowed === true &&
         this.#latestSnapshotTopics.has(request.topic) &&
@@ -1547,7 +1550,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     }
     for (const consumers of previous.values())
       for (const consumer of consumers) consumer.setEnabled(false);
-    for (const request of subscriptions as InternalSubscribePayload[])
+    for (const request of internalSubscriptions)
       for (const consumer of request.nativeCloudConsumers ?? [])
         consumer.setEnabled(this.#prepConsumers.has(request.topic));
     const identities = new Set(
@@ -1564,7 +1567,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     if ([...previous.keys()].some((topic) => !this.#prepConsumers.has(topic))) this.#emitState();
     this.#workerSocket?.setLatestSnapshotTopics([...this.#latestSnapshotTopics]);
     this.#dispatchPrep();
-    const newTopics = new Set(subscriptions.map(({ topic }) => topic));
+    const newTopics = new Set(internalSubscriptions.map(({ topic }) => topic));
 
     if (!this.#client || this.#closed) {
       // Remember requested subscriptions so we can retry subscribing when

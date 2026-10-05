@@ -818,7 +818,12 @@ function PanelExtensionAdapter(
         if (!active) return;
         partialExtensionContext.subscribe(
           topics.map((item) => {
-            if (typeof item === "string" || item.nativeCloudPreparation == undefined) return item;
+            if (
+              typeof item === "string" ||
+              !("nativeCloudPreparation" in item) ||
+              item.nativeCloudPreparation == undefined
+            )
+              return item;
             const preparation = item.nativeCloudPreparation;
             let identity = consumerByPreparationKey.get(preparation.key);
             if (identity == undefined) {

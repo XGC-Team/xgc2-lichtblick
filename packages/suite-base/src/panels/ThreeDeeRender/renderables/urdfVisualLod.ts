@@ -105,7 +105,7 @@ export function visualKinematicIdentity(robot: UrdfRobot): string {
         visuals: link.visuals.map((visual) => ({ name: visual.name, origin: visual.origin })),
       })),
     joints: [...robot.joints].sort(([a], [b]) => a.localeCompare(b)),
-  });
+  })!; // A fresh object, not an optional top-level JSON value.
 }
 
 /**

@@ -308,7 +308,10 @@ export class RenderableMeshResource extends RenderableMarker {
           : copy;
       };
       const fallback = visit(cachedModel, new THREE.Matrix4());
-      if (fallback != undefined) removeLights(fallback);
+      // The cached model root is a real LoadedModel (Group/Scene). Keep that same root
+      // identity when pruning eligible children; only its known loaded-model shape owns lights.
+      if (fallback instanceof THREE.Group || fallback instanceof THREE.Scene)
+        removeLights(fallback);
       return { mesh: fallback, materials, instanceParts: parts };
     }
 

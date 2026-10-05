@@ -579,7 +579,7 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
         explicitAlpha: value.explicitAlpha,
         minValue: value.minValue,
         maxValue: value.maxValue,
-      });
+      })!; // This fresh top-level object always serializes to a string.
     const inputKey = preparationKey(settings);
     const old = this.#preparationByTopic.get(topic);
     if (old != undefined && old.inputKey === inputKey) return old;
