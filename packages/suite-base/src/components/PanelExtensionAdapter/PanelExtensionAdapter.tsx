@@ -68,7 +68,11 @@ import { POINTCLOUD_SNAPSHOT_DATATYPES } from "@lichtblick/suite-base/util/foxgl
 
 import { PanelConfigVersionError } from "./PanelConfigVersionError";
 import { RenderStateConfig, initRenderStateBuilder } from "./renderState";
-import { BuiltinPanelExtensionContext, MessageConverterAlertHandler } from "./types";
+import {
+  BuiltinPanelExtensionContext,
+  MessageConverterAlertHandler,
+  type BuiltinSubscription,
+} from "./types";
 import { useSharedPanelState } from "./useSharedPanelState";
 import { useSubscribeMessageRange } from "./useSubscribeMessageRange";
 
@@ -511,7 +515,7 @@ function PanelExtensionAdapter(
           return;
         }
         // ExtensionPanel-Facing subscription type
-        const localSubs = topics.map((item): Subscription => {
+        const localSubs = topics.map((item): BuiltinSubscription => {
           if (typeof item === "string") {
             return { topic: item, preload: true };
           }
@@ -563,6 +567,9 @@ function PanelExtensionAdapter(
             preloadType,
             samplingRequest: samplingAllowed ? item.sampling : undefined,
             samplingAuthorized: samplingAllowed ? true : undefined,
+            ...(samplingAllowed && isNativePath && item.renderDemand === "parked"
+              ? { samplingParked: true as const }
+              : {}),
           };
         });
 

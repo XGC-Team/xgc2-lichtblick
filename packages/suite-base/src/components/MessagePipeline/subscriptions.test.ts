@@ -224,3 +224,25 @@ describe("full history topic veto", () => {
     ]);
   });
 });
+
+it("parks a native snapshot only when every same-topic consumer is parked and authorized", () => {
+  const parked = {
+    topic: "/cloud",
+    preloadType: "partial" as const,
+    samplingRequest: { mode: "latest-per-render-tick" as const },
+    samplingAuthorized: true as const,
+    samplingParked: true as const,
+  };
+  expect(mergeSubscriptions([parked, parked])[0]?.samplingParked).toBe(true);
+  expect(
+    mergeSubscriptions([parked, { ...parked, samplingParked: undefined }])[0]?.samplingParked,
+  ).toBeUndefined();
+  expect(
+    mergeSubscriptions([parked, { topic: "/cloud", preloadType: "partial" }])[0]?.samplingParked,
+  ).toBeUndefined();
+  expect(
+    mergeSubscriptions([parked, { ...parked, preloadType: "full" }]).every(
+      (request) => request.samplingParked == undefined,
+    ),
+  ).toBe(true);
+});

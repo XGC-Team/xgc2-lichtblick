@@ -31,6 +31,7 @@ import {
   XGC2_EMBED_VERSION,
   type EmbeddedNavigationCommand,
 } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
+import type { BuiltinSubscription } from "@lichtblick/suite-base/components/PanelExtensionAdapter/types";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import { DEFAULT_SCENE_EXTENSION_CONFIG } from "@lichtblick/suite-base/panels/ThreeDeeRender/SceneExtensionConfig";
@@ -41,7 +42,13 @@ import {
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/constants";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 
-import type { IRenderer, ImageModeConfig, RendererConfig, RendererSubscription } from "./IRenderer";
+import type {
+  IRenderer,
+  ImageModeConfig,
+  RendererConfig,
+  RendererSubscription,
+  CanvasVisibility,
+} from "./IRenderer";
 import type { Path } from "./LayerErrors";
 import type { PickedRenderable } from "./Picker";
 import { SELECTED_ID_VARIABLE } from "./Renderable";
@@ -226,6 +233,15 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   const seekFrameRef = useRef(false);
   const [renderDone, setRenderDone] = useState<(() => void) | undefined>();
 
+  const [canvasVisibility, setCanvasVisibility] = useState<CanvasVisibility>("visible");
+  const updateCanvasVisibility = useCallback(
+    (visibility: CanvasVisibility) => setCanvasVisibility(visibility),
+    [],
+  );
+  useRendererEvent("canvasVisibilityChanged", updateCanvasVisibility, renderer);
+  useEffect(() => {
+    setCanvasVisibility(renderer?.canvasVisibility() ?? "visible");
+  }, [renderer]);
   const schemaSubscriptions = useRendererProperty(
     "schemaSubscriptions",
     "schemaSubscriptionsChanged",
@@ -295,7 +311,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     if (!renderer || !canvas || typeof IntersectionObserver === "undefined") {
       return;
     }
+    let active = true;
     const observer = new IntersectionObserver((entries) => {
+      if (!active) return;
       const latest = entries[entries.length - 1];
       if (latest != undefined) {
         renderer.setCanvasVisibility(latest.isIntersecting ? "visible" : "hidden");
@@ -303,6 +321,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     });
     observer.observe(canvas);
     return () => {
+      active = false;
       observer.disconnect();
     };
   }, [canvas, renderer]);
@@ -431,7 +450,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   }, [interfaceMode, context, config.imageMode.imageTopic]);
 
   // Build a list of topics to subscribe to
-  const [topicsToSubscribe, setTopicsToSubscribe] = useState<Subscription[] | undefined>(undefined);
+  const [topicsToSubscribe, setTopicsToSubscribe] = useState<BuiltinSubscription[] | undefined>(
+    undefined,
+  );
 
   const prevFilteredTopics = useRef<Subscription[]>([]);
 
@@ -615,7 +636,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
       return;
     }
 
-    const newSubscriptions: Subscription[] = [];
+    const newSubscriptions: BuiltinSubscription[] = [];
 
     const addSubscription = (
       topic: Topic,
@@ -644,6 +665,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           preload: rendererSubscription.preload,
           convertTo,
           sampling,
+          ...(nativePath && sampling != undefined && canvasVisibility === "hidden"
+            ? { renderDemand: "parked" as const }
+            : {}),
         });
       }
     };
@@ -667,6 +691,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     setTopicsToSubscribe((prev) => (_.isEqual(prev, newSubscriptions) ? prev : newSubscriptions));
   }, [
     topics,
+    canvasVisibility,
     config.topics,
     // Need to update subscriptions when imagemode topics change
     // shouldSubscribe values will be re-evaluated

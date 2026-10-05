@@ -18,6 +18,7 @@ type Accumulator = {
   fields: Set<string>;
   samplingRequest: Subscription["samplingRequest"];
   samplingAuthorized: Subscription["samplingAuthorized"];
+  samplingParked: Subscription["samplingParked"];
 };
 
 function addFields(fields: Set<string>, values: readonly string[] | undefined): void {
@@ -40,6 +41,7 @@ function accumulate(groups: Record<string, Accumulator>, subscription: Subscript
       fields: new Set(),
       samplingRequest: subscription.samplingRequest,
       samplingAuthorized: subscription.samplingAuthorized,
+      samplingParked: subscription.samplingParked,
     };
     addFields(group.fields, subscription.fields);
     groups[subscription.topic] = group;
@@ -56,6 +58,10 @@ function accumulate(groups: Record<string, Accumulator>, subscription: Subscript
     group.samplingRequest?.mode != undefined &&
     group.samplingRequest.mode === subscription.samplingRequest?.mode;
   group.samplingRequest = sameSamplingMode ? group.samplingRequest : undefined;
+  group.samplingParked =
+    sameSamplingMode && group.samplingParked === true && subscription.samplingParked === true
+      ? true
+      : undefined;
   group.samplingAuthorized =
     sameSamplingMode &&
     group.samplingAuthorized === true &&
@@ -77,6 +83,7 @@ function finish(groups: Record<string, Accumulator>, output: Subscription[]): vo
             fields: group.whole ? undefined : [...group.fields],
             samplingRequest: group.samplingRequest,
             samplingAuthorized: group.samplingAuthorized,
+            samplingParked: group.samplingParked,
           };
     output.push(applySamplingGuardToSubscription(merged));
   }
@@ -123,6 +130,7 @@ export function subscriptionsEqual(
           subscription.preloadType === other.preloadType &&
           subscription.samplingRequest?.mode === other.samplingRequest?.mode &&
           subscription.samplingAuthorized === other.samplingAuthorized &&
+          subscription.samplingParked === other.samplingParked &&
           (subscription.fields === other.fields ||
             (subscription.fields != undefined &&
               subscription.fields.length === other.fields?.length &&

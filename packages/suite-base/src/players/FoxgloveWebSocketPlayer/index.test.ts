@@ -38,6 +38,7 @@ describe("live authorized complete cloud decode", () => {
     "unsubscribe",
     "full-preload",
     "unapproved-oversize",
+    "parked",
   ])("preserves the actual merged cloud delivery contract (%s)", async (mode) => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const client = {
@@ -84,6 +85,7 @@ describe("live authorized complete cloud decode", () => {
         preloadType: "partial",
         samplingRequest: { mode: "latest-per-render-tick" },
         samplingAuthorized: true,
+        ...(mode === "parked" ? { samplingParked: true as const } : {}),
       };
       const merged =
         mode === "full-preload"
@@ -112,7 +114,22 @@ describe("live authorized complete cloud decode", () => {
       release();
       await flush();
       const messages = states.flatMap((state) => state.activeData?.messages ?? []);
-      if (mode === "unsubscribe") {
+      if (mode === "parked") {
+        expect(deserialize).not.toHaveBeenCalled();
+        expect(messages).toEqual([]);
+        const subscribeCount = client.subscribe.mock.calls.length;
+        player.setSubscriptions([{ ...subscription, samplingParked: undefined }]);
+        await flush();
+        expect(client.subscribe).toHaveBeenCalledTimes(subscribeCount);
+        expect(client.unsubscribe).not.toHaveBeenCalled();
+        expect(deserialize).toHaveBeenCalledTimes(1);
+        expect(deserialize).toHaveBeenCalledWith(clear);
+        expect(
+          states
+            .flatMap((state) => state.activeData?.messages ?? [])
+            .map((message) => message.message),
+        ).toEqual([{ points: [] }]);
+      } else if (mode === "unsubscribe") {
         expect(deserialize).not.toHaveBeenCalled();
         expect(messages).toEqual([]);
       } else if (mode === "unapproved-oversize") {

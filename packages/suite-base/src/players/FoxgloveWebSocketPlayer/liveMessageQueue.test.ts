@@ -674,3 +674,23 @@ describe("LiveMessageQueue indexed storage", () => {
     expect(queue.getSizeInBytes()).toBe(3);
   });
 });
+
+it("extracts runnable messages in order without moving parked snapshots out of the same queue", () => {
+  const queue = new LiveMessageQueue<string>(20);
+  queue.enqueue(
+    { value: "cloud-old", sizeInBytes: 8, key: "cloud", retention: "replaceable" },
+    { supersedeReplaceable: true },
+  );
+  queue.enqueue({ value: "tf-first", sizeInBytes: 4, retention: "protected" });
+  expect(queue.drain((value) => !value.startsWith("cloud"))).toEqual(["tf-first"]);
+  expect(queue.getSizeInBytes()).toBe(8);
+  expect(queue.getStorageStats().queuedEntries).toBe(1);
+  queue.enqueue(
+    { value: "cloud-empty", sizeInBytes: 0, key: "cloud", retention: "replaceable" },
+    { supersedeReplaceable: true },
+  );
+  queue.enqueue({ value: "control-next", sizeInBytes: 4, retention: "protected" });
+  expect(queue.drain((value) => !value.startsWith("cloud"))).toEqual(["control-next"]);
+  expect(queue.drain()).toEqual(["cloud-empty"]);
+  expect(queue.getSizeInBytes()).toBe(0);
+});

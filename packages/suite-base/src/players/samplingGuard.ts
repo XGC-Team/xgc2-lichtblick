@@ -9,7 +9,7 @@ import { InternalSubscribePayload } from "@lichtblick/suite-base/players/types";
 
 type SamplingGuardInput = Pick<
   InternalSubscribePayload,
-  "topic" | "samplingRequest" | "samplingAuthorized" | "preloadType"
+  "topic" | "samplingRequest" | "samplingAuthorized" | "samplingParked" | "preloadType"
 >;
 
 /**
@@ -27,6 +27,7 @@ export function applySamplingGuardToSubscription<T extends SamplingGuardInput>(s
       ...subscription,
       samplingRequest: undefined,
       samplingAuthorized: undefined,
+      samplingParked: undefined,
     };
   }
 

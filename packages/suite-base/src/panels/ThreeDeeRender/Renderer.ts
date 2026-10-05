@@ -43,6 +43,7 @@ import {
 import { LayerErrors } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
 import { ICameraHandler } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ICameraHandler";
 import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
+import { POINTCLOUD_SNAPSHOT_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
 import { palette, fontMonospace } from "@lichtblick/theme";
 import { LabelMaterial, LabelPool } from "@lichtblick/three-text";
 
@@ -666,11 +667,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     for (const subscriptions of this.topicSubscriptions.values()) {
       for (const subscription of subscriptions) {
         subscription.queue = undefined;
+        subscription.queueParkedSnapshot = undefined;
       }
     }
     for (const subscriptions of this.schemaSubscriptions.values()) {
       for (const subscription of subscriptions) {
         subscription.queue = undefined;
+        subscription.queueParkedSnapshot = undefined;
       }
     }
   }
@@ -770,6 +773,40 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   public updateConfig(updateHandler: (draft: RendererConfig) => void): void {
     this.config = produce(this.config, updateHandler);
+    // Withdraw only already-deferred native work when this consumer's explicit topic demand
+    // closes. The last committed visual and every ordered/history queue keep their owner.
+    for (const subscriptions of [
+      ...this.topicSubscriptions.values(),
+      ...this.schemaSubscriptions.values(),
+    ]) {
+      for (const subscription of subscriptions) {
+        if (subscription.queueParkedSnapshot !== true || subscription.queue == undefined) continue;
+        // The existing queue may have gained ordered traffic, or its consumer may now need
+        // history. A former parked flag alone never authorizes dropping its current contents.
+        if (
+          !subscription.queue.every(
+            (message) =>
+              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              subscription.supportsLatestPerRenderTick?.(message.topic) === true,
+          )
+        ) {
+          subscription.queueParkedSnapshot = undefined;
+          continue;
+        }
+        subscription.queue = subscription.queue.filter((message) => {
+          const explicit = subscription.shouldSubscribe?.(message.topic);
+          if (explicit != undefined) return explicit;
+          return (
+            this.config.topics[message.topic]?.visible === true ||
+            this.config.imageMode.annotations?.[message.topic]?.visible === true
+          );
+        });
+        if (subscription.queue.length === 0) {
+          subscription.queue = undefined;
+          subscription.queueParkedSnapshot = undefined;
+        }
+      }
+    }
     this.emit("configChange", this);
   }
 
@@ -1021,11 +1058,43 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     if (this.topics === topics) {
       return;
     }
+    const previousTopics = this.topicsByName;
     this.topics = topics;
 
     // Rebuild topicsByName
     this.topicsByName = topics ? new Map(topics.map((topic) => [topic.name, topic])) : undefined;
 
+    // A decoded pending snapshot is not a committed last-valid drawable. Withdraw only those
+    // whose topic/schema disappeared, before a parked native handler can later prepare it.
+    for (const subscriptions of [
+      ...this.topicSubscriptions.values(),
+      ...this.schemaSubscriptions.values(),
+    ]) {
+      for (const subscription of subscriptions) {
+        if (subscription.queueParkedSnapshot !== true || subscription.queue == undefined) continue;
+        // The existing queue may have gained ordered traffic, or its consumer may now need
+        // history. A former parked flag alone never authorizes dropping its current contents.
+        if (
+          !subscription.queue.every(
+            (message) =>
+              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              subscription.supportsLatestPerRenderTick?.(message.topic) === true,
+          )
+        ) {
+          subscription.queueParkedSnapshot = undefined;
+          continue;
+        }
+        subscription.queue = subscription.queue.filter((message) => {
+          const before = previousTopics?.get(message.topic);
+          const current = this.topicsByName?.get(message.topic);
+          return current != undefined && before?.schemaName === current.schemaName;
+        });
+        if (subscription.queue.length === 0) {
+          subscription.queue = undefined;
+          subscription.queueParkedSnapshot = undefined;
+        }
+      }
+    }
     this.emit("topicsChanged", this);
 
     // Rebuild the settings nodes for all scene extensions
@@ -1427,7 +1496,21 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
         }
         const { queue, filterQueue } = subscription;
         const processedQueue = filterQueue ? filterQueue(queue) : queue;
+        if (
+          this.#canvasVisibility === "hidden" &&
+          processedQueue.length > 0 &&
+          processedQueue.every(
+            (message) =>
+              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              subscription.supportsLatestPerRenderTick?.(message.topic) === true,
+          )
+        ) {
+          subscription.queue = processedQueue;
+          subscription.queueParkedSnapshot = true;
+          continue;
+        }
         subscription.queue = undefined;
+        subscription.queueParkedSnapshot = undefined;
         for (const messageEvent of processedQueue) {
           subscription.handler(messageEvent);
         }
@@ -1440,7 +1523,21 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
         }
         const { queue, filterQueue } = subscription;
         const processedQueue = filterQueue ? filterQueue(queue) : queue;
+        if (
+          this.#canvasVisibility === "hidden" &&
+          processedQueue.length > 0 &&
+          processedQueue.every(
+            (message) =>
+              POINTCLOUD_SNAPSHOT_DATATYPES.has(message.schemaName) &&
+              subscription.supportsLatestPerRenderTick?.(message.topic) === true,
+          )
+        ) {
+          subscription.queue = processedQueue;
+          subscription.queueParkedSnapshot = true;
+          continue;
+        }
         subscription.queue = undefined;
+        subscription.queueParkedSnapshot = undefined;
         for (const messageEvent of processedQueue) {
           subscription.handler(messageEvent);
         }

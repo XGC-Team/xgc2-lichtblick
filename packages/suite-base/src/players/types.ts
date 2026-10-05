@@ -331,6 +331,8 @@ export type SubscribePayload = {
  */
 export type InternalSubscribePayload = SubscribePayload & {
   samplingAuthorized?: true;
+  /** Only true after every same-topic authorized native consumer is parked. */
+  samplingParked?: true;
 };
 
 // Represents a single topic publisher, for use in `setPublishers`.

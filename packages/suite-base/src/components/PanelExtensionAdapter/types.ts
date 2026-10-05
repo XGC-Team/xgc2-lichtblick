@@ -5,7 +5,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { MessageConverterAlert, PanelExtensionContext } from "@lichtblick/suite";
+import { MessageConverterAlert, PanelExtensionContext, Subscription } from "@lichtblick/suite";
 import { IteratorResult } from "@lichtblick/suite-base/players/IterablePlayer/IIterableSource";
 import { Topic } from "@lichtblick/suite-base/players/types";
 import { InstalledMessageConverter } from "@lichtblick/suite-base/types/messageConverters";
@@ -63,7 +63,13 @@ export type MessagePathDropConfig = {
  * These are unstable internal interfaces still in development and not yet available to 3rd party
  * extensions.
  */
+export type BuiltinSubscription = Subscription & {
+  /** Presentation demand only; full/history/unsupported consumers can never park shared raw. */
+  renderDemand?: "parked";
+};
+
 export type BuiltinPanelExtensionContext = {
+  subscribe: (topics: readonly (BuiltinSubscription | string)[]) => void;
   /** A connected live stream, independent of message publishing permission. */
   readonly dataSourceIsLive: boolean;
   /**
@@ -89,7 +95,7 @@ export type BuiltinPanelExtensionContext = {
    * indicates that the panel does not accept any dragged message paths.
    */
   unstable_setMessagePathDropConfig: (config: MessagePathDropConfig | undefined) => void;
-} & PanelExtensionContext;
+} & Omit<PanelExtensionContext, "subscribe">;
 
 export type MessageConverterAlertHandler = (
   converter: InstalledMessageConverter,

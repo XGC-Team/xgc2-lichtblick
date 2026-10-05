@@ -284,6 +284,108 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
+  it("defers only the parked native snapshot handler and keeps its existing latest queue", () => {
+    jest.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const handler = jest.fn();
+    let snapshotConsumer = true;
+    const subscription = {
+      handler,
+      supportsLatestPerRenderTick: () => snapshotConsumer,
+      filterQueue: (messages: MessageEvent[]) =>
+        snapshotConsumer &&
+        messages.every((message) => message.schemaName === "foxglove.PointCloud")
+          ? messages.slice(-1)
+          : messages,
+      queue: undefined as MessageEvent[] | undefined,
+      queueParkedSnapshot: undefined as true | undefined,
+    };
+    renderer.setTopics([{ name: "/cloud", schemaName: "foxglove.PointCloud" }]);
+    renderer.topicSubscriptions.set("/cloud", [subscription]);
+    const old = {
+      topic: "/cloud",
+      schemaName: "foxglove.PointCloud",
+      receiveTime: { sec: 1, nsec: 0 },
+      sizeInBytes: 0,
+      message: { points: [1] },
+    };
+    const empty = { ...old, receiveTime: { sec: 2, nsec: 0 }, message: { points: [] } };
+    renderer.setCanvasVisibility("hidden");
+    subscription.queue = [old, empty];
+    renderer.animationFrame();
+    expect(handler).not.toHaveBeenCalled();
+    expect(subscription.queue).toEqual([empty]);
+    renderer.setCanvasVisibility("visible");
+    renderer.animationFrame();
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(empty);
+    expect(subscription.queue).toBeUndefined();
+    for (const changed of [[], [{ name: "/cloud", schemaName: "sensor_msgs/PointCloud2" }]]) {
+      renderer.setTopics([{ name: "/cloud", schemaName: "foxglove.PointCloud" }]);
+      renderer.setCanvasVisibility("hidden");
+      subscription.queue = [old];
+      renderer.animationFrame();
+      handler.mockClear();
+      renderer.setTopics(changed);
+      renderer.setCanvasVisibility("visible");
+      renderer.animationFrame();
+      expect(handler).not.toHaveBeenCalled();
+      expect(subscription.queue).toBeUndefined();
+    }
+    for (const reset of ["unset", "delete"] as const) {
+      renderer.setTopics([{ name: "/cloud", schemaName: "foxglove.PointCloud" }]);
+      renderer.updateConfig((draft) => {
+        draft.topics["/cloud"] = { visible: true };
+      });
+      renderer.setCanvasVisibility("hidden");
+      subscription.queue = [old];
+      renderer.animationFrame();
+      handler.mockClear();
+      renderer.updateConfig((draft) => {
+        if (reset === "delete") delete draft.topics["/cloud"];
+        else draft.topics["/cloud"] = { visible: undefined };
+      });
+      expect(subscription.queue).toBeUndefined();
+      renderer.updateConfig((draft) => {
+        draft.topics["/cloud"] = { visible: true };
+      });
+      renderer.setCanvasVisibility("visible");
+      renderer.animationFrame();
+      expect(handler).not.toHaveBeenCalled();
+    }
+    // A consumer's current history demand wins over the flag from a former snapshot tick.
+    renderer.setCanvasVisibility("hidden");
+    subscription.queue = [old];
+    renderer.animationFrame();
+    snapshotConsumer = false;
+    subscription.queue!.push(empty);
+    renderer.updateConfig((draft) => {
+      delete draft.topics["/cloud"];
+    });
+    expect(subscription.queue).toEqual([old, empty]);
+    expect(subscription.queueParkedSnapshot).toBeUndefined();
+    renderer.setTopics([]);
+    expect(subscription.queue).toEqual([old, empty]);
+    handler.mockClear();
+    renderer.animationFrame();
+    expect(handler.mock.calls.map(([message]) => message)).toEqual([old, empty]);
+    // An ordered message appended after parking must also survive a topic invalidation.
+    snapshotConsumer = true;
+    renderer.setTopics([{ name: "/cloud", schemaName: "foxglove.PointCloud" }]);
+    subscription.queue = [old];
+    renderer.animationFrame();
+    const ordered = { ...old, topic: "/ordered", schemaName: "visualization_msgs/MarkerArray" };
+    subscription.queue!.push(ordered);
+    renderer.setTopics([]);
+    expect(subscription.queue).toEqual([old, ordered]);
+    expect(subscription.queueParkedSnapshot).toBeUndefined();
+    handler.mockClear();
+    renderer.setCanvasVisibility("visible");
+    renderer.animationFrame();
+    expect(handler.mock.calls.map(([message]) => message)).toEqual([old, ordered]);
+    renderer.dispose();
+  });
+
   it("keeps message state but skips pose updates and draws while the canvas is hidden", () => {
     // Given: A renderer whose TFMessage subscription has a queued message
     const requestAnimationFrameSpy = jest

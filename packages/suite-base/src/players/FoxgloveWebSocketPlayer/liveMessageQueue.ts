@@ -282,15 +282,17 @@ export class LiveMessageQueue<T> {
   }
 
   /** Drain queued values while retaining per-video recovery state established by prior drops. */
-  public drain(): T[] {
+  public drain(eligible?: (value: T) => boolean): T[] {
     const values: T[] = [];
     for (let index = this.#head; index < this.#entries.length; index++) {
       const entry = this.#entries[index];
-      if (entry != undefined) {
+      if (entry != undefined && (eligible == undefined || eligible(entry.value))) {
         values.push(entry.value);
+        if (eligible != undefined) this.#removeAt(index);
       }
     }
-    this.#resetEntries();
+    if (eligible == undefined) this.#resetEntries();
+    else this.#compact();
     return values;
   }
 

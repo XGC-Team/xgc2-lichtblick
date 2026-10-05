@@ -120,6 +120,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
   #workerSocket?: WorkerSocketAdapter;
   #latestSnapshotTopics = new Set<string>();
+  #parkedSnapshotTopics = new Set<string>();
   #messageGeneration = 0;
   #parsedMessages = new LiveMessageQueue<
     | MessageEvent
@@ -570,6 +571,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         return;
       }
 
+      let emitMessageState = true;
       try {
         this.#receivedBytes += data.byteLength;
         const receiveTime = this.#getCurrentTime();
@@ -619,11 +621,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           };
           const isVideo = COMPRESSED_VIDEO_DATATYPES.has(queued.schemaName);
           const videoData = isVideo ? (deserializedMessage as { data?: unknown }).data : undefined;
-          retention = isVideo
-            ? "video"
-            : independentCloud
-              ? "replaceable"
-              : "protected";
+          retention = isVideo ? "video" : independentCloud ? "replaceable" : "protected";
           isVideoRecoveryPoint =
             isVideo && videoData instanceof Uint8Array
               ? inspectAnnexBVideoFrame(videoData).isRecoveryPoint
@@ -640,6 +638,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
           },
           { supersedeReplaceable: latestSnapshot },
         );
+        emitMessageState =
+          !latestSnapshot ||
+          !this.#parkedSnapshotTopics.has(topic) ||
+          !enqueueResult.accepted ||
+          (enqueueResult.capacityDroppedEntries ?? 0) > 0;
         if ((enqueueResult.capacityDroppedEntries ?? 0) > 0 || enqueueResult.sizeLimitExceeded) {
           this.#alerts.addAlert(`webSocketPlayer:parsedMessageCacheFull`, {
             severity: "error",
@@ -678,6 +681,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
             duration,
           });
           if (this.#ishighFrequencyMessage) {
+            emitMessageState = true;
             this.#alerts.addAlert(HIGH_FREQUENCY_ALERT.id, {
               severity: HIGH_FREQUENCY_ALERT.severity,
               message: HIGH_FREQUENCY_ALERT.message,
@@ -686,13 +690,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
           }
         }
       } catch (error) {
+        emitMessageState = true;
         this.#alerts.addAlert(`message:${chanInfo.channel.topic}`, {
           severity: "error",
           message: `Failed to parse message on ${chanInfo.channel.topic}`,
           error,
         });
       }
-      this.#emitState();
+      if (emitMessageState) this.#emitState();
     });
 
     this.#client.on("time", ({ timestamp }) => {
@@ -1017,7 +1022,10 @@ export default class FoxgloveWebSocketPlayer implements Player {
     }
 
     const messages: MessageEvent[] = [];
-    for (const queued of this.#parsedMessages.drain()) {
+    for (const queued of this.#parsedMessages.drain(
+      (queued) =>
+        !("kind" in queued) || !this.#parkedSnapshotTopics.has(queued.channel.channel.topic),
+    )) {
       if (!("kind" in queued)) {
         messages.push(queued);
         continue;
@@ -1106,6 +1114,24 @@ export default class FoxgloveWebSocketPlayer implements Player {
         )
         .map((subscription) => subscription.topic),
     );
+    const oldParked = this.#parkedSnapshotTopics;
+    const activeTopics = new Set(
+      subscriptions
+        .filter((request) => request.samplingParked !== true)
+        .map((request) => request.topic),
+    );
+    this.#parkedSnapshotTopics = new Set(
+      applySamplingGuardToSubscriptions(subscriptions)
+        .filter(
+          (subscription) =>
+            subscription.samplingParked === true &&
+            !activeTopics.has(subscription.topic) &&
+            this.#latestSnapshotTopics.has(subscription.topic),
+        )
+        .map((subscription) => subscription.topic),
+    );
+    const resumed = [...oldParked].some((topic) => !this.#parkedSnapshotTopics.has(topic));
+    if (resumed) this.#emitState();
     this.#workerSocket?.setLatestSnapshotTopics([...this.#latestSnapshotTopics]);
     const newTopics = new Set(subscriptions.map(({ topic }) => topic));
 
