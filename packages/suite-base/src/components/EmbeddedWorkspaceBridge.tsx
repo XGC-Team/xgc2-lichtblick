@@ -7,7 +7,10 @@
 
 import { useEffect } from "react";
 
-import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
+import {
+  useEmbeddedWorkspaceControls,
+  type EmbeddedHostTheme,
+} from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { useWorkspaceStore } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
@@ -46,6 +49,29 @@ export type Xgc2EmbeddedReadyMessage = {
   visibleSurfaces: readonly Xgc2EmbeddedSurface[];
 };
 
+export type EmbeddedThemeCommand = {
+  channel: typeof XGC2_EMBED_CHANNEL;
+  version: typeof XGC2_EMBED_VERSION;
+  sender: "xgc2";
+  type: "theme";
+} & EmbeddedHostTheme;
+
+export function isEmbeddedThemeCommand(value: unknown): value is EmbeddedThemeCommand {
+  const keys = ["channel", "version", "sender", "type", "colorScheme", "backgroundColor"];
+  return (
+    isPlainObject(value) &&
+    Object.keys(value).length === keys.length &&
+    Object.keys(value).every((key) => keys.includes(key)) &&
+    value.channel === XGC2_EMBED_CHANNEL &&
+    value.version === XGC2_EMBED_VERSION &&
+    value.sender === "xgc2" &&
+    value.type === "theme" &&
+    (value.colorScheme === "dark" || value.colorScheme === "light") &&
+    typeof value.backgroundColor === "string" &&
+    /^#[\da-f]{6}$/i.test(value.backgroundColor)
+  );
+}
+
 // Navigation remains on this authenticated embed channel and names one native panel.
 export const EMBEDDED_NAVIGATION_EVENT = "xgc2.lichtblick.native-navigation";
 export const EMBEDDED_3D_PANEL_ATTRIBUTE = "data-xgc-native-3d-panel-id";
@@ -55,9 +81,10 @@ export type EmbeddedNavigationCommand = {
   sender: "xgc2";
   type: "navigation";
   panelId: string;
-  action: "goal" | "overview" | "robot-frames" | "follow" | "perspective";
-  frameId?: string;
-};
+} & (
+  | { action: "goal" | "overview" | "robot-frames" | "perspective" }
+  | { action: "follow" | "follow-pose"; frameId: string }
+);
 
 export function isEmbeddedNavigationCommand(value: unknown): value is EmbeddedNavigationCommand {
   if (
@@ -72,7 +99,7 @@ export function isEmbeddedNavigationCommand(value: unknown): value is EmbeddedNa
     return false;
   }
   const keys = ["channel", "version", "sender", "type", "panelId", "action"];
-  if (value.action === "follow") {
+  if (value.action === "follow" || value.action === "follow-pose") {
     keys.push("frameId");
     if (typeof value.frameId !== "string" || !value.frameId) {
       return false;
@@ -133,6 +160,7 @@ export default function EmbeddedWorkspaceBridge(): null {
     toggleObstacleScene,
     togglePanelControls,
     toggleThreeDTools,
+    setHostTheme,
   } = useEmbeddedWorkspaceControls();
 
   // Only which sidebar item is open matters to the host. Selecting the whole `sidebars` object also
@@ -154,6 +182,12 @@ export default function EmbeddedWorkspaceBridge(): null {
 
     const handleMessage = (event: MessageEvent<unknown>) => {
       if (event.origin !== expectedOrigin || event.source !== parentWindow) {
+        return;
+      }
+
+      if (isEmbeddedThemeCommand(event.data)) {
+        const { colorScheme, backgroundColor } = event.data;
+        setHostTheme({ colorScheme, backgroundColor });
         return;
       }
 
@@ -233,6 +267,7 @@ export default function EmbeddedWorkspaceBridge(): null {
     toggleObstacleScene,
     togglePanelControls,
     toggleThreeDTools,
+    setHostTheme,
   ]);
 
   return null;

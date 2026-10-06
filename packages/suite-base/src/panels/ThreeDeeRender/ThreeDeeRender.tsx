@@ -33,6 +33,7 @@ import {
   type EmbeddedNavigationCommand,
 } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
+import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { DEFAULT_SCENE_EXTENSION_CONFIG } from "@lichtblick/suite-base/panels/ThreeDeeRender/SceneExtensionConfig";
 import {
   DEFAULT_FOLLOW_MODE,
@@ -79,6 +80,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     enqueueSnackbarFromParent,
     logError,
   } = props;
+  const { embedded, hostTheme } = useEmbeddedWorkspaceControls();
   const {
     initialState,
     saveState,
@@ -107,7 +109,11 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
 
     return {
       cameraState,
-      followMode: partialConfig?.followMode ?? DEFAULT_FOLLOW_MODE,
+      // The host's robot-follow action keeps world orientation fixed, including restored layouts.
+      followMode:
+        embedded && interfaceMode === "3d" && partialConfig?.followMode !== "follow-none"
+          ? "follow-position"
+          : (partialConfig?.followMode ?? DEFAULT_FOLLOW_MODE),
       followTf: partialConfig?.followTf,
       // deep partial on config, makes the obstacleScene color tuple type
       // [(number | undefined)?, ...] which is incompatible with RendererConfig;
@@ -126,7 +132,8 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   const { cameraState } = config;
   // Original run-scoped overview only; live TF/camera tracking stays native.
   const [overviewCameraState] = useState(() => _.cloneDeep(config.cameraState) as CameraState);
-  const backgroundColor = config.scene.backgroundColor;
+  const backgroundColor =
+    config.scene.backgroundColor ?? (embedded ? hostTheme?.backgroundColor : undefined);
   // Primitive rebuild key: the ObstacleScene extension reads the optional
   // overlay color once at renderer construction.
   const obstacleSceneColor = config.scene.obstacleScene?.color?.join(",");
@@ -203,6 +210,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   }, [setMessagePathDropConfig, renderer]);
 
   const [colorScheme, setColorScheme] = useState<"dark" | "light" | undefined>();
+  const effectiveColorScheme = embedded ? (hostTheme?.colorScheme ?? colorScheme) : colorScheme;
   const [timezone, setTimezone] = useState<string | undefined>();
   const [topics, setTopics] = useState<ReadonlyArray<Topic> | undefined>();
   const [parameters, setParameters] = useState<
@@ -720,11 +728,11 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
 
   // Keep the renderer colorScheme and backgroundColor up to date
   useEffect(() => {
-    if (colorScheme && renderer) {
-      renderer.setColorScheme(colorScheme, backgroundColor);
+    if (effectiveColorScheme && renderer) {
+      renderer.setColorScheme(effectiveColorScheme, backgroundColor);
       renderRef.current.needsRender = true;
     }
-  }, [backgroundColor, colorScheme, renderer]);
+  }, [backgroundColor, effectiveColorScheme, renderer]);
 
   // Handle preloaded messages and render a frame if new messages are available
   // Should be called before `messages` is handled
@@ -991,7 +999,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   }, [publishActive, renderer]);
 
   const onFollowRobot = useCallback(
-    (frameId: string) => {
+    (frameId: string, followMode: "follow-position" | "follow-pose" = "follow-position") => {
       renderer?.publishClickTool.stop();
       actionHandler({
         action: "update",
@@ -999,7 +1007,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
       });
       actionHandler({
         action: "update",
-        payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
+        payload: { input: "select", path: ["general", "followMode"], value: followMode },
       });
     },
     [actionHandler, renderer],
@@ -1159,9 +1167,10 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           onOverview();
           break;
         case "follow":
-          if (command.frameId) {
-            onFollowRobot(command.frameId);
-          }
+          onFollowRobot(command.frameId);
+          break;
+        case "follow-pose":
+          onFollowRobot(command.frameId, "follow-pose");
           break;
         case "robot-frames": {
           // Read existing robot roots once, only when the host opens Follow.
@@ -1197,7 +1206,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   ]);
 
   return (
-    <ThemeProvider isDark={colorScheme === "dark"}>
+    <ThemeProvider isDark={effectiveColorScheme === "dark"}>
       <div
         ref={navigationElement}
         style={PANEL_STYLE}

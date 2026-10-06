@@ -17,7 +17,15 @@ import {
 
 export const EMBEDDED_PANEL_CONTROLS_ATTRIBUTE = "data-xgc2-panel-controls";
 
+export type EmbeddedHostTheme = {
+  colorScheme: "dark" | "light";
+  backgroundColor: string;
+};
+
 type EmbeddedWorkspaceControls = {
+  embedded: boolean;
+  hostTheme: EmbeddedHostTheme | undefined;
+  setHostTheme: (theme: EmbeddedHostTheme) => void;
   hidePanelControls: () => void;
   panelControlsVisible: boolean;
   threeDToolsVisible: boolean;
@@ -28,6 +36,9 @@ type EmbeddedWorkspaceControls = {
 };
 
 const defaultValue: EmbeddedWorkspaceControls = {
+  embedded: false,
+  hostTheme: undefined,
+  setHostTheme: () => {},
   hidePanelControls: () => {},
   panelControlsVisible: false,
   threeDToolsVisible: true,
@@ -47,8 +58,13 @@ export function useEmbeddedWorkspaceControls(): EmbeddedWorkspaceControls {
 
 export function EmbeddedWorkspaceControlsProvider({
   children,
+  embedded = false,
   defaultThreeDToolsVisible = true,
-}: PropsWithChildren<{ defaultThreeDToolsVisible?: boolean }>): React.JSX.Element {
+}: PropsWithChildren<{
+  embedded?: boolean;
+  defaultThreeDToolsVisible?: boolean;
+}>): React.JSX.Element {
+  const [hostTheme, setHostTheme] = useState<EmbeddedHostTheme>();
   const [panelControlsVisible, setPanelControlsVisible] = useState(false);
   const [threeDToolsVisible, setThreeDToolsVisible] = useState(defaultThreeDToolsVisible);
   const [obstacleSceneVisible, setObstacleSceneVisible] = useState(false);
@@ -96,6 +112,9 @@ export function EmbeddedWorkspaceControlsProvider({
 
   const value = useMemo(
     () => ({
+      embedded,
+      hostTheme,
+      setHostTheme,
       hidePanelControls,
       panelControlsVisible,
       threeDToolsVisible,
@@ -105,6 +124,8 @@ export function EmbeddedWorkspaceControlsProvider({
       toggleThreeDTools,
     }),
     [
+      embedded,
+      hostTheme,
       hidePanelControls,
       panelControlsVisible,
       threeDToolsVisible,

@@ -15,6 +15,10 @@ import { EMBEDDED_NAVIGATION_EVENT } from "@lichtblick/suite-base/components/Emb
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import {
+  EmbeddedWorkspaceControlsProvider,
+  useEmbeddedWorkspaceControls,
+} from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
+import {
   DEFAULT_FOLLOW_MODE,
   MAX_TRANSFORM_MESSAGES,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/constants";
@@ -156,6 +160,15 @@ const createMockContext = (
     ...overrides,
   } as BuiltinPanelExtensionContext;
 };
+
+function CaptureEmbeddedControls({
+  capture,
+}: {
+  capture: (controls: ReturnType<typeof useEmbeddedWorkspaceControls>) => void;
+}): React.JSX.Element | null {
+  capture(useEmbeddedWorkspaceControls());
+  return null;
+}
 
 function buildTfMessages({
   topic = "/tf",
@@ -567,6 +580,154 @@ describe("ThreeDeeRender", () => {
     expect(rendererConfig?.cameraState).toMatchObject(DEFAULT_CAMERA_STATE);
     expect(rendererConfig?.followMode).toBe(DEFAULT_FOLLOW_MODE);
     expect(rendererConfig?.followTf).toBeUndefined();
+  });
+
+  it.each([
+    undefined,
+    "follow-pose",
+    "follow-position",
+  ])("persists position-only embedded follow instead of restored %s orientation tracking", async (followMode) => {
+    const props = setup({}, { initialState: { followTf: "robot/base_link", followMode } });
+    render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    expect(mockedRenderer.mock.calls[0]?.[0]?.config.followMode).toBe("follow-position");
+    await waitFor(() => {
+      expect(props.context.saveState).toHaveBeenLastCalledWith(
+        expect.objectContaining({ followMode: "follow-position", followTf: "robot/base_link" }),
+      );
+    });
+  });
+
+  it("preserves the embedded stationary Overview and manual camera on restoration", () => {
+    const cameraState = { ...DEFAULT_CAMERA_STATE, thetaOffset: 42, phi: 61 };
+    const props = setup({}, { initialState: { followMode: "follow-none", cameraState } });
+    render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    expect(mockedRenderer.mock.calls[0]?.[0]?.config).toMatchObject({
+      followMode: "follow-none",
+      cameraState,
+    });
+  });
+
+  it.each([
+    { action: "follow", followMode: "follow-position" },
+    { action: "follow-pose", followMode: "follow-pose" },
+  ])("saves native $action and acknowledges the selected robot through the existing route", async ({
+    action,
+    followMode,
+  }) => {
+    mockedRenderer.mockImplementationOnce(() => {
+      const renderer = createMockRenderer();
+      renderer.settings.handleAction.mockImplementation((settingsAction) => {
+        const key = settingsAction.payload.path[1];
+        if (key === "followTf" || key === "followMode") {
+          renderer.config = { ...renderer.config, [key]: settingsAction.payload.value };
+          renderer.emit("configChange", renderer);
+        }
+      });
+      return renderer as unknown as Renderer;
+    });
+    const originalParent = Object.getOwnPropertyDescriptor(window, "parent")!;
+    const postMessage = jest.fn();
+    Object.defineProperty(window, "parent", { configurable: true, value: { postMessage } });
+    const props = setup({ embeddedPanelId: "ThreeDeeRender!native-follow" });
+    const view = render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    const element = view.container.querySelector("[data-xgc-native-3d-panel-id]")!;
+    act(() => {
+      element.dispatchEvent(
+        new CustomEvent(EMBEDDED_NAVIGATION_EVENT, {
+          detail: {
+            panelId: "ThreeDeeRender!native-follow",
+            action,
+            frameId: "robot/base_link",
+          },
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(props.context.saveState).toHaveBeenLastCalledWith(
+        expect.objectContaining({ followMode, followTf: "robot/base_link" }),
+      );
+    });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "navigation-state",
+        panelId: "ThreeDeeRender!native-follow",
+        available: true,
+        followFrameId: "robot/base_link",
+      }),
+      window.location.origin,
+    );
+    view.unmount();
+    Object.defineProperty(window, "parent", originalParent);
+  });
+
+  it("uses live embedded host surfaces, preserves custom background, and restores the host after clearing it", () => {
+    const props = setup();
+    let controls!: ReturnType<typeof useEmbeddedWorkspaceControls>;
+    render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <CaptureEmbeddedControls capture={(value) => (controls = value)} />
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    renderer.animationFrame.mockClear();
+    act(() => {
+      controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
+    });
+    expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", "#ffffff");
+    expect(renderer.animationFrame).toHaveBeenCalledTimes(1);
+    renderer.animationFrame.mockClear();
+    act(() => {
+      controls.setHostTheme({ colorScheme: "dark", backgroundColor: "#161616" });
+    });
+    expect(renderer.setColorScheme).toHaveBeenLastCalledWith("dark", "#161616");
+    expect(renderer.animationFrame).toHaveBeenCalledTimes(1);
+    act(() => {
+      renderer.config = { ...renderer.config, scene: { backgroundColor: "#123456" } };
+      renderer.emit("configChange", renderer);
+    });
+    expect(renderer.setColorScheme).toHaveBeenLastCalledWith("dark", "#123456");
+    act(() => {
+      controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
+    });
+    expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", "#123456");
+    act(() => {
+      renderer.config = { ...renderer.config, scene: { backgroundColor: undefined } };
+      renderer.emit("configChange", renderer);
+    });
+    expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", "#ffffff");
+    expect(renderer.config.scene.backgroundColor).toBeUndefined();
+  });
+
+  it("retains standalone upstream background defaults despite an unused host theme", () => {
+    const props = setup();
+    let controls!: ReturnType<typeof useEmbeddedWorkspaceControls>;
+    render(
+      <EmbeddedWorkspaceControlsProvider>
+        <CaptureEmbeddedControls capture={(value) => (controls = value)} />
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    act(() => {
+      controls.setHostTheme({ colorScheme: "dark", backgroundColor: "#161616" });
+    });
+    act(() => {
+      props.context.onRender!(RenderStateBuilder.renderState({ colorScheme: "light" }), jest.fn());
+    });
+    expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", undefined);
   });
 
   it("initializes with custom camera state when an initial state is provided", () => {

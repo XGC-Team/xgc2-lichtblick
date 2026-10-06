@@ -12,6 +12,7 @@ import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/us
 import EmbeddedWorkspaceBridge, {
   EMBEDDED_NAVIGATION_EVENT,
   isEmbeddedNavigationCommand,
+  isEmbeddedThemeCommand,
   isXgc2EmbeddedHostCommand,
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_SURFACES,
@@ -29,6 +30,7 @@ const hidePanelControls = jest.fn();
 const togglePanelControls = jest.fn();
 const toggleThreeDTools = jest.fn();
 const toggleObstacleScene = jest.fn();
+const setHostTheme = jest.fn();
 
 function mockControls(
   overrides: {
@@ -38,6 +40,9 @@ function mockControls(
   } = {},
 ) {
   return {
+    embedded: true,
+    hostTheme: undefined,
+    setHostTheme,
     hidePanelControls,
     panelControlsVisible: false,
     threeDToolsVisible: false,
@@ -96,6 +101,61 @@ describe("EmbeddedWorkspaceBridge", () => {
     hidePanelControls.mockReset();
     togglePanelControls.mockReset();
     toggleThreeDTools.mockReset();
+    setHostTheme.mockReset();
+  });
+
+  it("accepts only the exact theme envelope from its authenticated parent", () => {
+    const theme = {
+      channel: XGC2_EMBED_CHANNEL,
+      version: XGC2_EMBED_VERSION,
+      sender: "xgc2",
+      type: "theme",
+      colorScheme: "dark",
+      backgroundColor: "#161616",
+    };
+    expect(isEmbeddedThemeCommand(theme)).toBe(true);
+    for (const changes of [
+      { channel: "foreign" },
+      { version: 1 },
+      { sender: "lichtblick" },
+      { type: "ready" },
+      { colorScheme: "system" },
+      { backgroundColor: "url(https://foreign.invalid)" },
+      { backgroundColor: undefined },
+      { extra: true },
+    ]) {
+      expect(isEmbeddedThemeCommand({ ...theme, ...changes })).toBe(false);
+    }
+    expect(isEmbeddedThemeCommand(null)).toBe(false);
+    jest.spyOn(window.parent, "postMessage").mockImplementation();
+    const view = render(<EmbeddedWorkspaceBridge />);
+    act(() => {
+      dispatchHostMessage(theme, { source: null });
+      dispatchHostMessage(theme, { origin: "https://foreign.invalid" });
+      dispatchHostMessage({ ...theme, extra: true });
+    });
+    expect(setHostTheme).not.toHaveBeenCalled();
+    act(() => {
+      dispatchHostMessage(theme);
+    });
+    expect(setHostTheme).toHaveBeenCalledTimes(1);
+    expect(setHostTheme).toHaveBeenCalledWith({
+      colorScheme: "dark",
+      backgroundColor: "#161616",
+    });
+    act(() => {
+      dispatchHostMessage({ ...theme, colorScheme: "light", backgroundColor: "#ffffff" });
+    });
+    expect(setHostTheme).toHaveBeenLastCalledWith({
+      colorScheme: "light",
+      backgroundColor: "#ffffff",
+    });
+    view.unmount();
+    setHostTheme.mockClear();
+    act(() => {
+      dispatchHostMessage(theme);
+    });
+    expect(setHostTheme).not.toHaveBeenCalled();
   });
 
   it("announces the exact versioned capabilities to its same-origin parent", () => {
@@ -348,5 +408,54 @@ describe("EmbeddedWorkspaceBridge", () => {
     });
 
     expect(selectLeftItem).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "follow",
+    "follow-pose",
+  ])("authenticates and dispatches the exact %s command to its native panel", (action) => {
+    jest.spyOn(window.parent, "postMessage").mockImplementation();
+    render(<EmbeddedWorkspaceBridge />);
+    const panel = document.createElement("div");
+    panel.setAttribute("data-xgc-native-3d-panel-id", "ThreeDeeRender!follow");
+    document.body.append(panel);
+    const receive = jest.fn();
+    panel.addEventListener(EMBEDDED_NAVIGATION_EVENT, receive);
+    const message = {
+      channel: XGC2_EMBED_CHANNEL,
+      version: XGC2_EMBED_VERSION,
+      sender: "xgc2",
+      type: "navigation",
+      panelId: "ThreeDeeRender!follow",
+      action,
+      frameId: "robot/base_link",
+    };
+    expect(isEmbeddedNavigationCommand(message)).toBe(true);
+    for (const changes of [
+      { channel: "foreign" },
+      { version: 1 },
+      { sender: "lichtblick" },
+      { frameId: undefined },
+      { frameId: "" },
+      { frameId: 5 },
+      { action: "follow-unknown" },
+      { followMode: "follow-pose" },
+      { extra: true },
+    ]) {
+      expect(isEmbeddedNavigationCommand({ ...message, ...changes })).toBe(false);
+    }
+    act(() => {
+      dispatchHostMessage(message, { source: null });
+      dispatchHostMessage(message, { origin: "https://foreign.invalid" });
+      dispatchHostMessage({ ...message, panelId: "ThreeDeeRender!elsewhere" });
+      dispatchHostMessage({ ...message, frameId: "" });
+    });
+    expect(receive).not.toHaveBeenCalled();
+    act(() => {
+      dispatchHostMessage(message);
+    });
+    expect(receive).toHaveBeenCalledTimes(1);
+    expect(receive.mock.calls[0]![0].detail).toEqual(message);
+    panel.remove();
   });
 });

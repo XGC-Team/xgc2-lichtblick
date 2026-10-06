@@ -59,6 +59,9 @@ function renderToolbar(
     >
       <EmbeddedWorkspaceControlsContext.Provider
         value={{
+          embedded: false,
+          hostTheme: undefined,
+          setHostTheme: jest.fn(),
           hidePanelControls: jest.fn(),
           panelControlsVisible,
           threeDToolsVisible: true,

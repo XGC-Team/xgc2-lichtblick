@@ -17,13 +17,13 @@ import {
   useForwardEmbeddedWorkspaceControls,
 } from "./ForwardEmbeddedWorkspaceControls";
 
-it("forwards toggles into an independent panel root without recreating its canvas", async () => {
+it("forwards toggles and live host theme into an independent panel root without recreating its canvas", async () => {
   const panel = document.createElement("div");
   document.body.appendChild(panel);
   const mount = jest.fn();
   const unmount = jest.fn();
   function Overlay(): React.JSX.Element {
-    const { threeDToolsVisible } = useEmbeddedWorkspaceControls();
+    const { embedded, hostTheme, threeDToolsVisible } = useEmbeddedWorkspaceControls();
     useEffect(() => {
       mount();
       return unmount;
@@ -32,12 +32,13 @@ it("forwards toggles into an independent panel root without recreating its canva
       <>
         <canvas data-testid="scene" />
         <div data-testid="tools" hidden={!threeDToolsVisible} />
+        <output data-testid="theme">{embedded ? hostTheme?.backgroundColor : "standalone"}</output>
       </>
     );
   }
   function Host(): React.JSX.Element {
     const store = useForwardEmbeddedWorkspaceControls();
-    const { toggleThreeDTools } = useEmbeddedWorkspaceControls();
+    const { toggleThreeDTools, setHostTheme } = useEmbeddedWorkspaceControls();
     useEffect(
       () =>
         createSyncRoot(
@@ -48,10 +49,28 @@ it("forwards toggles into an independent panel root without recreating its canva
         ),
       [store],
     );
-    return <button onClick={toggleThreeDTools}>Toggle tools</button>;
+    return (
+      <>
+        <button onClick={toggleThreeDTools}>Toggle tools</button>
+        <button
+          onClick={() => {
+            setHostTheme({ colorScheme: "dark", backgroundColor: "#161616" });
+          }}
+        >
+          Dark theme
+        </button>
+        <button
+          onClick={() => {
+            setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
+          }}
+        >
+          Light theme
+        </button>
+      </>
+    );
   }
   const host = render(
-    <EmbeddedWorkspaceControlsProvider>
+    <EmbeddedWorkspaceControlsProvider embedded>
       <Host />
     </EmbeddedWorkspaceControlsProvider>,
   );
@@ -61,6 +80,10 @@ it("forwards toggles into an independent panel root without recreating its canva
   expect(screen.getByTestId("tools")).not.toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Toggle tools" }));
   expect(screen.getByTestId("tools")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Dark theme" }));
+  expect(screen.getByTestId("theme")).toHaveTextContent("#161616");
+  fireEvent.click(screen.getByRole("button", { name: "Light theme" }));
+  expect(screen.getByTestId("theme")).toHaveTextContent("#ffffff");
   expect(screen.getByTestId("scene")).toBe(canvas);
   expect(mount).toHaveBeenCalledTimes(1);
   expect(unmount).not.toHaveBeenCalled();

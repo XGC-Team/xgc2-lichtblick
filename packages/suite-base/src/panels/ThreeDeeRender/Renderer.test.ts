@@ -1541,6 +1541,56 @@ describe("3D Renderer", () => {
     renderer.animationFrame();
     expect(cameraState.unfollowPoseSnapshot).toBeUndefined();
   });
+  it("native position follow tracks robot translation while preserving the camera orientation in the fixed world", () => {
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      config: {
+        ...defaultRendererConfig,
+        followMode: "follow-position",
+        followTf: "robot",
+        scene: { transforms: { enablePreloading: false } },
+      },
+    });
+    const sample = (time: bigint, position: THREE.Vector3, yaw: number) => {
+      const robotOrientation = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        yaw,
+      );
+      const event = createTFMessageEvent("world", "robot", time, [time]);
+      const transform = event.message.transforms[0]!.transform;
+      transform.translation = { x: position.x, y: position.y, z: position.z };
+      transform.rotation = {
+        x: robotOrientation.x,
+        y: robotOrientation.y,
+        z: robotOrientation.z,
+        w: robotOrientation.w,
+      };
+      renderer.setCurrentTime(time);
+      renderer.addMessageEvent(event);
+      renderer.animationFrame();
+      const camera = renderer.cameraHandler.getActiveCamera();
+      camera.updateWorldMatrix(true, false);
+      return {
+        orientation: robotOrientation
+          .clone()
+          .multiply(camera.getWorldQuaternion(new THREE.Quaternion())),
+        position: camera
+          .getWorldPosition(new THREE.Vector3())
+          .applyQuaternion(robotOrientation)
+          .add(position),
+      };
+    };
+    const first = sample(1n, new THREE.Vector3(1, 2, 0), 0.2);
+    const second = sample(2n, new THREE.Vector3(4, 6, 0), 1.4);
+    expect(Math.abs(first.orientation.dot(second.orientation))).toBeCloseTo(1, 10);
+    const delta = second.position.clone().sub(first.position);
+    expect(delta.x).toBeCloseTo(3, 10);
+    expect(delta.y).toBeCloseTo(4, 10);
+    expect(delta.z).toBeCloseTo(0, 10);
+    renderer.dispose();
+  });
+
   it("records pose snapshot after changing from follow-pose mode to follow-none", () => {
     const config = {
       ...defaultRendererConfig,
