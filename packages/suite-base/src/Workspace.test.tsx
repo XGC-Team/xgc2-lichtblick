@@ -613,9 +613,104 @@ describe("Workspace - fetchLayoutFromUrl", () => {
     });
   });
 
+  it("imports fresh Core data while restoring only the matching internal Experiment scope working layout", async () => {
+    const originalUrl = window.location.href;
+    const scope = ["experiment-a", "viewer"] as const;
+    window.history.replaceState(
+      {},
+      "",
+      `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope))}`,
+    );
+    const working = {
+      metadata: { xgc2LayoutScope: scope },
+      configById: { "3D!xgc2": { cameraState: { distance: 5 } } },
+    };
+    mockGetLayouts.mockResolvedValue([
+      {
+        id: "same-scope",
+        name: "layout",
+        baseline: { data: { metadata: { xgc2LayoutScope: scope } }, savedAt: "2026-10-01" },
+        working: { data: working, savedAt: "2026-10-06" },
+      },
+      {
+        id: "foreign",
+        name: "layout",
+        baseline: { data: { metadata: { xgc2LayoutScope: ["experiment-b", "viewer"] } } },
+      },
+      { id: "unscoped", name: "layout", baseline: { data: { configById: {} } } },
+    ]);
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue({ ok: true, text: jest.fn().mockResolvedValue('{"configById":{}}') });
+    (parseAppURLState as jest.Mock).mockReturnValue({
+      layoutUrl: "https://example.com/layout.json",
+    });
+    try {
+      render(
+        <Workspace
+          workspaceAppearance="embedded"
+          deepLinks={["https://app.example.com/?layoutUrl=https://example.com/layout.json"]}
+        />,
+      );
+      await waitFor(() => {
+        expect(mockParseAndInstallLayout).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "layout.json" }),
+          "local",
+          {
+            managedAuthority: true,
+            xgc2LayoutScope: scope,
+            previousScopedLayout: working,
+          },
+        );
+        expect(mockDeleteLayout).toHaveBeenCalledTimes(1);
+      });
+      expect(global.fetch).toHaveBeenCalledWith("https://example.com/layout.json");
+      expect(mockDeleteLayout).toHaveBeenCalledWith({ id: "same-scope" });
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
+  it("restores the same scope baseline when no working copy exists", async () => {
+    const originalUrl = window.location.href;
+    const scope = ["experiment-a", "viewer"] as const;
+    window.history.replaceState(
+      {},
+      "",
+      `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope))}`,
+    );
+    const baseline = { metadata: { xgc2LayoutScope: scope }, configById: {} };
+    mockGetLayouts.mockResolvedValue([
+      { id: "baseline", name: "layout", baseline: { data: baseline } },
+    ]);
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue({ ok: true, text: jest.fn().mockResolvedValue('{"configById":{}}') });
+    (parseAppURLState as jest.Mock).mockReturnValue({
+      layoutUrl: "https://example.com/layout.json",
+    });
+    try {
+      render(
+        <Workspace
+          workspaceAppearance="embedded"
+          deepLinks={["https://app.example.com/?layoutUrl=https://example.com/layout.json"]}
+        />,
+      );
+      await waitFor(() => {
+        expect(mockParseAndInstallLayout).toHaveBeenCalledWith(expect.any(File), "local", {
+          managedAuthority: true,
+          xgc2LayoutScope: scope,
+          previousScopedLayout: baseline,
+        });
+      });
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
   it("should delete existing layouts with same name after successful install", async () => {
     // Given
-    mockGetLayouts.mockResolvedValue([{ id: "old-id", name: "my-layout" }]);
+    mockGetLayouts.mockResolvedValue([{ id: "old-id", name: "my-layout", baseline: { data: {} } }]);
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       text: jest.fn().mockResolvedValue("{}"),
@@ -637,9 +732,35 @@ describe("Workspace - fetchLayoutFromUrl", () => {
     });
   });
 
+  it("preserves Experiment view histories when a legacy unscoped layout with the same display name is imported", async () => {
+    mockGetLayouts.mockResolvedValue([
+      {
+        id: "scoped",
+        name: "layout",
+        baseline: { data: { metadata: { xgc2LayoutScope: ["experiment-a", "viewer"] } } },
+      },
+      { id: "legacy", name: "layout", baseline: { data: {} } },
+    ]);
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue({ ok: true, text: jest.fn().mockResolvedValue('{"configById":{}}') });
+    (parseAppURLState as jest.Mock).mockReturnValue({
+      layoutUrl: "https://example.com/layout.json",
+    });
+    render(
+      <Workspace
+        deepLinks={["https://app.example.com/?layoutUrl=https://example.com/layout.json"]}
+      />,
+    );
+    await waitFor(() => {
+      expect(mockDeleteLayout).toHaveBeenCalledTimes(1);
+    });
+    expect(mockDeleteLayout).toHaveBeenCalledWith({ id: "legacy" });
+  });
+
   it("should not delete existing layouts if parseAndInstallLayout returns undefined", async () => {
     // Given
-    mockGetLayouts.mockResolvedValue([{ id: "old-id", name: "my-layout" }]);
+    mockGetLayouts.mockResolvedValue([{ id: "old-id", name: "my-layout", baseline: { data: {} } }]);
     mockParseAndInstallLayout.mockResolvedValue(undefined);
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

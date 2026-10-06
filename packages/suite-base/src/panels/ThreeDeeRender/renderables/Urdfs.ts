@@ -31,6 +31,7 @@ import { makeRgba, stringToRgba } from "@lichtblick/suite-base/panels/ThreeDeeRe
 import { eulerToQuaternion } from "@lichtblick/suite-base/util/geometry";
 import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
 import { isValidUrl } from "@lichtblick/suite-base/util/isValidURL";
+import { parseXgc2LayoutScope } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
 import { RenderableCube } from "./markers/RenderableCube";
 import { RenderableCylinder } from "./markers/RenderableCylinder";
@@ -1251,6 +1252,38 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const rootFrame = frames.find((frame) => !childFrames.has(frame));
     if (rootFrame) {
       this.#rootFramesByInstanceId.set(instanceId, rootFrame);
+      const followTf = renderer.config.followTf;
+      const framePrefix = (settings as Partial<LayerSettingsCustomUrdf>).framePrefix;
+      // Validate only after the current model resolved its actual root. A pending parameter
+      // or asset must not discard a restored Follow before the URDF has loaded.
+      const hostUrl = new URL(window.location.href);
+      if (
+        hostUrl.searchParams.get("xgc2Embed") === "1" &&
+        parseXgc2LayoutScope(hostUrl.searchParams.get("xgc2LayoutScope")) &&
+        renderer.config.followMode === "follow-position" &&
+        followTf != undefined &&
+        typeof framePrefix === "string" &&
+        framePrefix.length > 0 &&
+        followTf.startsWith(framePrefix) &&
+        followTf !== rootFrame
+      ) {
+        renderer.settings.handleAction({
+          action: "update",
+          payload: {
+            input: "select",
+            path: ["general", "followMode"],
+            value: "follow-none",
+          },
+        });
+        renderer.settings.handleAction({
+          action: "update",
+          payload: {
+            input: "select",
+            path: ["general", "followTf"],
+            value: renderer.fixedFrameId,
+          },
+        });
+      }
     } else {
       this.#rootFramesByInstanceId.delete(instanceId);
     }

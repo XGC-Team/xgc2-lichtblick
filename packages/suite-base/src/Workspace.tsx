@@ -99,6 +99,10 @@ import { InjectedSidebarItem, Namespace, WorkspaceProps } from "@lichtblick/suit
 import { parseAppURLState } from "@lichtblick/suite-base/util/appURLState";
 import useBroadcast from "@lichtblick/suite-base/util/broadcast/useBroadcast";
 import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
+import {
+  layoutHasXgc2Scope,
+  parseXgc2LayoutScope,
+} from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
 import { useWorkspaceActions } from "./context/Workspace/useWorkspaceActions";
 
@@ -138,6 +142,8 @@ const selectWorkspaceRightSidebarOpen = (store: WorkspaceContextStore) => store.
 const selectWorkspaceRightSidebarSize = (store: WorkspaceContextStore) => store.sidebars.right.size;
 
 function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
+  const workspaceAppearance = props.workspaceAppearance ?? "standard";
+  const isEmbedded = workspaceAppearance === "embedded";
   const { PerformanceSidebarComponent } = useAppContext();
   const { classes } = useStyles();
   const containerRef = useRef<HTMLDivElement>(ReactNull);
@@ -581,6 +587,14 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
       const safeUrlLabel = `${parsedUrl.origin}${parsedUrl.pathname}`;
 
       try {
+        const rawScope =
+          workspaceAppearance === "embedded"
+            ? new URL(window.location.href).searchParams.get("xgc2LayoutScope")
+            : null;
+        const scope = parseXgc2LayoutScope(rawScope);
+        if (rawScope != undefined && !scope) {
+          throw new Error("Invalid Experiment viewer layout scope");
+        }
         const response = await fetch(layoutUrl);
         if (!response.ok) {
           log.error(`Failed to fetch layout: ${safeUrlLabel} (status ${response.status})`);
@@ -595,15 +609,35 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
         const dotIndex = filename.lastIndexOf(".");
         const layoutName = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
 
-        // Find existing layouts with the same name before saving (safe deduplication)
+        // Scoped layouts share the display name; their stable identity stays in internal metadata.
         const existingLayouts = await layoutManager.getLayouts();
-        const matchingLayouts = existingLayouts.filter((layout) => layout.name === layoutName);
+        const matchingLayouts = existingLayouts.filter((layout) =>
+          scope
+            ? layoutHasXgc2Scope(layout.working?.data ?? layout.baseline.data, scope)
+            : layout.name === layoutName &&
+              (layout.working?.data ?? layout.baseline.data).metadata?.xgc2LayoutScope == undefined,
+        );
+        const previousScoped = scope
+          ? [...matchingLayouts].sort((first, second) =>
+              (second.working?.savedAt ?? second.baseline.savedAt ?? "").localeCompare(
+                first.working?.savedAt ?? first.baseline.savedAt ?? "",
+              ),
+            )[0]
+          : undefined;
 
-        // Core layoutUrl is the managed authority. Parked IndexedDB selected
-        // layout may keep cameraState; it must not restore Scout ugv3 URDF or followTf.
+        // Always import the current Core wiring. Only the matching scoped IDB view may overlay it.
         const text = await response.text();
         const file = new File([text], filename, { type: "application/json" });
-        const newLayout = await parseAndInstallLayout(file, "local", { managedAuthority: true });
+        const newLayout = await parseAndInstallLayout(file, "local", {
+          managedAuthority: true,
+          ...(scope
+            ? {
+                xgc2LayoutScope: scope,
+                previousScopedLayout:
+                  previousScoped?.working?.data ?? previousScoped?.baseline.data,
+              }
+            : {}),
+        });
 
         // Only delete old layouts after successful save to avoid data loss
         if (newLayout) {
@@ -616,7 +650,7 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
         enqueueSnackbar("Failed to load layout from URL", { variant: "error" });
       }
     },
-    [layoutManager, parseAndInstallLayout, enqueueSnackbar],
+    [layoutManager, parseAndInstallLayout, enqueueSnackbar, workspaceAppearance],
   );
 
   // Load data source from URL.
@@ -706,8 +740,6 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
     playUntil,
   });
 
-  const workspaceAppearance = props.workspaceAppearance ?? "standard";
-  const isEmbedded = workspaceAppearance === "embedded";
   const embeddedSidebarsInitialized = useRef(false);
   useLayoutEffect(() => {
     if (!isEmbedded) {

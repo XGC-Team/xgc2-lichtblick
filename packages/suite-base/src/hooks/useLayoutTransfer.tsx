@@ -19,6 +19,7 @@ import showOpenFilePicker from "@lichtblick/suite-base/util/showOpenFilePicker";
 import {
   mergeManagedLayoutFromUrl,
   sanitizeImportedLayoutData,
+  type Xgc2LayoutScope,
 } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
 import { useAnalytics } from "../context/AnalyticsContext";
@@ -27,6 +28,8 @@ import { AppEvent } from "../services/IAnalytics";
 
 export type ParseAndInstallLayoutOptions = {
   managedAuthority?: boolean;
+  xgc2LayoutScope?: Xgc2LayoutScope;
+  previousScopedLayout?: LayoutData;
 };
 
 type UseLayoutTransfer = {
@@ -70,10 +73,12 @@ export function useLayoutTransfer(): UseLayoutTransfer {
         return;
       }
 
-      const parked = getCurrentLayoutState().selectedLayout?.data;
+      const parked = options?.xgc2LayoutScope
+        ? options.previousScopedLayout
+        : getCurrentLayoutState().selectedLayout?.data;
       const data = (
         options?.managedAuthority === true
-          ? mergeManagedLayoutFromUrl(parsedState, parked)
+          ? mergeManagedLayoutFromUrl(parsedState, parked, options.xgc2LayoutScope)
           : sanitizeImportedLayoutData(parsedState, parked)
       ) as LayoutData;
       const newLayout = await layoutManager.saveNewLayout({

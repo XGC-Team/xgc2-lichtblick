@@ -9,6 +9,7 @@ import {
   mergeManagedLayoutFromUrl,
   sanitizeImportedLayoutData,
   sanitizeImportedPanelConfig,
+  parseXgc2LayoutScope,
 } from "./xgcManagedLayoutImport";
 
 const authorityThreeD = {
@@ -55,7 +56,141 @@ const authorityLayout: LayoutData = {
   },
 };
 
+const scope = ["experiment-a", "viewer"] as const;
+const scopedAuthority: LayoutData = {
+  ...authorityLayout,
+  configById: {
+    ...authorityLayout.configById,
+    "3D!xgc2": {
+      ...authorityThreeD,
+      layers: {
+        ...authorityThreeD.layers,
+        "xgc2-urdf-uav1": {
+          ...authorityThreeD.layers["xgc2-urdf-uav1"],
+          framePrefix: "xgc/robots/uav1/",
+        },
+      },
+    },
+  },
+};
+
 describe("xgc managed layout import", () => {
+  it("accepts only the stable Experiment and product-panel scope tuple", () => {
+    expect(parseXgc2LayoutScope(JSON.stringify(scope))).toEqual(scope);
+    for (const raw of [
+      null,
+      "",
+      "bad json",
+      "{}",
+      "[]",
+      '["a"]',
+      '["a","b","c"]',
+      '["","b"]',
+      '["a",2]',
+    ]) {
+      expect(parseXgc2LayoutScope(raw)).toBeUndefined();
+    }
+  });
+
+  it.each([
+    { followMode: "follow-none", perspective: false },
+    { followMode: "follow-position", perspective: true },
+    { followMode: "follow-pose", perspective: false },
+  ])("restores scoped $followMode and camera without resurrecting old Core wiring", ({
+    followMode,
+    perspective,
+  }) => {
+    const cameraState = {
+      ...authorityThreeD.cameraState,
+      distance: 5,
+      thetaOffset: 42,
+      perspective,
+    };
+    const previous: LayoutData = {
+      ...authorityLayout,
+      metadata: { xgc2LayoutScope: scope },
+      configById: {
+        "3D!xgc2": {
+          followMode,
+          followTf: "xgc/robots/uav1/root",
+          cameraState,
+          topics: { "/old/plan": { visible: true } },
+          layers: { "xgc2-urdf-removed": { framePrefix: "old/" } },
+        },
+        "Image!xgc2-camera-ar": { cameraState: { distance: 2 } },
+      },
+    };
+    const restored = mergeManagedLayoutFromUrl(scopedAuthority, previous, scope) as LayoutData;
+    expect(restored.configById["3D!xgc2"]).toEqual({
+      ...scopedAuthority.configById["3D!xgc2"],
+      cameraState,
+      followMode: followMode === "follow-none" ? "follow-none" : "follow-position",
+      followTf: followMode === "follow-none" ? "world" : "xgc/robots/uav1/root",
+    });
+    expect(restored.configById["Image!xgc2-camera-ar"]).toEqual({
+      ...authorityImage,
+      cameraState: { distance: 2 },
+    });
+    expect(restored.layout).toEqual(scopedAuthority.layout);
+    expect(restored.metadata).toEqual({ xgc2LayoutScope: scope });
+  });
+
+  it.each([
+    "other-experiment",
+    "other-panel",
+  ])("does not copy a %s view into the current scope", (foreign) => {
+    const previous: LayoutData = {
+      ...authorityLayout,
+      metadata: {
+        xgc2LayoutScope:
+          foreign === "other-experiment" ? [foreign, "viewer"] : ["experiment-a", foreign],
+      },
+      configById: {
+        "3D!xgc2": {
+          cameraState: { distance: 3 },
+          followMode: "follow-position",
+          followTf: "xgc/robots/uav1/root",
+        },
+      },
+    };
+    const restored = mergeManagedLayoutFromUrl(scopedAuthority, previous, scope) as LayoutData;
+    expect(restored.configById).toEqual(scopedAuthority.configById);
+  });
+
+  it("uses the current Core default for an unsaved scope and does not match a different native pane by type", () => {
+    const previous: LayoutData = {
+      ...authorityLayout,
+      metadata: { xgc2LayoutScope: scope },
+      configById: { "3D!different": { cameraState: { distance: 3 } } },
+    };
+    expect(
+      (mergeManagedLayoutFromUrl(scopedAuthority, undefined, scope) as LayoutData).configById,
+    ).toEqual(scopedAuthority.configById);
+    expect(
+      (mergeManagedLayoutFromUrl(scopedAuthority, previous, scope) as LayoutData).configById,
+    ).toEqual(scopedAuthority.configById);
+  });
+
+  it.each([
+    undefined,
+    "",
+    "xgc/robots/removed/root",
+    "xgc/robots/uav1/",
+  ])("returns missing or removed frame %s to the current Core Overview", (followTf) => {
+    const previous: LayoutData = {
+      ...authorityLayout,
+      metadata: { xgc2LayoutScope: scope },
+      configById: {
+        "3D!xgc2": { followMode: "follow-position", followTf, cameraState: { distance: 2 } },
+      },
+    };
+    expect(
+      (mergeManagedLayoutFromUrl(scopedAuthority, previous, scope) as LayoutData).configById[
+        "3D!xgc2"
+      ],
+    ).toEqual(scopedAuthority.configById["3D!xgc2"]);
+  });
+
   it("keeps camera, mosaic, theme-like presentation and restores managed wiring", () => {
     const incoming = {
       configById: {

@@ -101,6 +101,43 @@ describe("useLayoutTransfer", () => {
     expect(logEventMock).toHaveBeenCalled();
   });
 
+  it("saves scoped view metadata through the native layout without consulting another globally selected layout", async () => {
+    getCurrentLayoutStateMock.mockReturnValue({
+      selectedLayout: { data: { configById: { "3D!xgc2": { cameraState: { distance: 99 } } } } },
+    });
+    const scope = ["experiment-a", "viewer"] as const;
+    const core = {
+      configById: {
+        "3D!xgc2": {
+          followMode: "follow-none",
+          followTf: "world",
+          cameraState: { distance: 12 },
+        },
+      },
+      layout: "3D!xgc2",
+    };
+    const content = JSON.stringify(core);
+    const file = new File([content], "layout.json", { type: "application/json" });
+    file.text = async () => content;
+    saveNewLayoutMock.mockResolvedValue({ id: "scoped", name: "layout", baseline: { data: {} } });
+    const { result } = renderHook(() => useLayoutTransfer());
+    await act(async () => {
+      await result.current.parseAndInstallLayout(file, "local", {
+        managedAuthority: true,
+        xgc2LayoutScope: scope,
+      });
+    });
+    expect(getCurrentLayoutStateMock).not.toHaveBeenCalled();
+    expect(saveNewLayoutMock).toHaveBeenCalledWith({
+      name: "layout",
+      permission: "CREATOR_WRITE",
+      data: { ...core, metadata: { xgc2LayoutScope: scope } },
+    });
+    expect(onSelectLayoutMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "scoped", name: "layout" }),
+    );
+  });
+
   it("restores managed followTf from the current layout while keeping imported camera state", async () => {
     getCurrentLayoutStateMock.mockReturnValue({
       selectedLayout: {

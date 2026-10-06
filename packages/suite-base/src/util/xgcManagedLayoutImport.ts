@@ -7,6 +7,99 @@ import { getPanelTypeFromId } from "@lichtblick/suite-base/util/layout";
 
 const URDF_LAYER_PREFIX = "xgc2-urdf-";
 
+export type Xgc2LayoutScope = readonly [experimentId: string, panelId: string];
+
+export function parseXgc2LayoutScope(raw: string | null): Xgc2LayoutScope | undefined {
+  if (raw == undefined) {
+    return undefined;
+  }
+  try {
+    const scope: unknown = JSON.parse(raw);
+    return Array.isArray(scope) &&
+      scope.length === 2 &&
+      scope.every((id) => typeof id === "string" && id.trim().length > 0)
+      ? [scope[0] as string, scope[1] as string]
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function layoutHasXgc2Scope(data: LayoutData | undefined, scope: Xgc2LayoutScope): boolean {
+  const saved: unknown = data?.metadata?.xgc2LayoutScope;
+  return (
+    Array.isArray(saved) && saved.length === 2 && saved[0] === scope[0] && saved[1] === scope[1]
+  );
+}
+
+function declaredRobotFrame(config: Record<string, unknown>, frameId: unknown): frameId is string {
+  return (
+    typeof frameId === "string" &&
+    isRecord(config.layers) &&
+    Object.entries(config.layers).some(
+      ([id, layer]) =>
+        id.startsWith(URDF_LAYER_PREFIX) &&
+        isRecord(layer) &&
+        layer.layerId === "foxglove.Urdf" &&
+        typeof layer.framePrefix === "string" &&
+        layer.framePrefix.length > 0 &&
+        frameId.startsWith(layer.framePrefix) &&
+        frameId.length > layer.framePrefix.length,
+    )
+  );
+}
+
+/** Restore only view fields from the same Experiment and exact native pane. */
+function restoreScopedView(
+  managed: Record<string, unknown>,
+  parked: LayoutData | undefined,
+  scope: Xgc2LayoutScope,
+): unknown {
+  const previous = layoutHasXgc2Scope(parked, scope) ? parked : undefined;
+  const next: SavedProps = {};
+  if (!isRecord(managed.configById)) {
+    return managed;
+  }
+  for (const [id, config] of Object.entries(managed.configById)) {
+    const saved = previous?.configById[id];
+    if (
+      !isRecord(config) ||
+      !isRecord(saved) ||
+      !["3D", "Image"].includes(getPanelTypeFromId(id))
+    ) {
+      next[id] = config as PanelConfig;
+      continue;
+    }
+    const isFollow = saved.followMode === "follow-position" || saved.followMode === "follow-pose";
+    if (
+      getPanelTypeFromId(id) === "3D" &&
+      isFollow &&
+      !declaredRobotFrame(config, saved.followTf)
+    ) {
+      // The current Core roster removed this robot. Use its current Overview, including camera.
+      next[id] = { ...config, followMode: "follow-none" };
+      continue;
+    }
+    next[id] = {
+      ...config,
+      ...(isRecord(saved.cameraState) ? { cameraState: saved.cameraState } : {}),
+      ...(getPanelTypeFromId(id) === "3D" && isFollow
+        ? { followMode: "follow-position", followTf: saved.followTf }
+        : getPanelTypeFromId(id) === "3D" && saved.followMode === "follow-none"
+          ? { followMode: "follow-none" }
+          : {}),
+    };
+  }
+  return {
+    ...managed,
+    configById: next,
+    metadata: {
+      ...(isRecord(managed.metadata) ? managed.metadata : {}),
+      xgc2LayoutScope: [...scope],
+    },
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != undefined && !Array.isArray(value);
 }
@@ -202,9 +295,16 @@ function overlayParkedCameraState(
 }
 
 /** Core layoutUrl JSON is the managed authority. Parked IndexedDB layout may keep cameraState. */
-export function mergeManagedLayoutFromUrl(managed: unknown, parked?: LayoutData): unknown {
+export function mergeManagedLayoutFromUrl(
+  managed: unknown,
+  parked?: LayoutData,
+  scope?: Xgc2LayoutScope,
+): unknown {
   if (!isRecord(managed) || !isRecord(managed.configById)) {
     return managed;
+  }
+  if (scope) {
+    return restoreScopedView(managed, parked, scope);
   }
   return sanitizeImportedLayoutData(
     overlayParkedCameraState(managed, parked),

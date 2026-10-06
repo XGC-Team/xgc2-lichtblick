@@ -28,6 +28,8 @@ import {
 } from "@lichtblick/suite-base/types/panels";
 
 export type LayoutData = {
+  /** Internal identity for the embedded Experiment view; never a Run or process identity. */
+  metadata?: { xgc2LayoutScope?: readonly [experimentId: string, panelId: string] };
   // We store config for each panel in an object keyed by the panel id.
   configById: SavedProps;
   layout?: MosaicNode<string>;

@@ -53,7 +53,14 @@ const urdf =
 function asset(text: string, mediaType: string) {
   return { data: new TextEncoder().encode(text), mediaType };
 }
-function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml"))) {
+function setup(
+  urdfAsset = Promise.resolve(asset(urdf, "application/xml")),
+  follow: {
+    followTf?: string;
+    followMode?: "follow-position" | "follow-pose";
+    framePrefix?: string;
+  } = {},
+) {
   const fetchAsset = jest.fn().mockImplementation(async (url: string) => {
     if (url.endsWith(".urdf")) {
       return await urdfAsset;
@@ -79,23 +86,27 @@ function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml"))) {
     meshUpAxis: "z_up",
   });
   const renderer = {
+    fixedFrameId: "current-world",
     fetchAsset,
     modelCache,
     on: jest.fn(),
     addCustomLayerAction: jest.fn(),
     config: {
+      followTf: follow.followTf,
+      followMode: follow.followMode,
       layers: {
         model: {
           layerId: "foxglove.Urdf",
           sourceType: "url",
           url: "https://models.invalid/robot.urdf",
           label: "Robot",
-          framePrefix: "",
+          framePrefix: follow.framePrefix ?? "",
         },
       },
       topics: {},
     },
     settings: {
+      handleAction: jest.fn(),
       setNodesForKey: jest.fn(),
       errors: {
         add: jest.fn(),
@@ -114,6 +125,54 @@ function setup(urdfAsset = Promise.resolve(asset(urdf, "application/xml"))) {
   return { extension, renderer, modelCache };
 }
 
+it.each([
+  "xgc/robots/uav1/base_link",
+  "xgc/robots/uav1/removed_root",
+])("validates restored %s only after the current native URDF resolves its real root", async (followTf) => {
+  const originalUrl = window.location.href;
+  window.history.replaceState(
+    {},
+    "",
+    `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(["experiment-a", "viewer"]))}`,
+  );
+  const pending = deferred<ReturnType<typeof asset>>();
+  const { extension, renderer, modelCache } = setup(pending.promise, {
+    followMode: "follow-position",
+    followTf,
+    framePrefix: "xgc/robots/uav1/",
+  });
+  try {
+    expect(extension.robotFollowFrames()).toEqual([]);
+    expect(renderer.settings.handleAction).not.toHaveBeenCalled();
+    pending.resolve(asset(urdf, "application/xml"));
+    await extension.settleVideoDecodes();
+    expect(extension.robotFollowFrames()).toEqual([
+      { label: "Robot", value: "xgc/robots/uav1/base_link" },
+    ]);
+    const expected =
+      followTf === "xgc/robots/uav1/base_link"
+        ? []
+        : [
+            [
+              {
+                action: "update",
+                payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
+              },
+            ],
+            [
+              {
+                action: "update",
+                payload: { input: "select", path: ["general", "followTf"], value: "current-world" },
+              },
+            ],
+          ];
+    expect(renderer.settings.handleAction.mock.calls).toEqual(expected);
+  } finally {
+    extension.dispose();
+    modelCache.dispose();
+    window.history.replaceState({}, "", originalUrl);
+  }
+});
 it("drains the real model and texture promise before an offline frame can settle", async () => {
   const decoding = deferred<THREE.LoadingManager>();
   mockParse.mockImplementationOnce((manager) => {
