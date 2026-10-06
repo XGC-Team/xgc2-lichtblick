@@ -536,7 +536,9 @@ export function RendererOverlay(props: Props): React.JSX.Element {
                 size="small"
                 color="inherit"
                 disabled={!renderer}
-                onClick={(event) => { setFollowMenuAnchor(event.currentTarget); }}
+                onClick={(event) => {
+                  setFollowMenuAnchor(event.currentTarget);
+                }}
                 data-xgc-role="lichtblick-follow-robot-tool"
               >
                 Follow robot
@@ -552,8 +554,10 @@ export function RendererOverlay(props: Props): React.JSX.Element {
               </Button>
               <Menu
                 anchorEl={followMenuAnchor}
-                open={followMenuAnchor != ReactNull}
-                onClose={() => { setFollowMenuAnchor(ReactNull); }}
+                open={followMenuAnchor !== ReactNull}
+                onClose={() => {
+                  setFollowMenuAnchor(ReactNull);
+                }}
               >
                 {robotFrames.length === 0 && (
                   <MenuItem disabled>No robot frames available</MenuItem>
