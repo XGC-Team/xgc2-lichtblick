@@ -27,25 +27,15 @@ export type FromWorkerMessage =
   | { type: "open"; protocol: string }
   | { type: "close"; data: unknown }
   | { type: "error"; error: unknown }
-  | {
-      type: "message";
-      data: unknown;
-      /**
-       * Asset responses may be larger than the bounded live-telemetry queue and are transferred
-       * directly to the main thread. They do not participate in the worker's one-message ACK
-       * protocol because they were never admitted to that queue.
-       */
-      requiresAck?: boolean;
-    };
+  | { type: "message"; data: unknown };
 
 export type ToWorkerMessage =
   | {
       type: "open";
-      data: { wsUrl: string; protocols?: string[] | string; queueLimitBytes?: number };
+      data: { wsUrl: string; protocols?: string[] | string };
     }
   | { type: "close"; data: undefined }
-  | { type: "data"; data: string | ArrayBuffer | ArrayBufferView }
-  | { type: "ack" };
+  | { type: "data"; data: string | ArrayBuffer | ArrayBufferView };
 
 export interface MessageWriter {
   writeMessage(message: unknown): Uint8Array;

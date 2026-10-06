@@ -19,10 +19,10 @@ export default class WorkerSocketAdapter implements IWebSocket {
   public onclose: ((event: unknown) => void) | undefined = undefined;
   public onmessage: ((event: unknown) => void) | undefined = undefined;
 
-  public constructor(wsUrl: string, protocols?: string[] | string, queueLimitBytes?: number) {
+  public constructor(wsUrl: string, protocols?: string[] | string) {
     // foxglove-depcheck-used: babel-plugin-transform-import-meta
     this.#worker = new Worker(new URL("./worker", import.meta.url));
-    this.#sendToWorker({ type: "open", data: { wsUrl, protocols, queueLimitBytes } });
+    this.#sendToWorker({ type: "open", data: { wsUrl, protocols } });
 
     this.#worker.onerror = (ev) => {
       if (this.onerror) {
@@ -53,15 +53,8 @@ export default class WorkerSocketAdapter implements IWebSocket {
           }
           break;
         case "message":
-          try {
-            if (this.onmessage) {
-              this.onmessage(event.data);
-            }
-          } finally {
-            // Do not allow the worker to fill the browser's unbounded worker/main-thread queue.
-            if (event.data.requiresAck !== false) {
-              this.#sendToWorker({ type: "ack" });
-            }
+          if (this.onmessage) {
+            this.onmessage(event.data);
           }
           break;
       }

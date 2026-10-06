@@ -13,75 +13,11 @@ export const FALLBACK_PUBLICATION_ENCODING = "json";
 export const SUPPORTED_SERVICE_ENCODINGS = ["json", ...ROS_ENCODINGS];
 
 /**
- * XGC2 is a live visualization client. Keep only a small amount of parsed history when rendering
- * falls behind; stale frames are less useful than bounded latency and predictable memory usage.
+ * When the tab is inactive setTimeout's are throttled to at most once per second.
+ * Because the MessagePipeline listener uses timeouts to resolve its promises, it throttles our ability to
+ * emit a frame more than once per second. In the websocket player this was causing
+ * an accumulation of messages that were waiting to be emitted, this could keep growing
+ * indefinitely if the rate at which we emit a frame is low enough.
+ * 400MB
  */
-export const CURRENT_FRAME_MAXIMUM_SIZE_BYTES = 16 * 1024 * 1024;
-
-/**
- * Maximum raw telemetry backlog retained inside the WebSocket worker. The worker/main-thread
- * acknowledgement protocol guarantees that at most one additional message is queued by the
- * browser's MessagePort.
- */
-export const WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES = 16 * 1024 * 1024;
-
-const MEMORY_CAP_MIN_MB = 4;
-const MEMORY_CAP_MAX_MB = 1024;
-
-export type PlayerMemoryCaps = {
-  currentFrameMaximumSizeBytes: number;
-  workerQueueMaximumSizeBytes: number;
-};
-
-/**
- * Resolve the two backlog caps from a URL query string. High-bandwidth sensor
- * deployments (multi-MB PointCloud2 frames, several 4K cameras) can raise the
- * bounds per page load with `xgcFrameCapMB` (parsed-message backlog on the main
- * thread) and `xgcWorkerQueueMB` (raw backlog inside the WebSocket worker),
- * both clamped to 4..1024 MB. Absent or invalid values keep the 16 MB
- * live-first defaults. Per-topic loss policy is independent of these caps:
- * ordinary telemetry is superseded per subscription (latest frame wins),
- * transform datatypes and protocol messages remain ordered while capacity
- * permits, and compressed video is dropped only at complete GOP/recovery
- * boundaries. The caps are hard: sustained protected traffic eventually
- * evicts its oldest messages, with /tf_static and protocol control retained
- * ahead of dynamic transforms.
- */
-export function resolvePlayerMemoryCaps(search: string | undefined): PlayerMemoryCaps {
-  const defaults: PlayerMemoryCaps = {
-    currentFrameMaximumSizeBytes: CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
-    workerQueueMaximumSizeBytes: WORKER_MESSAGE_QUEUE_MAXIMUM_SIZE_BYTES,
-  };
-  if (search == undefined || search === "") {
-    return defaults;
-  }
-  let params: URLSearchParams;
-  try {
-    params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  } catch {
-    return defaults;
-  }
-  const readCapMb = (key: string): number | undefined => {
-    const raw = params.get(key);
-    if (raw == undefined || raw === "") {
-      return undefined;
-    }
-    const mb = Number(raw);
-    if (!Number.isFinite(mb) || mb < MEMORY_CAP_MIN_MB) {
-      return undefined;
-    }
-    return Math.min(mb, MEMORY_CAP_MAX_MB);
-  };
-  const frameMb = readCapMb("xgcFrameCapMB");
-  const workerMb = readCapMb("xgcWorkerQueueMB");
-  return {
-    currentFrameMaximumSizeBytes:
-      frameMb != undefined
-        ? Math.round(frameMb * 1024 * 1024)
-        : defaults.currentFrameMaximumSizeBytes,
-    workerQueueMaximumSizeBytes:
-      workerMb != undefined
-        ? Math.round(workerMb * 1024 * 1024)
-        : defaults.workerQueueMaximumSizeBytes,
-  };
-}
+export const CURRENT_FRAME_MAXIMUM_SIZE_BYTES = 400 * 1024 * 1024;

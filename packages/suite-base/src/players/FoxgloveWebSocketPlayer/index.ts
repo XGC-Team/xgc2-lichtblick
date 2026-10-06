@@ -64,7 +64,7 @@ import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosData
 import { JsonMessageWriter } from "./JsonMessageWriter";
 import WorkerSocketAdapter from "./WorkerSocketAdapter";
 import {
-  resolvePlayerMemoryCaps,
+  CURRENT_FRAME_MAXIMUM_SIZE_BYTES,
   FALLBACK_PUBLICATION_ENCODING,
   GET_ALL_PARAMS_PERIOD_MS,
   GET_ALL_PARAMS_REQUEST_ID,
@@ -93,10 +93,6 @@ const log = Log.getLogger(__dirname);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-const PLAYER_MEMORY_CAPS = resolvePlayerMemoryCaps(
-  (globalThis as { location?: { search?: string } }).location?.search,
-);
-
 export default class FoxgloveWebSocketPlayer implements Player {
   readonly #sourceId: string;
 
@@ -115,9 +111,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   // the next #emitState mints a fresh Map identity for consumers.
   #topicsStatsChanged = false;
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
-  #parsedMessages = new LiveMessageQueue<MessageEvent>(
-    PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes,
-  );
+  #parsedMessages = new LiveMessageQueue<MessageEvent>(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
   #presence: PlayerPresence = PlayerPresence.INITIALIZING;
@@ -207,11 +201,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#client = new FoxgloveClient({
       ws:
         typeof Worker !== "undefined"
-          ? new WorkerSocketAdapter(
-              this.#url,
-              subprotocols,
-              PLAYER_MEMORY_CAPS.workerQueueMaximumSizeBytes,
-            )
+          ? new WorkerSocketAdapter(this.#url, subprotocols)
           : (new WebSocket(this.#url, subprotocols) as IWebSocket),
     });
 
@@ -586,7 +576,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           this.#alerts.addAlert(`webSocketPlayer:parsedMessageCacheFull`, {
             severity: "error",
             message: `WebSocketPlayer maximum frame size (${(
-              PLAYER_MEMORY_CAPS.currentFrameMaximumSizeBytes / 1_000_000
+              CURRENT_FRAME_MAXIMUM_SIZE_BYTES / 1_000_000
             ).toFixed(
               2,
             )}MB) reached. Dropping stale telemetry or complete video GOPs; sustained pressure may also drop the oldest transforms. Individually oversized messages are rejected. This accumulation can occur if the browser tab has been inactive.`,

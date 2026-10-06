@@ -53,34 +53,34 @@ describe("WorkerSocketAdapter", () => {
     });
   });
 
-  it("WorkerSocketAdapter should acknowledge a processed message", () => {
+  it("delivers consecutive messages across topics without sending ACKs", () => {
     const socket = new WorkerSocketAdapter(wsUrl);
-    socket.onmessage = jest.fn();
+    const onmessage = jest.fn();
+    socket.onmessage = onmessage;
     workerMock.postMessage.mockClear();
-
-    workerMock.onmessage?.({
-      data: { type: "message", data: BasicBuilder.string() },
-    });
-
-    expect(socket.onmessage).toHaveBeenCalledTimes(1);
-    expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "ack" });
+    const messages = [
+      new ArrayBuffer(17 * 1024 * 1024),
+      new ArrayBuffer(32),
+      "control",
+      new ArrayBuffer(20 * 1024 * 1024),
+    ];
+    messages.forEach((data) => workerMock.onmessage?.({ data: { type: "message", data } }));
+    expect(onmessage.mock.calls.map((call) => call[0].data)).toEqual(messages);
+    expect(workerMock.postMessage).not.toHaveBeenCalled();
   });
 
-  it("WorkerSocketAdapter should not acknowledge a directly transferred asset response", () => {
+  it("closes through the original worker and rejects outbound data after close", () => {
     const socket = new WorkerSocketAdapter(wsUrl);
-    socket.onmessage = jest.fn();
+    socket.onclose = jest.fn();
     workerMock.postMessage.mockClear();
-
-    workerMock.onmessage?.({
-      data: {
-        type: "message",
-        data: new ArrayBuffer(32),
-        requiresAck: false,
-      },
-    });
-
-    expect(socket.onmessage).toHaveBeenCalledTimes(1);
-    expect(workerMock.postMessage).not.toHaveBeenCalled();
+    socket.close();
+    expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "close", data: undefined });
+    workerMock.onmessage?.({ data: { type: "close", data: { code: 1000 } } });
+    expect(workerMock.terminate).toHaveBeenCalled();
+    expect(socket.onclose).toHaveBeenCalledTimes(1);
+    expect(() => {
+      socket.send("late");
+    }).toThrow("Can't send message over closed websocket connection");
   });
 
   it.each([
