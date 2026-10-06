@@ -11,6 +11,7 @@ import "@testing-library/jest-dom";
 import { act, render, waitFor } from "@testing-library/react";
 
 import { Topic } from "@lichtblick/suite";
+import { EMBEDDED_NAVIGATION_EVENT } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import {
@@ -22,9 +23,10 @@ import MessageEventBuilder from "@lichtblick/suite-base/testing/builders/Message
 import RenderStateBuilder from "@lichtblick/suite-base/testing/builders/RenderStateBuilder";
 
 import { Renderer } from "./Renderer";
-import { ThreeDeeRender } from "./ThreeDeeRender";
 import type { RendererOverlay } from "./RendererOverlay";
+import { ThreeDeeRender } from "./ThreeDeeRender";
 import { DEFAULT_CAMERA_STATE } from "./camera";
+import type { PublishClickEventMap } from "./renderables/PublishClickTool";
 import type { InterfaceMode, ThreeDeeRenderProps } from "./types";
 
 // three.js modules
@@ -257,7 +259,9 @@ describe("ThreeDeeRender", () => {
     );
     render(<ThreeDeeRender {...props} />);
     const renderer = mockedRenderer.mock.results[0]!.value;
-    act(() => mockOverlayProps.onFollowRobot("xgc/robots/uav1/base_link"));
+    act(() => {
+      mockOverlayProps.onFollowRobot("xgc/robots/uav1/base_link");
+    });
     expect(renderer.settings.handleAction).toHaveBeenCalledWith({
       action: "update",
       payload: {
@@ -270,18 +274,273 @@ describe("ThreeDeeRender", () => {
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
     });
-    act(() => mockOverlayProps.onGoal());
+    act(() => {
+      mockOverlayProps.onGoal();
+    });
     expect(renderer.settings.handleAction).toHaveBeenCalledWith({
       action: "update",
       payload: { input: "select", path: ["general", "followTf"], value: "world" },
     });
     expect(renderer.publishClickTool.setPublishClickType).toHaveBeenCalledWith("pose");
     expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
-    expect(props.context.publish).not.toHaveBeenCalled();
+    expect(jest.spyOn(props.context, "publish")).not.toHaveBeenCalled();
     expect(renderer.addListener).not.toHaveBeenCalledWith(
       "transformTreeUpdated",
       expect.any(Function),
     );
+  });
+
+  it("uses native navigation and reads robot roots only when Follow opens", () => {
+    const frames = [{ label: "uav1", value: "xgc/robots/uav1/base_link" }];
+    const robotFollowFrames = jest.fn().mockReturnValue(frames);
+    mockedRenderer.mockImplementationOnce(
+      () =>
+        createMockRenderer({
+          sceneExtensions: new Map([["foxglove.Urdfs", { robotFollowFrames }]]),
+        }) as unknown as Renderer,
+    );
+    const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
+    const props = setup(
+      { embeddedPanelId: "ThreeDeeRender!native-test" },
+      {
+        dataSourceIsLive: true,
+        initialState: { followTf: "xgc/robots/uav1/base_link", followMode: "follow-position" },
+      },
+    );
+    const view = render(<ThreeDeeRender {...props} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    const element = view.container.querySelector("[data-xgc-native-3d-panel-id]")!;
+    const navigate = (action: string, frameId?: string) => {
+      act(() => {
+        element.dispatchEvent(
+          new CustomEvent(EMBEDDED_NAVIGATION_EVENT, {
+            detail: { panelId: "ThreeDeeRender!native-test", action, frameId },
+          }),
+        );
+      });
+    };
+    expect(robotFollowFrames).not.toHaveBeenCalled();
+    navigate("robot-frames");
+    expect(robotFollowFrames).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "robot-frames",
+        panelId: "ThreeDeeRender!native-test",
+        frames,
+      }),
+      window.location.origin,
+    );
+    navigate("follow", "xgc/robots/uav1/base_link");
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: {
+        input: "select",
+        path: ["general", "followTf"],
+        value: "xgc/robots/uav1/base_link",
+      },
+    });
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
+    });
+    navigate("goal");
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: { input: "select", path: ["general", "followTf"], value: "world" },
+    });
+    expect(renderer.publishClickTool.setPublishClickType).toHaveBeenCalledWith("pose");
+    expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
+    expect(jest.spyOn(props.context, "publish")).not.toHaveBeenCalled();
+    navigate("overview");
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
+    });
+    expect(robotFollowFrames).toHaveBeenCalledTimes(1);
+    postMessage.mockRestore();
+    expect(renderer.addListener).not.toHaveBeenCalledWith(
+      "transformTreeUpdated",
+      expect.any(Function),
+    );
+  });
+
+  it("does not withdraw a connected replacement native panel when the old root retires late", () => {
+    const originalParent = Object.getOwnPropertyDescriptor(window, "parent")!;
+    const postMessage = jest.fn();
+    Object.defineProperty(window, "parent", { configurable: true, value: { postMessage } });
+    const embeddedPanelId = "ThreeDeeRender!replacement";
+    try {
+      const old = render(<ThreeDeeRender {...setup({ embeddedPanelId })} />);
+      // Adapter removes the old container synchronously; nested root.unmount runs later.
+      old.container.remove();
+      const current = render(<ThreeDeeRender {...setup({ embeddedPanelId })} />);
+      expect(postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: "navigation-state",
+          panelId: embeddedPanelId,
+          available: true,
+        }),
+        window.location.origin,
+      );
+      postMessage.mockClear();
+      old.unmount();
+      expect(postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "navigation-state",
+          available: false,
+        }),
+        expect.any(String),
+      );
+      current.unmount();
+      expect(postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: "navigation-state",
+          panelId: embeddedPanelId,
+          available: false,
+        }),
+        window.location.origin,
+      );
+    } finally {
+      Object.defineProperty(window, "parent", originalParent);
+    }
+  });
+
+  it("reports a synchronous Goal publish failure with the configured topic and reason", () => {
+    const failure = new Error("No advertised channel");
+    const enqueueSnackbarFromParent = jest.fn();
+    const logError = jest.fn();
+    const consoleError = jest.spyOn(console, "error").mockImplementation();
+    const props = setup(
+      { enqueueSnackbarFromParent, logError },
+      {
+        initialState: { publish: { poseTopic: "/chosen/goal" } },
+        publish: jest.fn(() => {
+          throw failure;
+        }),
+      },
+    );
+    render(<ThreeDeeRender {...props} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    const onSubmit = jest
+      .mocked(renderer.publishClickTool.addEventListener)
+      .mock.calls.find(([type]) => type === "foxglove.publish-submit")![1] as unknown as (
+      event: PublishClickEventMap["foxglove.publish-submit"],
+    ) => void;
+    const pose = { position: { x: 1, y: 2, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
+    act(() => {
+      onSubmit({ publishClickType: "pose", pose });
+    });
+    expect(jest.spyOn(props.context, "publish")).toHaveBeenCalledTimes(1);
+    expect(jest.spyOn(props.context, "publish")).toHaveBeenCalledWith(
+      "/chosen/goal",
+      expect.objectContaining({
+        header: expect.objectContaining({ frame_id: "base_link" }),
+        pose,
+      }),
+    );
+    const message = "Failed to publish pose to /chosen/goal in base_link: No advertised channel";
+    expect(enqueueSnackbarFromParent).toHaveBeenCalledWith(message, "error");
+    expect(logError).toHaveBeenCalledWith(message, failure);
+    consoleError.mockRestore();
+  });
+
+  it.each([
+    true,
+    false,
+  ])("switches the actual camera through native settings with syncCamera=%s", (syncCamera) => {
+    let cameraState = { ...DEFAULT_CAMERA_STATE };
+    const handleAction = jest.fn((action) => {
+      if (action.payload.path.join(".") === "cameraState.perspective") {
+        cameraState = { ...cameraState, perspective: action.payload.value };
+      }
+    });
+    mockedRenderer.mockImplementationOnce(
+      () =>
+        createMockRenderer({
+          getCameraState: jest.fn(() => cameraState),
+          settings: {
+            handleAction,
+            tree: jest.fn(() => ({})),
+            errors: { on: jest.fn(), off: jest.fn() },
+          },
+        }) as unknown as Renderer,
+    );
+    const props = setup({}, { initialState: { scene: { syncCamera } } });
+    render(<ThreeDeeRender {...props} />);
+    act(() => {
+      mockOverlayProps.onTogglePerspective();
+    });
+    expect(cameraState.perspective).toBe(false);
+    const sharedState = { cameraState, followMode: DEFAULT_FOLLOW_MODE, followTf: "base_link" };
+    expect(jest.spyOn(props.context, "setSharedPanelState").mock.calls).toEqual(
+      syncCamera ? [[sharedState]] : [],
+    );
+    act(() => {
+      mockOverlayProps.onTogglePerspective();
+    });
+    expect(cameraState.perspective).toBe(true);
+    const nextSharedState = { cameraState, followMode: DEFAULT_FOLLOW_MODE, followTf: "base_link" };
+    expect(jest.spyOn(props.context, "setSharedPanelState").mock.calls).toEqual(
+      syncCamera ? [[sharedState], [nextSharedState]] : [],
+    );
+  });
+
+  it("publishes the selected native point and Goal to configured ROS topics with their actual frame", () => {
+    mockedRenderer.mockImplementationOnce(() => {
+      const renderer = createMockRenderer();
+      renderer.settings.handleAction.mockImplementation((action) => {
+        if (action.payload.path.join(".") === "general.followTf") {
+          renderer.followFrameId = action.payload.value;
+        }
+      });
+      return renderer as unknown as Renderer;
+    });
+    const props = setup(
+      {},
+      { initialState: { publish: { pointTopic: "/chosen/point", poseTopic: "/chosen/goal" } } },
+    );
+    const view = render(<ThreeDeeRender {...props} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    expect(jest.spyOn(props.context, "advertise")).toHaveBeenCalledWith(
+      "/chosen/point",
+      "geometry_msgs/PointStamped",
+      expect.any(Object),
+    );
+    expect(jest.spyOn(props.context, "advertise")).toHaveBeenCalledWith(
+      "/chosen/goal",
+      "geometry_msgs/PoseStamped",
+      expect.any(Object),
+    );
+    const onSubmit = jest
+      .mocked(renderer.publishClickTool.addEventListener)
+      .mock.calls.find(([type]) => type === "foxglove.publish-submit")![1] as unknown as (
+      event: PublishClickEventMap["foxglove.publish-submit"],
+    ) => void;
+    const point = { x: 1, y: 2, z: 0 };
+    act(() => {
+      onSubmit({ publishClickType: "point", point });
+    });
+    expect(jest.spyOn(props.context, "publish")).toHaveBeenLastCalledWith(
+      "/chosen/point",
+      expect.objectContaining({
+        header: expect.objectContaining({ frame_id: "base_link" }),
+        point,
+      }),
+    );
+    act(() => {
+      mockOverlayProps.onGoal();
+    });
+    const pose = { position: { x: 3, y: 4, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
+    act(() => {
+      onSubmit({ publishClickType: "pose", pose });
+    });
+    expect(jest.spyOn(props.context, "publish")).toHaveBeenLastCalledWith(
+      "/chosen/goal",
+      expect.objectContaining({ header: expect.objectContaining({ frame_id: "world" }), pose }),
+    );
+    view.unmount();
+    expect(jest.spyOn(props.context, "unadvertise")).toHaveBeenCalledWith("/chosen/point");
+    expect(jest.spyOn(props.context, "unadvertise")).toHaveBeenCalledWith("/chosen/goal");
   });
 
   it("initializes with default camera state when no initial state is provided", () => {

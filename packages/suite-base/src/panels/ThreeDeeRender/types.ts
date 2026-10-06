@@ -25,6 +25,7 @@ export type Shared3DPanelState = {
 };
 
 export type ThreeDeeRenderProps = {
+  embeddedPanelId?: string;
   context: BuiltinPanelExtensionContext;
   interfaceMode: InterfaceMode;
   testOptions: TestOptions;
@@ -41,6 +42,7 @@ export type ThreeDeeRenderProps = {
 };
 
 export type InitPanelArgs = {
+  embeddedPanelId?: string;
   crash: ReturnType<typeof useCrash>;
   forwardedAnalytics: ForwardedAnalytics;
   forwardedEmbeddedControls: ForwardedEmbeddedWorkspaceControls;

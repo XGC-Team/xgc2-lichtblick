@@ -200,6 +200,27 @@ describe("<RendererOverlay /> hover wiring", () => {
     expect(onOverview).toHaveBeenCalledTimes(1);
   });
 
+  it("selects the original publish type and switches views only on the user's input", () => {
+    mockRenderer.fixedFrameId = "world";
+    const onTogglePerspective = jest.fn();
+    const onClickPublish = jest.fn();
+    const onChangePublishClickType = jest.fn();
+    renderOverlay(document.createElement("canvas"), {
+      canPublish: true,
+      perspective: true,
+      onTogglePerspective,
+      onClickPublish,
+      onChangePublishClickType,
+    });
+    expect(onClickPublish).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "3D" }));
+    expect(onTogglePerspective).toHaveBeenCalledTimes(1);
+    fireEvent.contextMenu(screen.getByTestId("publish-button"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Publish point" }));
+    expect(onChangePublishClickType).toHaveBeenCalledWith("point");
+    expect(onClickPublish).not.toHaveBeenCalled();
+  });
+
   it("keeps Goal visible but disabled without publishing capability", () => {
     mockRenderer.fixedFrameId = "world";
     renderOverlay(document.createElement("canvas"));

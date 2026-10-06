@@ -793,9 +793,37 @@ function PanelExtensionAdapter(
     panelContainerRef.current.appendChild(panelElement);
 
     log.info(`Init panel ${panelId}`);
+    // A nested React root may unmount in a later microtask, after the next init has published.
+    // Its publisher callbacks must lose authority before the current publications are cleared.
+    let active = true;
+    const advertisements = advertisementsRef.current;
     const onUnmount = initPanel({
       panelElement,
       ...partialExtensionContext,
+      advertise:
+        partialExtensionContext.advertise == undefined
+          ? undefined
+          : (...args) => {
+              if (active) {
+                partialExtensionContext.advertise?.(...args);
+              }
+            },
+      unadvertise:
+        partialExtensionContext.unadvertise == undefined
+          ? undefined
+          : (...args) => {
+              if (active) {
+                partialExtensionContext.unadvertise?.(...args);
+              }
+            },
+      publish:
+        partialExtensionContext.publish == undefined
+          ? undefined
+          : (...args) => {
+              if (active) {
+                partialExtensionContext.publish?.(...args);
+              }
+            },
 
       // eslint-disable-next-line no-restricted-syntax
       set onRender(renderFunction: RenderFn | undefined) {
@@ -805,11 +833,13 @@ function PanelExtensionAdapter(
     isPanelInitializedRef.current = true;
 
     return () => {
+      active = false;
       if (onUnmount) {
         onUnmount();
       }
       isPanelInitializedRef.current = false;
       panelElement.remove();
+      advertisements.clear();
       getMessagePipelineContext().setSubscriptions(panelId, []);
       getMessagePipelineContext().setPublishers(panelId, []);
     };

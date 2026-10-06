@@ -475,6 +475,68 @@ describe("PanelExtensionAdapter", () => {
     await sig;
   });
 
+  it("ignores retired init publisher callbacks after a replacement has advertised", async () => {
+    let currentAdvertisements: AdvertiseOptions[] = [];
+    const sent = jest.fn();
+    const fixture: Fixture = {
+      capabilities: [PLAYER_CAPABILITIES.advertise],
+      profile: "ros1",
+      setPublishers: (_id, advertisements) => {
+        currentAdvertisements = advertisements;
+      },
+      publish: (request) => {
+        if (!currentAdvertisements.some((entry) => entry.topic === request.topic)) {
+          throw new Error("Topic is not advertised");
+        }
+        sent(request);
+      },
+    };
+    let current: BuiltinPanelExtensionContext | undefined;
+    const oldInit = (context: BuiltinPanelExtensionContext) => {
+      context.advertise?.("/goal", "geometry_msgs/PoseStamped");
+      context.advertise?.("/old-only", "geometry_msgs/PoseStamped");
+      return () => {
+        queueMicrotask(() => {
+          context.unadvertise?.("/goal");
+          context.advertise?.("/retired", "geometry_msgs/PoseStamped");
+          context.publish?.("/goal", { retired: true });
+        });
+      };
+    };
+    const newInit = (context: BuiltinPanelExtensionContext) => {
+      current = context;
+      context.advertise?.("/goal", "geometry_msgs/PoseStamped");
+    };
+    const config = {};
+    const saveConfig = () => {};
+    const Wrapper = ({ replacement = false }: { replacement?: boolean }) => (
+      <ThemeProvider isDark>
+        <MockPanelContextProvider>
+          <PanelSetup fixture={fixture}>
+            <PanelExtensionAdapter
+              config={config}
+              saveConfig={saveConfig}
+              initPanel={replacement ? newInit : oldInit}
+            />
+          </PanelSetup>
+        </MockPanelContextProvider>
+      </ThemeProvider>
+    );
+    const view = render(<Wrapper />);
+    view.rerender(<Wrapper replacement />);
+    await act(async () => undefined);
+    expect(currentAdvertisements.map((entry) => entry.topic)).toEqual(["/goal"]);
+    expect(sent).not.toHaveBeenCalled();
+    current?.publish?.("/goal", { current: true });
+    expect(sent).toHaveBeenCalledWith({ topic: "/goal", msg: { current: true } });
+    view.unmount();
+    expect(currentAdvertisements).toEqual([]);
+    current?.advertise?.("/after-unmount", "geometry_msgs/PoseStamped");
+    current?.publish?.("/goal", { afterUnmount: true });
+    expect(currentAdvertisements).toEqual([]);
+    expect(sent).toHaveBeenCalledTimes(1);
+  });
+
   it("should unadvertise when unmounting", (done) => {
     expect.assertions(5);
     let count = 0;
