@@ -221,6 +221,23 @@ describe("<RendererOverlay /> hover wiring", () => {
     expect(onClickPublish).not.toHaveBeenCalled();
   });
 
+  it("keeps navigation in the host top bar when embedded, including when Tools opens", () => {
+    const originalParent = Object.getOwnPropertyDescriptor(window, "parent")!;
+    Object.defineProperty(window, "parent", { configurable: true, value: {} });
+    try {
+      mockRenderer.fixedFrameId = "world";
+      renderOverlay(document.createElement("canvas"), { canPublish: true });
+      expect(screen.queryByRole("button", { name: "Goal" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Follow robot" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Overview" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "3D" })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("publish-button")).not.toBeInTheDocument();
+      expect(screen.getByTestId("measure-button")).toBeVisible();
+    } finally {
+      Object.defineProperty(window, "parent", originalParent);
+    }
+  });
+
   it("keeps Goal visible but disabled without publishing capability", () => {
     mockRenderer.fixedFrameId = "world";
     renderOverlay(document.createElement("canvas"));

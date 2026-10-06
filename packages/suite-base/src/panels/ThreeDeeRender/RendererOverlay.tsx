@@ -485,6 +485,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
   }, [renderer]);
 
   const { threeDToolsVisible } = useEmbeddedWorkspaceControls();
+  const hostOwnsNavigation = props.interfaceMode === "3d" && window.parent !== window;
   const mousePresenceRef = useRef<HTMLDivElement>(ReactNull);
   const mousePresent = usePanelMousePresence(mousePresenceRef);
 
@@ -505,7 +506,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
             [classes.toolsHidden]: props.interfaceMode === "3d" && !threeDToolsVisible,
           })}
         >
-          {props.interfaceMode === "3d" && (
+          {props.interfaceMode === "3d" && !hostOwnsNavigation && (
             <Paper elevation={4} className={classes.navigationTools}>
               <Tooltip
                 title={
@@ -535,7 +536,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
                 size="small"
                 color="inherit"
                 disabled={!renderer}
-                onClick={(event) => setFollowMenuAnchor(event.currentTarget)}
+                onClick={(event) => { setFollowMenuAnchor(event.currentTarget); }}
                 data-xgc-role="lichtblick-follow-robot-tool"
               >
                 Follow robot
@@ -552,7 +553,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
               <Menu
                 anchorEl={followMenuAnchor}
                 open={followMenuAnchor != ReactNull}
-                onClose={() => setFollowMenuAnchor(ReactNull)}
+                onClose={() => { setFollowMenuAnchor(ReactNull); }}
               >
                 {robotFrames.length === 0 && (
                   <MenuItem disabled>No robot frames available</MenuItem>
@@ -596,26 +597,28 @@ export function RendererOverlay(props: Props): React.JSX.Element {
               elevation={4}
               style={{ display: "flex", flexDirection: "column" }}
             >
-              <Tooltip
-                placement="left"
-                title={
-                  <>
-                    {`Switch to ${props.perspective ? "2" : "3"}D camera `}
-                    <kbd className={classes.kbd}>3</kbd>
-                  </>
-                }
-              >
-                <IconButton
-                  className={classes.iconButton}
-                  size="small"
-                  color={props.perspective ? "info" : "inherit"}
-                  data-xgc-role="lichtblick-3d-perspective-toggle"
-                  data-xgc-id={`${panelContext?.id ?? toolsElementId}:perspective`}
-                  onClick={props.onTogglePerspective}
+              {!hostOwnsNavigation && (
+                <Tooltip
+                  placement="left"
+                  title={
+                    <>
+                      {`Switch to ${props.perspective ? "2" : "3"}D camera `}
+                      <kbd className={classes.kbd}>3</kbd>
+                    </>
+                  }
                 >
-                  <span className={classes.threeDeeButton}>3D</span>
-                </IconButton>
-              </Tooltip>
+                  <IconButton
+                    className={classes.iconButton}
+                    size="small"
+                    color={props.perspective ? "info" : "inherit"}
+                    data-xgc-role="lichtblick-3d-perspective-toggle"
+                    data-xgc-id={`${panelContext?.id ?? toolsElementId}:perspective`}
+                    onClick={props.onTogglePerspective}
+                  >
+                    <span className={classes.threeDeeButton}>3D</span>
+                  </IconButton>
+                </Tooltip>
+              )}
               <Tooltip
                 placement="left"
                 title={props.measureActive ? "Cancel measuring" : "Measure distance"}
@@ -635,7 +638,7 @@ export function RendererOverlay(props: Props): React.JSX.Element {
                 </IconButton>
               </Tooltip>
 
-              {publishControls}
+              {!hostOwnsNavigation && publishControls}
             </Paper>
           )}
         </div>

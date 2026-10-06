@@ -351,6 +351,15 @@ describe("ThreeDeeRender", () => {
     expect(renderer.publishClickTool.setPublishClickType).toHaveBeenCalledWith("pose");
     expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
     expect(jest.spyOn(props.context, "publish")).not.toHaveBeenCalled();
+    navigate("perspective");
+    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
+      action: "update",
+      payload: {
+        input: "boolean",
+        path: ["cameraState", "perspective"],
+        value: false,
+      },
+    });
     navigate("overview");
     expect(renderer.settings.handleAction).toHaveBeenCalledWith({
       action: "update",
@@ -379,6 +388,7 @@ describe("ThreeDeeRender", () => {
           type: "navigation-state",
           panelId: embeddedPanelId,
           available: true,
+          perspective: true,
         }),
         window.location.origin,
       );

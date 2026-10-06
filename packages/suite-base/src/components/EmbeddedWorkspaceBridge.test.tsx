@@ -327,6 +327,11 @@ describe("EmbeddedWorkspaceBridge", () => {
     });
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+    act(() => {
+      dispatchHostMessage({ ...message, action: "perspective" });
+    });
+    expect(second).toHaveBeenCalledTimes(2);
+    expect(first).not.toHaveBeenCalled();
     expect(isEmbeddedNavigationCommand({ ...message, frameId: "extra" })).toBe(false);
     expect(isEmbeddedNavigationCommand({ ...message, action: "follow" })).toBe(false);
     a.remove();

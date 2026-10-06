@@ -1086,6 +1086,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         type: "navigation-state",
         panelId: embeddedPanelId,
         available: navigationAvailable,
+        perspective: config.cameraState.perspective,
         canGoal: goalAvailable,
         goalActive: publishActive && renderer?.publishClickTool.publishClickType === "pose",
         followFrameId: config.followMode === "follow-none" ? undefined : config.followTf,
@@ -1101,6 +1102,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     renderer,
     config.followMode,
     config.followTf,
+    config.cameraState.perspective,
   ]);
   useEffect(() => {
     if (!embeddedPanelId || interfaceMode !== "3d" || window.parent === window) {
@@ -1125,6 +1127,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           type: "navigation-state",
           panelId: embeddedPanelId,
           available: false,
+          perspective: config.cameraState.perspective,
           canGoal: false,
           goalActive: false,
           followFrameId: undefined,
@@ -1132,7 +1135,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         window.location.origin,
       );
     };
-  }, [embeddedPanelId, interfaceMode]);
+  }, [embeddedPanelId, interfaceMode, config.cameraState.perspective]);
   useEffect(() => {
     const element = navigationElement.current;
     if (!element || !navigationAvailable) {
@@ -1148,6 +1151,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           if (goalAvailable) {
             onGoal();
           }
+          break;
+        case "perspective":
+          onTogglePerspective();
           break;
         case "overview":
           onOverview();
@@ -1186,6 +1192,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     onGoal,
     onFollowRobot,
     onOverview,
+    onTogglePerspective,
     renderer,
   ]);
 

@@ -55,7 +55,7 @@ export type EmbeddedNavigationCommand = {
   sender: "xgc2";
   type: "navigation";
   panelId: string;
-  action: "goal" | "overview" | "robot-frames" | "follow";
+  action: "goal" | "overview" | "robot-frames" | "follow" | "perspective";
   frameId?: string;
 };
 
@@ -77,7 +77,7 @@ export function isEmbeddedNavigationCommand(value: unknown): value is EmbeddedNa
     if (typeof value.frameId !== "string" || !value.frameId) {
       return false;
     }
-  } else if (!["goal", "overview", "robot-frames"].includes(String(value.action))) {
+  } else if (!["goal", "overview", "robot-frames", "perspective"].includes(String(value.action))) {
     return false;
   }
   return (

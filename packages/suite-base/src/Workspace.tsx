@@ -723,7 +723,7 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
   }, [isEmbedded, sidebarActions.left, sidebarActions.right]);
 
   return (
-    <EmbeddedWorkspaceControlsProvider>
+    <EmbeddedWorkspaceControlsProvider defaultThreeDToolsVisible={!isEmbedded}>
       <PanelStateContextProvider>
         {dataSourceDialog.open && <DataSourceDialog />}
         {isEmbedded && <EmbeddedWorkspaceBridge />}
