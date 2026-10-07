@@ -76,8 +76,8 @@ type FakeClientInstance = EventEmitter & {
   close: jest.Mock;
 };
 
-const FakeClient: { instances: FakeClientInstance[] } = jest.requireMock("@foxglove/ws-protocol")
-  .FoxgloveClient;
+const FakeClient: { instances: FakeClientInstance[] } =
+  jest.requireMock("@foxglove/ws-protocol").FoxgloveClient;
 
 const parseChannelMock: jest.Mock = jest.requireMock("@lichtblick/mcap-support").parseChannel;
 
@@ -228,7 +228,7 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
     ]);
   });
 
-  it("parked: retains one latest message per topic unparsed; resume applies exactly the latest", async () => {
+  it("parked: retains latest snapshots and ordered transforms without parsing", async () => {
     const { client, states, subIdByChannel, reporter } = setup();
     states.length = 0;
     mockDeserialize.mockClear();
@@ -248,20 +248,23 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
     reporter.setVisible(true);
     await flush();
 
-    // Each retained entry is parsed exactly once; TF resolves current from
-    // the latest aggregated message only.
-    expect(mockDeserialize).toHaveBeenCalledTimes(2);
+    // Each retained entry is parsed exactly once. TF messages can contain
+    // different frames, so both remain while the cloud keeps only its latest.
+    expect(mockDeserialize).toHaveBeenCalledTimes(3);
     const parsedPayloads = mockDeserialize.mock.calls.map((call) =>
       Array.from(call[0] as Uint8Array),
     );
-    expect(parsedPayloads).toEqual([[11], [3]]);
+    expect(parsedPayloads).toEqual([[10], [11], [3]]);
 
     const byTopic = new Map<string, MessageEvent[]>();
     for (const message of collectMessages(states)) {
       byTopic.set(message.topic, [...(byTopic.get(message.topic) ?? []), message]);
     }
     expect(byTopic.get("/cloud")?.map((message) => message.message)).toEqual([{ bytes: [3] }]);
-    expect(byTopic.get("/tf")?.map((message) => message.message)).toEqual([{ bytes: [11] }]);
+    expect(byTopic.get("/tf")?.map((message) => message.message)).toEqual([
+      { bytes: [10] },
+      { bytes: [11] },
+    ]);
   });
 
   it("parked: deletion-semantic channels are unsubscribed; resume clears layers before resubscribing", async () => {
@@ -362,5 +365,42 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
     expect(
       messages.filter((message) => message.topic === "/tf").map((message) => message.message),
     ).toEqual([{ bytes: [42] }]);
+  });
+
+  it.each([
+    { mode: "visible", parked: false, aggregate: false },
+    { mode: "parked aggregated", parked: true, aggregate: true },
+    { mode: "parked separate", parked: true, aggregate: false },
+  ])("$mode retains both robot transforms", async ({ parked, aggregate }) => {
+    const { client, states, subIdByChannel, reporter } = setup();
+    states.length = 0;
+    mockDeserialize.mockImplementation((data: ArrayBufferView) =>
+      JSON.parse(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8")),
+    );
+    if (parked) {
+      reporter.setVisible(false);
+    }
+    const transforms = ["uav1/base_link", "uav2/base_link"].map((child_frame_id) => ({
+      header: { frame_id: "world", stamp: { sec: 10, nsec: 0 } },
+      child_frame_id,
+      transform: { translation: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+    }));
+    const batches = aggregate ? [transforms] : transforms.map((transform) => [transform]);
+    for (const batch of batches) {
+      send(
+        client,
+        subIdByChannel.get(TF_CHANNEL)!,
+        new Uint8Array(Buffer.from(JSON.stringify({ transforms: batch }))),
+      );
+    }
+    reporter.setVisible(true);
+    await flush();
+    const frames = collectMessages(states)
+      .filter((event) => event.topic === "/tf")
+      .flatMap(
+        (event) => (event.message as { transforms: { child_frame_id: string }[] }).transforms,
+      )
+      .map((transform) => transform.child_frame_id);
+    expect(frames.sort()).toEqual(["uav1/base_link", "uav2/base_link"]);
   });
 });

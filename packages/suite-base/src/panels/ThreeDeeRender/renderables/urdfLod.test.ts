@@ -84,18 +84,34 @@ describe("deriveUrdfTierUrlsFromContent", () => {
     </link>
   </robot>`;
 
-  it("derives package:// tier URLs from the mesh package and robot name", () => {
-    expect(deriveUrdfTierUrlsFromContent(paramUrdf, "scout")?.tiers).toEqual({
+  it("derives package:// tier URLs from the mesh description package", () => {
+    expect(deriveUrdfTierUrlsFromContent(paramUrdf)?.tiers).toEqual({
       high: "package://scout_description/urdf/scout_visual_lod10k.urdf",
       medium: "package://scout_description/urdf/scout_visual_lod_medium.urdf",
       low: "package://scout_description/urdf/scout_visual_lod1500.urdf",
     });
   });
 
-  it("returns undefined for primitive-only URDFs and empty robot names", () => {
+  it.each([
+    ["fs150", "fs150_photo"],
+    ["scout", "xgc2_scout_mini_visual"],
+    ["mecanum", "xgc2_mecanum_ugv"],
+    ["b2arx", "b2arx"],
+  ])("uses %s resource paths independently of XML name %s and comments", (resource, robotName) => {
+    const urdf = `<!-- mesh paths use package://. -->
+      <robot name="${robotName}"><link name="base_link"><visual><geometry>
+        <mesh filename="package://${resource}_description/meshes/body.dae"/>
+      </geometry></visual></link></robot>`;
+    expect(deriveUrdfTierUrlsFromContent(urdf)?.tiers).toEqual({
+      high: `package://${resource}_description/urdf/${resource}_visual_lod10k.urdf`,
+      medium: `package://${resource}_description/urdf/${resource}_visual_lod_medium.urdf`,
+      low: `package://${resource}_description/urdf/${resource}_visual_lod1500.urdf`,
+    });
+  });
+
+  it("returns undefined for primitive-only URDFs", () => {
     const primitives = '<robot name="t"><link name="a"><visual><geometry><box size="1 1 1"/></geometry></visual></link></robot>';
-    expect(deriveUrdfTierUrlsFromContent(primitives, "t")).toBeUndefined();
-    expect(deriveUrdfTierUrlsFromContent(paramUrdf, "")).toBeUndefined();
+    expect(deriveUrdfTierUrlsFromContent(primitives)).toBeUndefined();
   });
 });
 

@@ -569,13 +569,18 @@ export default class FoxgloveWebSocketPlayer implements Player {
         const receiveTime = this.#getCurrentTime();
         const topic = chanInfo.channel.topic;
 
-        // Parked embed: collapse every schema to the latest message per topic,
-        // kept as raw bytes so nothing is deserialized while hidden. The drain
+        // Parked embed: keep raw bytes so nothing is deserialized while hidden.
+        // Transforms stay ordered: one topic can carry different robot frames.
+        // Other retained messages collapse to the latest per topic. The drain
         // stays closed until resume (see #emitState), so no scene application
         // happens either. Deletion-semantic channels cannot arrive here: they
         // are unsubscribed while parked, and their layers are reset on resume
         // before resubscribing, so missed deletions leave no ghosts.
         if (this.#parked) {
+          const isTransform =
+            topic === "/tf" ||
+            topic === "/tf_static" ||
+            isTransformSchemaName(chanInfo.channel.schemaName);
           this.#parsedMessages.enqueue(
             {
               value: makeDeferredSnapshotEvent({
@@ -587,7 +592,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
               }),
               sizeInBytes: data.byteLength,
               key: topic,
-              retention: "replaceable",
+              retention: isTransform ? "protected" : "replaceable",
+              protectedPriority: topic === "/tf_static" ? "high" : "normal",
             },
             { supersedeReplaceable: true },
           );

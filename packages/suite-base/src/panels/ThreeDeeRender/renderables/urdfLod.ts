@@ -18,9 +18,8 @@ import type { UrdfGeometry, UrdfJoint, UrdfRobot } from "@lichtblick/den/urdf";
  * replaces visual geometry and never touches TF. `*_visual_detail.urdf` is a
  * preserved previous default, NOT a tier, and is never derived here.
  *
- * The released default tier is `lod10k` (high): the URDF a layer loads today
- * IS the high tier, so a pinned "high" layer never fetches anything and auto
- * mode starts from the already-parsed model.
+ * A default URDF can be the original reference model rather than `lod10k`.
+ * Only an explicitly named tier URL identifies an already-loaded tier.
  */
 
 export type UrdfLodTier = "high" | "medium" | "low";
@@ -61,8 +60,8 @@ export type UrdfLodBase = {
 
 /** LOD bookkeeping of one loaded robot (one URDF layer). */
 export type UrdfLodState = {
-  /** Tier whose geometry is currently built into the renderable. */
-  currentTier: UrdfLodTier;
+  /** Loaded tier, or undefined while showing an unclassified default model. */
+  currentTier: UrdfLodTier | undefined;
   /** Tier whose swap is in flight, if any. */
   pendingTier: UrdfLodTier | undefined;
   /** Tiers whose fetch/parse failed; auto mode stops requesting them. */
@@ -147,19 +146,18 @@ export function deriveUrdfTierUrlsFromUrl(baseUrdfUrl: string): UrdfLodBase | un
  * Derive tier URLs for a parameter/topic-sourced URDF, which has no URL of its
  * own. Mesh loading for such robots already resolves `package://` URIs through
  * the asset pipeline, so the tier base comes from the same place: the first
- * `package://<pkg>/` reference in the URDF text plus the package contract
- * location `urdf/<robot>_visual_<tier>.urdf`. Returns undefined when the URDF
+ * mesh `package://<robot>_description/` URI plus the package contract
+ * location `urdf/<robot>_visual_<tier>.urdf`. The XML robot name is independent
+ * of this resource filename. Returns undefined when the URDF
  * references no package (e.g. primitive-only models) — auto LOD then degrades
  * to the default tier only.
  */
-export function deriveUrdfTierUrlsFromContent(
-  urdfText: string,
-  robotName: string,
-): UrdfLodBase | undefined {
-  const pkg = /package:\/\/([^/]+)\//.exec(urdfText)?.[1];
-  if (pkg == undefined || robotName.length === 0) {
+export function deriveUrdfTierUrlsFromContent(urdfText: string): UrdfLodBase | undefined {
+  const pkg = /<mesh\b[^>]*\bfilename\s*=\s*["']package:\/\/([^/"']+)\//.exec(urdfText)?.[1];
+  if (pkg == undefined) {
     return undefined;
   }
+  const robotName = pkg.replace(/_description$/, "");
   const stem = `package://${pkg}/urdf/${robotName}_visual`;
   return {
     tiers: {

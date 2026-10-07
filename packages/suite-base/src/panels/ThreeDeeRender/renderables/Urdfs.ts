@@ -304,7 +304,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #selectedUrdf: UrdfRenderable | undefined;
   /**
    * Parsed LOD tier models shared across robots, keyed
-   * `tier:<tierUrdfUrl>:<framePrefix>`; the just-loaded default model is
+   * `tier:<tierUrdfUrl>:<framePrefix>`; an explicitly tiered source model is
    * stored under its own tier key, so swapping back never refetches.
    */
   #tierModelCache = new Map<string, Promise<CachedTierModel>>();
@@ -1621,8 +1621,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
     // LOD bookkeeping: resolve the tier base (URL sources derive sibling tier
     // filenames; parameter/topic sources derive package:// tier URDFs from the
-    // same base their meshes resolve through), then record the just-parsed
-    // model under its own tier key so swapping back never refetches.
+    // same base their meshes resolve through). Cache the initial model only
+    // when its URL identifies a tier; plain defaults can be reference models.
     const customSettings = settings as Partial<LayerSettingsCustomUrdf>;
     const framePrefix = customSettings.framePrefix ?? "";
     const sourceType = customSettings.sourceType;
@@ -1637,9 +1637,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const lodBase =
       sourceUrl != undefined
         ? deriveUrdfTierUrlsFromUrl(sourceUrl)
-        : deriveUrdfTierUrlsFromContent(urdfText, robot.name);
-    const loadedTier: UrdfLodTier =
-      (sourceUrl != undefined ? urdfTierFromUrl(sourceUrl) : undefined) ?? "high";
+        : deriveUrdfTierUrlsFromContent(urdfText);
+    const loadedTier = sourceUrl != undefined ? urdfTierFromUrl(sourceUrl) : undefined;
     const radius = urdfModelBoundingRadius(robot);
     renderable.userData.lod = {
       currentTier: loadedTier,
@@ -1649,7 +1648,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       radius,
       lastMode: isUrdfLodMode(customSettings.lod) ? customSettings.lod : "auto",
     };
-    if (lodBase != undefined) {
+    if (lodBase != undefined && loadedTier != undefined) {
       this.#tierModelCache.set(
         `tier:${lodBase.tiers[loadedTier]}:${framePrefix}`,
         Promise.resolve({ parsed: { robot, frames, transforms }, baseUrl, radius }),
@@ -2043,7 +2042,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       viewportHeightPx,
       camera: sizeCamera,
     });
-    const desired = selectUrdfLodTier(sizePx, lod.currentTier);
+    const desired = selectUrdfLodTier(sizePx, lod.currentTier ?? "high");
     if (desired !== lod.currentTier) {
       this.#requestTierSwap(renderable, desired);
     }

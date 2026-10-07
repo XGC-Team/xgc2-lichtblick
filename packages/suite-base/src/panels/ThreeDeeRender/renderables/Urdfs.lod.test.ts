@@ -59,7 +59,7 @@ function tierUrdf(mesh: string): string {
 }
 
 const URL_URDFS: Record<string, string> = {
-  [URL_BASE]: tierUrdf("wheel_lod10k.stl"),
+  [URL_BASE]: tierUrdf("wheel_reference.stl"),
   [URL_HIGH]: tierUrdf("wheel_lod10k.stl"),
   [URL_MEDIUM]: tierUrdf("wheel_lod_medium.stl"),
   [URL_LOW]: tierUrdf("wheel_lod1500.stl"),
@@ -319,20 +319,22 @@ describe("Urdfs screen-size LOD", () => {
     modelCache.dispose();
   });
 
-  it("holds the default high tier for large robots without fetching tiers", async () => {
+  it("loads the real high tier instead of caching an unclassified default as high", async () => {
     const { extension, renderer, transformTree, modelCache, camera } = setup({
       robots: [{ id: "robot1", prefix: "r1/", x: 10 }],
     });
     await extension.settleVideoDecodes();
+    expect(meshBatchNames(extension)[0]).toContain("wheel_reference.stl");
     transformTree.addTransform("r1/base_link", "world", 0n, translation(10, 0, 0));
     camera.position.set(8, 0, 0); // d=2 → 750px, deep in the high band
 
     extension.startFrame(100n, "world", "world");
     await extension.settleVideoDecodes();
+    extension.startFrame(101n, "world", "world");
 
     expect(urdfFetches(renderer.fetchAsset, URL_MEDIUM)).toBe(0);
     expect(urdfFetches(renderer.fetchAsset, URL_LOW)).toBe(0);
-    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(0);
+    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(1);
     expect(meshBatchNames(extension).some((name) => name.includes("wheel_lod10k.stl"))).toBe(true);
     expect(slotPosition(meshSlot(extension, "robot1", "r1/base_link")).x).toBeCloseTo(10);
 
@@ -370,7 +372,7 @@ describe("Urdfs screen-size LOD", () => {
     camera.position.set(6.6, 0, 0);
     await frame(300n);
     expect(urdfFetches(renderer.fetchAsset, URL_MEDIUM)).toBe(1);
-    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(0);
+    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(1);
     expect(meshBatchNames(extension)[0]).toContain("wheel_lod_medium.stl");
 
     // 75px: swap down to low.
@@ -392,11 +394,11 @@ describe("Urdfs screen-size LOD", () => {
     expect(urdfFetches(renderer.fetchAsset, URL_MEDIUM)).toBe(1);
     expect(meshBatchNames(extension)[0]).toContain("wheel_lod_medium.stl");
 
-    // 750px: back up to high, served from the just-loaded default model —
+    // 750px: back up to high, served from the previously loaded tier model —
     // neither the tier URL nor the default URL is fetched again.
     camera.position.set(8, 0, 0);
     await frame(700n);
-    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(0);
+    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(1);
     expect(urdfFetches(renderer.fetchAsset, URL_BASE)).toBe(1);
     expect(meshBatchNames(extension)[0]).toContain("wheel_lod10k.stl");
 
@@ -425,11 +427,11 @@ describe("Urdfs screen-size LOD", () => {
     extension.startFrame(101n, "world", "world");
     await extension.settleVideoDecodes();
 
-    // robot1 pinned medium swapped without any camera; robot2 pinned high
-    // never fetched a tier. Two robots on different tiers do NOT share a batch.
+    // Both pinned tiers load their actual tier URDF without a camera.
+    // Two robots on different tiers do NOT share a batch.
     expect(urdfFetches(renderer.fetchAsset, URL_MEDIUM)).toBe(1);
     expect(urdfFetches(renderer.fetchAsset, URL_LOW)).toBe(0);
-    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(0);
+    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(1);
     const splitBatches = meshBatchNames(extension);
     expect(splitBatches).toHaveLength(2);
     expect(splitBatches.some((name) => name.includes("wheel_lod_medium.stl"))).toBe(true);
@@ -464,12 +466,14 @@ describe("Urdfs screen-size LOD", () => {
     transformTree.addTransform("r1/base_link", "world", 0n, translation(10, 0, 0));
     camera.position.set(8, 0, 0);
     extension.startFrame(100n, "world", "world");
+    await extension.settleVideoDecodes();
+    extension.startFrame(101n, "world", "world");
 
     // Select: the static mesh link migrates to a legacy per-link child.
     const selected = robot(extension, "robot1");
     flipLayers(selected, 1);
     selectedRenderableHandler(renderer)({ renderable: selected });
-    extension.startFrame(101n, "world", "world");
+    extension.startFrame(102n, "world", "world");
     await extension.settleVideoDecodes();
     expect(meshResource(extension, "robot1", "r1/base_link")).toContain("wheel_lod10k.stl");
     const highChild = [...selected.userData.renderables.values()].find(

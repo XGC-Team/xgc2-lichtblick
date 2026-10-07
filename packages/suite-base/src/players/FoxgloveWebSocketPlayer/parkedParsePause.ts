@@ -16,11 +16,10 @@ import type { MessageEvent } from "@lichtblick/suite-base/players/types";
  *   latest-per-topic supersede. On resume the drain parses and applies exactly
  *   one message per topic, so the scene shows current truth. This reuses the
  *   S1 deferred-event machinery with no new semantics.
- * - TF / transform schemas: same latest-per-topic raw-bytes queue. Applying
- *   the latest aggregated TF message refreshes current poses; poses resolve at
- *   the render time key, so the first drain after resume cannot produce stale
- *   intermediate poses. Transform frames are never deleted, so nothing missed
- *   while parked can leave a ghost.
+ * - TF / transform schemas: retain ordered raw bytes with the queue's existing
+ *   protected retention. Different robot frames can arrive in separate messages
+ *   on one topic, so retaining only the last message would lose frame updates.
+ *   Deserialization still waits until resume.
  * - Deletion-semantic schemas (foxglove.SceneUpdate, visualization_msgs/Marker
  *   and MarkerArray, in all encoding/name variants): latest-wins coalescing
  *   would drop deletions and leave ghost entities, so instead the player
@@ -37,8 +36,8 @@ import type { MessageEvent } from "@lichtblick/suite-base/players/types";
  *
  * Memory bound while parked: the live queue cap is tightened to
  * PARKED_FRAME_MAXIMUM_SIZE_BYTES for the duration of the park, and supersede
- * keeps at most one message per topic, so usage is
- * min(cap, sum of latest message sizes) regardless of park duration.
+ * keeps at most one message per replaceable topic. Ordered transforms share
+ * the same queue and existing capacity policy.
  * Deletion-semantic channels hold no queued bytes at all (unsubscribed).
  *
  * Schema-keyed only: behavior never depends on topic names.
