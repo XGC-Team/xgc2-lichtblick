@@ -22,10 +22,33 @@ import { Marker } from "../../ros";
 
 const tempTuple4: THREE.Vector4Tuple = [0, 0, 0, 0];
 
+/**
+ * Element-wise point equality. Publishers re-publish whole paths every cycle,
+ * usually with identical points; comparing a thousand xyz triples is
+ * microseconds, while a redundant setPoints is a full GPU buffer re-upload.
+ */
+export function lineStripPointsEqual(
+  a: readonly { x: number; y: number; z: number }[] | undefined,
+  b: readonly { x: number; y: number; z: number }[],
+): boolean {
+  if (a?.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    const pa = a[i]!;
+    const pb = b[i]!;
+    if (pa.x !== pb.x || pa.y !== pb.y || pa.z !== pb.z) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class RenderableLineStrip extends RenderableMarker {
   #geometry: DynamicLineGeometry;
   #linePrepass: Line2;
   #line: Line2;
+  #lastUploadedPoints: Marker["points"] | undefined;
 
   public constructor(
     topic: string,
@@ -103,7 +126,12 @@ export class RenderableLineStrip extends RenderableMarker {
     const pickingMaterial = this.#line.userData.pickingMaterial as THREE.ShaderMaterial;
     pickingMaterial.uniforms["linewidth"]!.value = lineWidth * 1.2;
 
-    this.#geometry.setPoints(marker.points, "strip");
+    // Skip the GPU re-upload when the path itself has not changed; marker
+    // messages are immutable, so keeping the reference is safe.
+    if (!lineStripPointsEqual(this.#lastUploadedPoints, marker.points)) {
+      this.#geometry.setPoints(marker.points, "strip");
+      this.#lastUploadedPoints = marker.points;
+    }
     const visible = this.#geometry.instanceCount > 0;
     this.#linePrepass.visible = visible;
     this.#line.visible = visible;

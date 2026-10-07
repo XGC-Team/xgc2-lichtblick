@@ -17,6 +17,7 @@ import EmbeddedWorkspaceBridge, {
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_SURFACES,
   XGC2_EMBED_VERSION,
+  XGC2_HOST_VISIBILITY_EVENT,
   type Xgc2EmbeddedHostCommand,
 } from "./EmbeddedWorkspaceBridge";
 
@@ -197,6 +198,50 @@ describe("EmbeddedWorkspaceBridge", () => {
       expect(selectLeftItem).toHaveBeenCalledTimes(1);
     } finally {
       window.history.pushState({}, "", "/");
+    }
+  });
+
+  it("re-broadcasts host visibility as a window event", () => {
+    render(<EmbeddedWorkspaceBridge />);
+    const seen: boolean[] = [];
+    const listener = (event: Event) => {
+      seen.push((event as CustomEvent<{ visible: boolean }>).detail.visible);
+    };
+    window.addEventListener(XGC2_HOST_VISIBILITY_EVENT, listener);
+    try {
+      act(() => {
+        dispatchHostMessage({
+          channel: XGC2_EMBED_CHANNEL,
+          version: XGC2_EMBED_VERSION,
+          sender: "xgc2",
+          type: "visibility",
+          visible: false,
+        });
+      });
+      act(() => {
+        dispatchHostMessage({
+          channel: XGC2_EMBED_CHANNEL,
+          version: XGC2_EMBED_VERSION,
+          sender: "xgc2",
+          type: "visibility",
+          visible: true,
+        });
+      });
+      act(() => {
+        dispatchHostMessage(
+          {
+            channel: XGC2_EMBED_CHANNEL,
+            version: XGC2_EMBED_VERSION,
+            sender: "xgc2",
+            type: "visibility",
+            visible: true,
+          },
+          { origin: "https://foreign.invalid" },
+        );
+      });
+      expect(seen).toEqual([false, true]);
+    } finally {
+      window.removeEventListener(XGC2_HOST_VISIBILITY_EVENT, listener);
     }
   });
 

@@ -82,6 +82,14 @@ import {
   LiveMessageRetention,
 } from "./liveMessageQueue";
 import {
+  isDeferredSnapshotEvent,
+  isSnapshotStateSchema,
+  makeDeferredSnapshotEvent,
+  resolveDeferredSnapshotEvent,
+  snapshotCoalescingTopics,
+  LiveQueueMessage,
+} from "./snapshotFrameCoalescing";
+import {
   MessageWriter,
   MessageDefinitionMap,
   Publication,
@@ -111,7 +119,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
   // the next #emitState mints a fresh Map identity for consumers.
   #topicsStatsChanged = false;
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
-  #parsedMessages = new LiveMessageQueue<MessageEvent>(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
+  #parsedMessages = new LiveMessageQueue<LiveQueueMessage>(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
+  #snapshotCoalescingTopics = new Set<string>();
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
   #presence: PlayerPresence = PlayerPresence.INITIALIZING;
@@ -535,6 +544,36 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#receivedBytes += data.byteLength;
         const receiveTime = this.#getCurrentTime();
         const topic = chanInfo.channel.topic;
+
+        // Snapshot-semantics topics: defer deserialization to drain time and
+        // keep only the latest when every subscriber permits sampling. A stalled
+        // or hidden pipeline then parses and applies one message per topic
+        // instead of every queued one. See snapshotFrameCoalescing.ts for the
+        // schema safety rules.
+        if (
+          this.#snapshotCoalescingTopics.has(topic) &&
+          isSnapshotStateSchema(chanInfo.channel.schemaName)
+        ) {
+          this.#parsedMessages.enqueue(
+            {
+              value: makeDeferredSnapshotEvent({
+                topic,
+                schemaName: chanInfo.channel.schemaName,
+                receiveTime,
+                data,
+                deserialize: chanInfo.parsedChannel.deserialize,
+              }),
+              sizeInBytes: data.byteLength,
+              key: topic,
+              retention: "replaceable",
+            },
+            { supersedeReplaceable: true },
+          );
+          this.#bumpTopicStats(topic);
+          this.#emitState();
+          return;
+        }
+
         const deserializedMessage = chanInfo.parsedChannel.deserialize(data);
 
         // Lookup the size estimate for this topic or compute it if not found in the cache.
@@ -583,16 +622,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           });
         }
 
-        // Update the message count for this topic. Count in place: #emitState
-        // is debounced, so cloning the Map per message would almost always be
-        // discarded. A fresh Map identity is minted only when state is emitted.
-        let stats = this.#topicsStats.get(topic);
-        if (!stats) {
-          stats = { numMessages: 0 };
-          this.#topicsStats.set(topic, stats);
-        }
-        stats.numMessages++;
-        this.#topicsStatsChanged = true;
+        this.#bumpTopicStats(topic);
 
         if (!this.#ishighFrequencyMessage) {
           const duration =
@@ -904,6 +934,19 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#emitState();
   }
 
+  // Update the message count for this topic. Count in place: #emitState
+  // is debounced, so cloning the Map per message would almost always be
+  // discarded. A fresh Map identity is minted only when state is emitted.
+  #bumpTopicStats(topic: string): void {
+    let stats = this.#topicsStats.get(topic);
+    if (!stats) {
+      stats = { numMessages: 0 };
+      this.#topicsStats.set(topic, stats);
+    }
+    stats.numMessages++;
+    this.#topicsStatsChanged = true;
+  }
+
   // Potentially performance-sensitive; await can be expensive
   // eslint-disable-next-line @typescript-eslint/promise-function-async
   #emitState = debouncePromise(() => {
@@ -940,7 +983,23 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#topicsStatsChanged = false;
     }
 
-    const messages = this.#parsedMessages.drain();
+    const drained = this.#parsedMessages.drain();
+    const messages: MessageEvent[] = [];
+    for (const entry of drained) {
+      if (!isDeferredSnapshotEvent(entry)) {
+        messages.push(entry);
+        continue;
+      }
+      try {
+        messages.push(resolveDeferredSnapshotEvent(entry));
+      } catch (error) {
+        this.#alerts.addAlert(`message:${entry.topic}`, {
+          severity: "error",
+          message: `Failed to parse message on ${entry.topic}`,
+          error,
+        });
+      }
+    }
     return this.#listener({
       name: this.#name,
       presence: this.#presence,
@@ -990,6 +1049,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   public setSubscriptions(subscriptions: SubscribePayload[]): void {
+    this.#snapshotCoalescingTopics = snapshotCoalescingTopics(subscriptions);
     const newTopics = new Set(subscriptions.map(({ topic }) => topic));
 
     if (!this.#client || this.#closed) {

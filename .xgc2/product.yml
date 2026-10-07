@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: xgc2-lichtblick
 name: XGC2 Lichtblick Web and Desktop
-version: 1.27.0-26
+version: 1.27.0-27
 kind: mixed
 summary: Pinned XGC2-maintained Lichtblick browser server with an optional Electron desktop package.
 groups:
@@ -69,6 +69,6 @@ release:
   workflow: apt-release.yml
   ci_workflow: apt-ci.yml
   apt_versions:
-    focal: 1.27.0-26~focal
-    jammy: 1.27.0-26~jammy
-    noble: 1.27.0-26~noble
+    focal: 1.27.0-27~focal
+    jammy: 1.27.0-27~jammy
+    noble: 1.27.0-27~noble

@@ -250,9 +250,15 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #prevResolution = new THREE.Vector2();
   #pickingEnabled = false;
-  #renderScheduler = new RenderScheduler(() => {
-    this.#frameHandler(this.currentTime);
-  });
+  // Passive renders are capped at 30fps: high-rate topic streams otherwise
+  // re-render on every animation frame with no visible gain. flush() (picking,
+  // camera drags, capture) stays immediate.
+  #renderScheduler = new RenderScheduler(
+    () => {
+      this.#frameHandler(this.currentTime);
+    },
+    { minFrameIntervalMs: 1000 / 30 },
+  );
   // Assumed on screen until the owner reports otherwise (the offline renderer never does).
   #canvasVisibility: CanvasVisibility = "visible";
   #disposed = false;
@@ -1306,6 +1312,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   public queueAnimationFrame(): void {
     this.#renderScheduler.queue();
+  }
+
+  /** Message-driven repaints: coalesced and capped at the scheduler's frame interval. */
+  public queueThrottledAnimationFrame(): void {
+    this.#renderScheduler.queueThrottled();
   }
 
   public canvasVisibility(): CanvasVisibility {

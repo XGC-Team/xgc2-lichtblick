@@ -7,34 +7,68 @@
 /**
  * Owns render requests, not source messages. Immediate renders (for example,
  * picking) consume a pending request; invalidations during a render request a
- * subsequent frame. There is no timer, frequency cap, or message filtering.
+ * subsequent frame. queueThrottled() applies the optional frame-interval cap
+ * to passive (message-driven) repaints; queue() and flush() stay immediate so
+ * resize, picking and other interactions never wait.
  */
 export class RenderScheduler {
   #render: () => void;
   #requestFrame: (callback: FrameRequestCallback) => number;
   #cancelFrame: (handle: number) => void;
+  #minFrameIntervalMs: number;
+  #lastRenderAt = -Infinity;
   #pendingFrame: number | undefined;
+  #pendingTimer: ReturnType<typeof setTimeout> | undefined;
   #rendering = false;
   #disposed = false;
 
   public constructor(
     render: () => void,
-    requestFrame: (callback: FrameRequestCallback) => number = (callback) =>
-      requestAnimationFrame(callback),
-    cancelFrame: (handle: number) => void = (handle) => {
-      cancelAnimationFrame(handle);
-    },
+    options: {
+      minFrameIntervalMs?: number;
+      requestFrame?: (callback: FrameRequestCallback) => number;
+      cancelFrame?: (handle: number) => void;
+    } = {},
   ) {
     this.#render = render;
-    this.#requestFrame = requestFrame;
-    this.#cancelFrame = cancelFrame;
+    this.#minFrameIntervalMs = options.minFrameIntervalMs ?? 0;
+    this.#requestFrame =
+      options.requestFrame ?? ((callback) => requestAnimationFrame(callback));
+    this.#cancelFrame =
+      options.cancelFrame ??
+      ((handle) => {
+        cancelAnimationFrame(handle);
+      });
   }
 
   public queue(): void {
     if (this.#disposed || this.#pendingFrame != undefined) {
       return;
     }
+    // A prompt request pre-empts a pending throttled timer: painting earlier is always fine.
+    if (this.#pendingTimer != undefined) {
+      clearTimeout(this.#pendingTimer);
+      this.#pendingTimer = undefined;
+    }
     this.#pendingFrame = this.#requestFrame(this.#onAnimationFrame);
+  }
+
+  /** Queue a frame unless the previous render is still within the cap window. */
+  public queueThrottled(): void {
+    if (this.#disposed || this.#pendingFrame != undefined || this.#pendingTimer != undefined) {
+      return;
+    }
+    const remaining = this.#minFrameIntervalMs - (Date.now() - this.#lastRenderAt);
+    if (remaining <= 0) {
+      this.queue();
+      return;
+    }
+    // Inside the interval: request the frame only when the cap has elapsed, so
+    // a burst of invalidations still collapses into one render.
+    this.#pendingTimer = setTimeout(() => {
+      this.#pendingTimer = undefined;
+      this.queue();
+    }, remaining);
   }
 
   public flush(): void {
@@ -51,6 +85,7 @@ export class RenderScheduler {
     this.#rendering = true;
     try {
       this.#render();
+      this.#lastRenderAt = Date.now();
     } finally {
       // A failed scene extension must not permanently disable future renders.
       // Preserve the original exception instead of hiding it or retry-spinning.
@@ -72,6 +107,10 @@ export class RenderScheduler {
     if (this.#pendingFrame != undefined) {
       this.#cancelFrame(this.#pendingFrame);
       this.#pendingFrame = undefined;
+    }
+    if (this.#pendingTimer != undefined) {
+      clearTimeout(this.#pendingTimer);
+      this.#pendingTimer = undefined;
     }
   }
 }

@@ -27,3 +27,37 @@ export function embeddedParentOrigin(): string {
   }
   return window.location.origin;
 }
+
+/**
+ * Host-driven visibility for the embed: parked/hidden panels keep the iframe
+ * alive, so the viewer cannot self-detect; idle the render loop on false and
+ * resume on true. The bridge acknowledges by idling; until then the message is
+ * safely ignored by older bundles.
+ */
+export type Xgc2EmbeddedVisibilityMessage = {
+  channel: typeof XGC2_EMBED_CHANNEL;
+  version: typeof XGC2_EMBED_VERSION;
+  sender: "xgc2";
+  type: "visibility";
+  visible: boolean;
+};
+
+export function isXgc2EmbeddedVisibilityMessage(
+  value: unknown,
+): value is Xgc2EmbeddedVisibilityMessage {
+  if (typeof value !== "object" || value == undefined || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    record.channel === XGC2_EMBED_CHANNEL &&
+    record.version === XGC2_EMBED_VERSION &&
+    record.sender === "xgc2" &&
+    record.type === "visibility" &&
+    typeof record.visible === "boolean" &&
+    Object.keys(record).length === 5
+  );
+}
+
+/** Window event the bridge re-broadcasts host visibility as; every embedded 3D panel listens. */
+export const XGC2_HOST_VISIBILITY_EVENT = "xgc2.lichtblick.host-visibility";

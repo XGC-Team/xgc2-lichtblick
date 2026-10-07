@@ -19,12 +19,15 @@ import { embeddedViewCapture } from "./EmbeddedViewCapture";
 import {
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_VERSION,
+  XGC2_HOST_VISIBILITY_EVENT,
   embeddedParentOrigin,
+  isXgc2EmbeddedVisibilityMessage,
 } from "./EmbeddedWorkspaceProtocol";
 
 export {
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_VERSION,
+  XGC2_HOST_VISIBILITY_EVENT,
   embeddedParentOrigin,
 } from "./EmbeddedWorkspaceProtocol";
 export const XGC2_EMBED_SURFACES = [
@@ -193,6 +196,13 @@ export default function EmbeddedWorkspaceBridge(): null {
 
     const handleMessage = (event: MessageEvent<unknown>) => {
       if (event.origin !== expectedOrigin || event.source !== parentWindow) {
+        return;
+      }
+
+      if (isXgc2EmbeddedVisibilityMessage(event.data)) {
+        window.dispatchEvent(
+          new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: event.data.visible } }),
+        );
         return;
       }
 

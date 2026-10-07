@@ -32,6 +32,7 @@ import {
   XGC2_EMBED_VERSION,
   embeddedParentOrigin,
   type EmbeddedNavigationCommand,
+  XGC2_HOST_VISIBILITY_EVENT,
 } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
@@ -297,21 +298,45 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     [config.followMode, config.scene.syncCamera, context, renderer],
   );
 
-  // Frames are only worth drawing and decoding while the canvas is on screen. A parked XGC2 embed
-  // (`content-visibility: hidden` on the iframe) and a collapsed panel report as not intersecting;
-  // the observer is event driven, so a hidden panel costs no timers.
+  // Frames are only worth drawing and decoding while the canvas is on screen. Two inputs gate
+  // that: this observer (panel collapsed or scrolled away inside the viewer document) and the
+  // host's visibility message. A parked XGC2 embed hides the iframe element in the HOST document;
+  // inside the viewer the canvas still intersects, so only the host message reports it.
+  const ioVisibleRef = useRef(true);
+  const hostVisibleRef = useRef(true);
   useEffect(() => {
-    if (!renderer || !canvas || typeof IntersectionObserver === "undefined") {
+    if (!renderer) {
       return;
+    }
+    const apply = () => {
+      renderer.setCanvasVisibility(
+        ioVisibleRef.current && hostVisibleRef.current ? "visible" : "hidden",
+      );
+    };
+    // No initial apply(): the renderer already assumes visible; only events move it.
+    const onHostVisibility = (event: Event) => {
+      const detail = (event as CustomEvent<{ visible?: unknown } | null>).detail;
+      if (typeof detail?.visible === "boolean") {
+        hostVisibleRef.current = detail.visible;
+        apply();
+      }
+    };
+    window.addEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
+    if (!canvas || typeof IntersectionObserver === "undefined") {
+      return () => {
+        window.removeEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
+      };
     }
     const observer = new IntersectionObserver((entries) => {
       const latest = entries[entries.length - 1];
       if (latest != undefined) {
-        renderer.setCanvasVisibility(latest.isIntersecting ? "visible" : "hidden");
+        ioVisibleRef.current = latest.isIntersecting;
+        apply();
       }
     });
     observer.observe(canvas);
     return () => {
+      window.removeEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
       observer.disconnect();
     };
   }, [canvas, renderer]);
@@ -801,10 +826,12 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     sharedPanelState,
   ]);
 
-  // Render a new frame if requested
+  // Render a new frame if requested. Message-driven invalidations take the
+  // throttled queue so bursts coalesce and respect the 30fps cap; resize,
+  // picking and other interactions flush immediately through their own paths.
   useEffect(() => {
     if (renderer && renderRef.current.needsRender) {
-      renderer.animationFrame();
+      renderer.queueThrottledAnimationFrame();
       renderRef.current.needsRender = false;
     }
   });

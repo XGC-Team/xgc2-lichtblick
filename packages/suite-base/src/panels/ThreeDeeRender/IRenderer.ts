@@ -410,6 +410,7 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
   // Callback handlers
   animationFrame: () => void;
   queueAnimationFrame: () => void;
+  queueThrottledAnimationFrame: () => void;
 
   /**
    * Whether the canvas is on screen. While it is not (a parked embed with `content-visibility:

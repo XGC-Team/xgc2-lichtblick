@@ -62,6 +62,7 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
     updateConfig: jest.fn(),
     getCameraState: jest.fn().mockReturnValue(undefined),
     animationFrame: jest.fn(),
+    queueThrottledAnimationFrame: jest.fn(),
     addListener: jest.fn((event: string, listener: (...args: any[]) => void) => {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
@@ -687,13 +688,13 @@ describe("ThreeDeeRender", () => {
       controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
     });
     expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", "#ffffff");
-    expect(renderer.animationFrame).toHaveBeenCalledTimes(1);
-    renderer.animationFrame.mockClear();
+    expect(renderer.queueThrottledAnimationFrame).toHaveBeenCalled();
+    renderer.queueThrottledAnimationFrame.mockClear();
     act(() => {
       controls.setHostTheme({ colorScheme: "dark", backgroundColor: "#161616" });
     });
     expect(renderer.setColorScheme).toHaveBeenLastCalledWith("dark", "#161616");
-    expect(renderer.animationFrame).toHaveBeenCalledTimes(1);
+    expect(renderer.queueThrottledAnimationFrame).toHaveBeenCalled();
     act(() => {
       renderer.config = { ...renderer.config, scene: { backgroundColor: "#123456" } };
       renderer.emit("configChange", renderer);
