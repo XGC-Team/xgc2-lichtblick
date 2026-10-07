@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export XGC2_LICHTBLICK_WEB_ENV_FILE="${XGC2_LICHTBLICK_WEB_ENV_FILE:-/etc/xgc2/lichtblick-web.env}"
+export XGC2_LICHTBLICK_WEB_STATIC_ROOT="${XGC2_LICHTBLICK_WEB_STATIC_ROOT:-/usr/lib/xgc2/lichtblick-web/web}"
+export XGC2_LICHTBLICK_WEB_BUILD_INFO="${XGC2_LICHTBLICK_WEB_BUILD_INFO:-/usr/lib/xgc2/lichtblick-web/build-info.json}"
+exec /usr/lib/xgc2/lichtblick-web/node/bin/node \
+  /usr/lib/xgc2/lichtblick-web/xgc2-lichtblick-web.js "$@"

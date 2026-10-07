@@ -8,14 +8,20 @@ baseline and build toolchain.
 
 ## Repository policy
 
-- `origin` is `lxk36/xgc2-lichtblick`; `upstream` is the official Lichtblick
+- `origin` is `XGC-Team/xgc2-lichtblick`; `upstream` is the official Lichtblick
   repository.
 - Product changes are developed on `xgc2` and must retain the locked
   upstream commit as an ancestor.
 - Upstream upgrades are source merges or rebases reviewed together with XGC2
   patches and tests.
-- Debian packages are built by `lxk36/xgc2-lichtblick-packaging` from an exact
-  commit of this branch.
+- This repository also owns `.xgc2/product.yml`, Debian recipes and APT CI.
+  Source and both packages are built from the same commit of `xgc2`.
+  The former `xgc2-lichtblick-packaging` repository is retired.
+- `xgc2/launcher/` is the sole launcher implementation for source and installed
+  operation. The installed shell entry only selects the packaged paths.
+- `apt-ci.yml` produces the existing desktop and web packages for Focal, Jammy
+  and Noble on amd64/arm64. Production publication remains the central devops
+  release orchestrator; this repository does not publish an APT index.
 
 ## Live TF retention
 
@@ -46,3 +52,16 @@ process definition runs the packaged `/usr/bin/xgc2-lichtblick-web` launcher.
 node --test xgc2/tests/test_lichtblick_web.js
 corepack yarn test packages/suite-base/src/panels/ThreeDeeRender/transforms/TransformTree.test.ts --runInBand
 ```
+
+## Debian build
+
+```bash
+./.xgc2/scripts/check_package_compliance.sh
+./.xgc2/scripts/build_deb_in_docker.sh --ubuntu-version 20.04 --architecture amd64
+```
+
+The build entry exports the current committed source to a private writable
+build directory and runs as the caller UID/GID. It does not fetch or pin a
+second copy of this repository. Installation and purge checks run in a separate
+disposable container with read-only host mounts. The upstream baseline and
+build tool versions remain in `xgc2/upstream.lock`.

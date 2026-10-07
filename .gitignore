@@ -40,3 +40,9 @@ blob-report/*
 performance-results/
 *.cpuprofile
 *.heapprofile
+
+# Native package build outputs
+.work/
+.ci/
+debs/
+__pycache__/

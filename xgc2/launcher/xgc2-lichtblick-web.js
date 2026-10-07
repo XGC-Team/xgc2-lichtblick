@@ -67,6 +67,7 @@ function parseArgs(argv) {
     publicUrlPrefix: null,
     allowedOrigins: [],
     frameAncestors: null,
+    assetUrlPrefix: null,
     showHelp: false,
   };
 
@@ -97,6 +98,9 @@ function parseArgs(argv) {
         break;
       case "--frame-ancestors":
         opts.frameAncestors = argv[++i];
+        break;
+      case "--asset-url-prefix":
+        opts.assetUrlPrefix = argv[++i];
         break;
       default:
         if (arg.startsWith("--")) {
@@ -131,6 +135,7 @@ function printHelp() {
       "  --frame-ancestors <sources>    CSP frame-ancestors source list.",
       "                                   Env: FRAME_ANCESTORS.",
       `                                   Default: ${DEFAULT_FRAME_ANCESTORS}`,
+      "  --asset-url-prefix <path>      Stable same-origin hashed-asset path. Env: ASSET_URL_PREFIX.",
       "  -h, --help                     Show this help and exit.",
       "",
       "Environment variables override compiled-in defaults but are themselves",
@@ -457,15 +462,65 @@ function buildAutoConnectScript(prefix) {
   })();</script>`;
 }
 
-function transformIndexHtml(source, prefix) {
+function transformIndexHtml(source, prefix, assetUrlPrefix = null) {
   const autoConnect = buildAutoConnectScript(prefix);
   if (!source.includes("</head>")) {
     throw new Error("Lichtblick index.html has no closing head element");
   }
-  return source.replace("</head>", `${autoConnect}</head>`);
+  const connected = source.replace("</head>", `${autoConnect}</head>`);
+  return assetUrlPrefix == null ? connected : rewriteHashedScripts(connected, assetUrlPrefix);
 }
 
-function createIndexLoader(prefix, staticRoot = STATIC_ROOT) {
+/**
+ * A viewer page URL is scoped to its process instance, so without this every
+ * new instance fetched and compiled the identical bundle under a new URL.
+ * Only the address of an absolute, same-origin path is accepted: the scripts
+ * must stay behind the embedding origin and its proxy.
+ */
+function normalizeAssetUrlPrefix(value) {
+  if (
+    typeof value !== "string" ||
+    !/^\/[A-Za-z0-9._~\-/]*$/.test(value) ||
+    value.startsWith("//") ||
+    value.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(`invalid asset URL prefix: ${JSON.stringify(value)}`);
+  }
+  return value.endsWith("/") ? value : `${value}/`;
+}
+
+const SCRIPT_SRC = /(<script\b[^>]*?\bsrc=)(["'])([^"'<>]*)\2/g;
+
+/**
+ * Loads the content-hashed entry scripts from the stable asset prefix. The
+ * bundle's webpack publicPath is "auto", so chunks and workers follow the
+ * entry script. Only content-hashed names move: they are the same bytes for
+ * every instance of every build, so a shared path cannot serve a stale file.
+ */
+function rewriteHashedScripts(source, assetUrlPrefix) {
+  const assetPrefix = normalizeAssetUrlPrefix(assetUrlPrefix);
+  let rewritten = 0;
+  const result = source.replace(SCRIPT_SRC, (tag, head, quote, src) => {
+    const relative = src.replace(/^\.\//, "");
+    if (
+      /^[a-z][a-z0-9+.-]*:/i.test(relative) ||
+      relative.startsWith("/") ||
+      relative.split("/").includes("..") ||
+      !relative.endsWith(".js") ||
+      !CONTENT_HASHED_NAME.test(path.posix.basename(relative))
+    ) {
+      return tag;
+    }
+    rewritten += 1;
+    return `${head}${quote}${assetPrefix}${relative}${quote}`;
+  });
+  if (rewritten === 0) {
+    throw new Error("asset URL prefix is set but index.html loads no content-hashed script");
+  }
+  return result;
+}
+
+function createIndexLoader(prefix, staticRoot = STATIC_ROOT, assetUrlPrefix = null) {
   const indexPath = path.join(staticRoot, "index.html");
   let mtimeNs = -1n;
   let body = "";
@@ -473,7 +528,7 @@ function createIndexLoader(prefix, staticRoot = STATIC_ROOT) {
     const st = fs.statSync(indexPath);
     const nextMtime = st.mtimeNs ?? BigInt(Math.round(st.mtimeMs * 1e6));
     if (nextMtime !== mtimeNs) {
-      body = transformIndexHtml(fs.readFileSync(indexPath, "utf8"), prefix);
+      body = transformIndexHtml(fs.readFileSync(indexPath, "utf8"), prefix, assetUrlPrefix);
       mtimeNs = nextMtime;
     }
     return body;
@@ -531,6 +586,30 @@ function serveIndex(res, transformedIndex, responseSecurityHeaders) {
   res.end(body);
 }
 
+// Webpack names bundles, chunks, workers and emitted assets by content hash
+// (`main.<hash>.js`, `<hash>.png`), so their bytes never change under a name
+// and can be cached for good. Anything else (HTML, copied favicons) must be
+// revalidated so an upgraded package is never served stale; Last-Modified
+// lets that revalidation answer 304 instead of resending the file.
+const CONTENT_HASHED_NAME = /(?:^|\.)[0-9a-f]{16,}(?:\.|$)/;
+
+function staticCacheControl(filePath) {
+  const name = path.basename(filePath);
+  if (path.extname(name).toLowerCase() !== ".html" && CONTENT_HASHED_NAME.test(name)) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "no-cache";
+}
+
+function notModifiedSince(ifModifiedSince, mtime) {
+  if (typeof ifModifiedSince !== "string") {
+    return false;
+  }
+  const since = Date.parse(ifModifiedSince);
+  // HTTP dates have whole-second precision.
+  return Number.isFinite(since) && Math.floor(mtime.getTime() / 1000) * 1000 <= since;
+}
+
 function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders) {
   const urlPath = req.url.split("?", 1)[0];
   let stripped = urlPath;
@@ -582,15 +661,20 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
     }
     const ext = path.extname(target).toLowerCase();
     const mime = MIME[ext] ?? "application/octet-stream";
+    const lastModified = stats.mtime.toUTCString();
+    const cacheHeaders = {
+      "Cache-Control": staticCacheControl(target),
+      "Last-Modified": lastModified,
+    };
+    if (notModifiedSince(req.headers["if-modified-since"], stats.mtime)) {
+      res.writeHead(304, { ...cacheHeaders, ...responseSecurityHeaders });
+      res.end();
+      return;
+    }
     res.writeHead(200, {
       "Content-Type": mime,
       "Content-Length": stats.size,
-      // Hashed bundles still change in source-dev without a process restart.
-      // Phone Safari kept the first-slice JS for max-age=3600 and stayed on the red X.
-      "Cache-Control":
-        ext === ".html" || ext === ".js" || ext === ".css" || ext === ".map"
-          ? "no-cache"
-          : "public, max-age=3600",
+      ...cacheHeaders,
       ...responseSecurityHeaders,
     });
     fs.createReadStream(target).pipe(res);
@@ -716,7 +800,11 @@ function main() {
   let validatedFrameAncestors;
   let configuredOrigins;
   try {
-    loadIndex = createIndexLoader(prefix);
+    loadIndex = createIndexLoader(
+      prefix,
+      STATIC_ROOT,
+      opts.assetUrlPrefix ?? process.env.ASSET_URL_PREFIX ?? null,
+    );
     loadIndex();
     buildInfo = loadBuildInfo();
     validatedFrameAncestors = validateFrameAncestors(frameAncestorsValue);
@@ -791,6 +879,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  normalizeAssetUrlPrefix,
+  staticCacheControl,
+  notModifiedSince,
   buildAutoConnectScript,
   createIndexLoader,
   defaultListenerOrigins,

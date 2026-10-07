@@ -21,6 +21,9 @@ const {
   defaultListenerOrigins,
   endpointMatches,
   normalizeOrigin,
+  normalizeAssetUrlPrefix,
+  staticCacheControl,
+  notModifiedSince,
   parseArgs,
   parseConfiguredOrigins,
   parseWsUrl,
@@ -56,6 +59,7 @@ test("parses the browser server command line", () => {
       publicUrlPrefix: "/lichtblick",
       allowedOrigins: ["https://xgc.example", "http://127.0.0.1:5173"],
       frameAncestors: "'self' https://xgc.example",
+      assetUrlPrefix: null,
       showHelp: false,
     },
   );
@@ -177,6 +181,8 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
       "[/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/][0];" +
       "</script><body></body></html>",
   );
+  fs.writeFileSync(path.join(webRoot, "main.3f1c2a9b8d7e6f5a4b3c.js"), "// bundle");
+  fs.writeFileSync(path.join(webRoot, "favicon.ico"), "icon");
   const buildInfoFile = path.join(temporary, "build-info.json");
   const buildInfo = {
     schema: "xgc2.lichtblick-web.build.v1",
@@ -260,6 +266,17 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
   const index = await getText(port, "/");
   assert.match(index.body, /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/);
   assert.match(index.body, /foxglove-websocket/);
+
+  const bundle = await getText(port, "/main.3f1c2a9b8d7e6f5a4b3c.js");
+  assert.equal(bundle.statusCode, 200);
+  assert.equal(bundle.headers["cache-control"], "public, max-age=31536000, immutable");
+  const favicon = await getText(port, "/favicon.ico");
+  assert.equal(favicon.headers["cache-control"], "no-cache");
+  const revalidated = await getText(port, "/favicon.ico", {
+    "If-Modified-Since": favicon.headers["last-modified"],
+  });
+  assert.equal(revalidated.statusCode, 304);
+  assert.equal(revalidated.body, "");
 
   await t.test("retries a missing or partial index without serving stale HTML", async () => {
     const indexPath = path.join(webRoot, "index.html");
@@ -367,17 +384,21 @@ function getJson(port, requestPath) {
   });
 }
 
-function getText(port, requestPath) {
+function getText(port, requestPath, headers = {}) {
   return new Promise((resolve, reject) => {
     http
-      .get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
+      .get({ host: "127.0.0.1", port, path: requestPath, headers }, (response) => {
         let body = "";
         response.setEncoding("utf8");
         response.on("data", (chunk) => {
           body += chunk;
         });
         response.on("end", () =>
-          resolve({ statusCode: response.statusCode, body, headers: response.headers }),
+          resolve({
+            statusCode: response.statusCode,
+            body,
+            headers: response.headers,
+          }),
         );
       })
       .once("error", reject);
@@ -418,3 +439,75 @@ function websocketUpgradeStatus(port, origin) {
     });
   });
 }
+
+test("loads content-hashed entry scripts from a stable asset prefix only when asked", () => {
+  const index =
+    "<!doctype html><html><head>" +
+    '<link rel="icon" href="favicon-32x32.png" />' +
+    '<script defer="defer" src="main.3f1c2a9b8d7e6f5a4b3c.js"></script>' +
+    '<script defer src="./vendor.0a1b2c3d4e5f60718293.js"></script>' +
+    '<script src="https://cdn.example/x.0a1b2c3d4e5f60718293.js"></script>' +
+    '<script src="plain.js"></script>' +
+    "</head><body></body></html>";
+  assert.equal(transformIndexHtml(index, "/"), transformIndexHtml(index, "/", null));
+  assert.doesNotMatch(transformIndexHtml(index, "/"), /lichtblick-assets/);
+
+  const staged = transformIndexHtml(index, "/", "/api/visualization/lichtblick-assets");
+  assert.match(
+    staged,
+    /src="\/api\/visualization\/lichtblick-assets\/main\.3f1c2a9b8d7e6f5a4b3c\.js"/,
+  );
+  assert.match(
+    staged,
+    /src="\/api\/visualization\/lichtblick-assets\/vendor\.0a1b2c3d4e5f60718293\.js"/,
+  );
+  assert.match(staged, /src="https:\/\/cdn\.example\/x\.0a1b2c3d4e5f60718293\.js"/);
+  assert.match(staged, /src="plain\.js"/);
+  assert.match(staged, /href="favicon-32x32\.png"/);
+  assert.match(staged, /foxglove-websocket/);
+
+  assert.throws(
+    () => transformIndexHtml('<head><script src="plain.js"></script></head>', "/", "/assets/"),
+    /no content-hashed script/,
+  );
+});
+
+test("accepts only same-origin absolute asset prefixes", () => {
+  assert.equal(normalizeAssetUrlPrefix("/assets"), "/assets/");
+  assert.equal(normalizeAssetUrlPrefix("/a/b-c_d.e/"), "/a/b-c_d.e/");
+  for (const value of [
+    "assets",
+    "//evil.example/",
+    "https://evil.example/",
+    "/a/../b",
+    "/a/./b",
+    "/a b",
+    "/a?x",
+    "/a#x",
+    '/a"',
+    "",
+  ]) {
+    assert.throws(() => normalizeAssetUrlPrefix(value), /invalid asset URL prefix/, value);
+  }
+});
+
+test("caches content-hashed bundles for good and revalidates everything else", () => {
+  const immutable = "public, max-age=31536000, immutable";
+  assert.equal(staticCacheControl("/web/main.3f1c2a9b8d7e6f5a4b3c.js"), immutable);
+  assert.equal(staticCacheControl("/web/412.3f1c2a9b8d7e6f5a4b3c.js"), immutable);
+  assert.equal(staticCacheControl("/web/main.3f1c2a9b8d7e6f5a4b3c.js.map"), immutable);
+  assert.equal(staticCacheControl("/web/Worker.worker.3f1c2a9b8d7e6f5a4b3c.js"), immutable);
+  assert.equal(staticCacheControl("/web/3f1c2a9b8d7e6f5a4b3c.glb"), immutable);
+  assert.equal(staticCacheControl("/web/favicon.ico"), "no-cache");
+  assert.equal(staticCacheControl("/web/main.js"), "no-cache");
+  assert.equal(staticCacheControl("/web/index.html"), "no-cache");
+  assert.equal(staticCacheControl("/web/3f1c2a9b8d7e6f5a4b3c.html"), "no-cache");
+});
+
+test("answers conditional requests at HTTP date precision", () => {
+  const mtime = new Date("2026-09-24T10:00:00.750Z");
+  assert.equal(notModifiedSince(mtime.toUTCString(), mtime), true);
+  assert.equal(notModifiedSince("Thu, 24 Sep 2026 09:59:59 GMT", mtime), false);
+  assert.equal(notModifiedSince("not a date", mtime), false);
+  assert.equal(notModifiedSince(undefined, mtime), false);
+});
