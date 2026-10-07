@@ -33,6 +33,7 @@ import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
 import { isValidUrl } from "@lichtblick/suite-base/util/isValidURL";
 import { parseXgc2LayoutScope } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
+import type { ICameraHandler } from "./ICameraHandler";
 import {
   RobotInstancingState,
   StaticLinkState,
@@ -43,7 +44,21 @@ import {
 } from "./UrdfInstancePool";
 import { customUrdfLayerNeedsReload, urdfLayerDisplayScale } from "./customUrdfLayer";
 import { missingTransformMessage, MISSING_TRANSFORM } from "./transforms";
+import {
+  UrdfLodMode,
+  UrdfLodState,
+  UrdfLodTier,
+  UrdfScreenSizeCamera,
+  deriveUrdfTierUrlsFromContent,
+  deriveUrdfTierUrlsFromUrl,
+  isUrdfLodMode,
+  selectUrdfLodTier,
+  urdfModelBoundingRadius,
+  urdfScreenSizePx,
+  urdfTierFromUrl,
+} from "./urdfLod";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
+import type { Input } from "../Input";
 import type { PickedRenderable } from "../Picker";
 import { BaseUserData, Renderable } from "../Renderable";
 import { PartialMessageEvent, SceneExtension, onlyLastByTopicMessage } from "../SceneExtension";
@@ -85,6 +100,8 @@ const PARAM_DISPLAY_NAME = "/robot_description (parameter)";
 const VALID_SRC_ERR = "ValidSrc";
 const FETCH_URDF_ERR = "FetchUrdf";
 const PARSE_URDF_ERR = "ParseUrdf";
+/** Settings note slot for LOD tier availability (degraded auto mode, failed tier). */
+const URDF_LOD_ERR = "UrdfLodTier";
 
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
@@ -99,6 +116,8 @@ export type LayerSettingsUrdf = BaseSettings & {
   displayMode: "auto" | "visual" | "collision";
   label: string;
   fallbackColor?: string;
+  /** Screen-size LOD: auto switches tiers by projected size; a tier pins it. */
+  lod?: UrdfLodMode;
 };
 
 export type LayerSettingsCustomUrdf = CustomLayerSettings & {
@@ -113,6 +132,8 @@ export type LayerSettingsCustomUrdf = CustomLayerSettings & {
   fallbackColor?: string;
   /** Viewer-only uniform display factor; 1 keeps true dimensions. */
   scale?: number;
+  /** Screen-size LOD: auto switches tiers by projected size; a tier pins it. */
+  lod?: UrdfLodMode;
 };
 
 const DEFAULT_SETTINGS: LayerSettingsUrdf = {
@@ -122,6 +143,7 @@ const DEFAULT_SETTINGS: LayerSettingsUrdf = {
   displayMode: "auto",
   label: "URDF",
   fallbackColor: DEFAULT_COLOR_STR,
+  lod: "auto",
 };
 
 const DEFAULT_CUSTOM_SETTINGS: LayerSettingsCustomUrdf = {
@@ -139,6 +161,7 @@ const DEFAULT_CUSTOM_SETTINGS: LayerSettingsCustomUrdf = {
   displayMode: "auto",
   fallbackColor: DEFAULT_COLOR_STR,
   scale: 1,
+  lod: "auto",
 };
 
 const MANAGED_URDF_LAYER_PREFIX = "xgc2-urdf-";
@@ -166,6 +189,9 @@ const instanceChainQuat = new THREE.Quaternion();
 const instanceTempQuat = new THREE.Quaternion();
 const instanceScaleVec = new THREE.Vector3();
 
+// Scratch for the auto-LOD projection; startFrame is not reentrant.
+const lodCenterVec = new THREE.Vector3();
+
 export type UrdfUserData = BaseUserData & {
   settings: LayerSettingsUrdf | LayerSettingsCustomUrdf;
   fetching?: { url: string; control: AbortController };
@@ -175,6 +201,8 @@ export type UrdfUserData = BaseUserData & {
   renderables: Map<string, Renderable>;
   /** Pooled static-link subtree state; undefined when the robot has no static links. */
   instancing?: RobotInstancingState;
+  /** Screen-size LOD bookkeeping; set when the robot model is (re)built. */
+  lod?: UrdfLodState;
 };
 
 enum EmbeddedMaterialUsage {
@@ -194,6 +222,15 @@ type ParsedUrdf = {
   robot: UrdfRobot;
   frames: string[];
   transforms: TransformData[];
+};
+
+/** A fetched+parsed tier model, cached per (tier URL, frame prefix). */
+type CachedTierModel = {
+  parsed: ParsedUrdf;
+  /** Base URL for mesh resolution, mirroring the default model's baseUrl. */
+  baseUrl: string | undefined;
+  /** Unscaled bounding radius used by the auto-LOD projection. */
+  radius: number;
 };
 
 type JointPosition = {
@@ -265,6 +302,12 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #pendingLoads = new Set<Promise<void>>();
   /** The currently selected robot, if any; its static links render per-link. */
   #selectedUrdf: UrdfRenderable | undefined;
+  /**
+   * Parsed LOD tier models shared across robots, keyed
+   * `tier:<tierUrdfUrl>:<framePrefix>`; the just-loaded default model is
+   * stored under its own tier key, so swapping back never refetches.
+   */
+  #tierModelCache = new Map<string, Promise<CachedTierModel>>();
 
   #trackLoad(promise: Promise<void>): void {
     this.#pendingLoads.add(promise);
@@ -314,6 +357,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
   public override dispose(): void {
     this.instancePool.dispose();
+    this.#tierModelCache.clear();
     super.dispose();
   }
 
@@ -389,6 +433,17 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       help: "Fallback color used in case a link does not specify any color itself",
       input: "rgb",
     };
+    const baseLodField: SettingsTreeField = {
+      label: "LOD",
+      help: "Model detail level. Auto switches tiers by the robot's on-screen size; a pinned tier forces one detail level.",
+      input: "select",
+      options: [
+        { label: "Auto", value: "auto" },
+        { label: "High", value: "high" },
+        { label: "Medium", value: "medium" },
+        { label: "Low", value: "low" },
+      ],
+    };
 
     // /robot_description topic entry
     const topic = this.renderer.topicsByName?.get(TOPIC_NAME);
@@ -402,6 +457,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         fallbackColor: {
           ...baseFallbackColorField,
           value: config.fallbackColor ?? DEFAULT_SETTINGS.fallbackColor,
+        },
+        lod: {
+          ...baseLodField,
+          value: config.lod ?? DEFAULT_SETTINGS.lod,
         },
       };
       entries.push({
@@ -434,6 +493,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         fallbackColor: {
           ...baseFallbackColorField,
           value: config.fallbackColor ?? DEFAULT_SETTINGS.fallbackColor,
+        },
+        lod: {
+          ...baseLodField,
+          value: config.lod ?? DEFAULT_SETTINGS.lod,
         },
       };
 
@@ -555,6 +618,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
             step: 0.1,
             precision: 2,
             value: config.scale ?? DEFAULT_CUSTOM_SETTINGS.scale,
+          },
+          lod: {
+            ...baseLodField,
+            value: config.lod ?? DEFAULT_CUSTOM_SETTINGS.lod,
           },
         };
 
@@ -703,6 +770,19 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           missingFrameId = frameId;
         }
       }
+
+      // Auto LOD evaluates the robot's projected size against the tier
+      // thresholds; a crossing swaps visual geometry only, poses keep flowing
+      // from the same root pose on the next frame.
+      this.#evaluateLod(
+        renderable,
+        rootFrameId,
+        rootPose,
+        scale,
+        renderFrameId,
+        fixedFrameId,
+        currentTime,
+      );
 
       // The layer has one transform error slot. Publish its final value once,
       // instead of replacing it for every missing link in the same frame.
@@ -1059,6 +1139,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       } else if (field === "topic") {
         urdf = this.#urdfsByTopic.get(action.payload.value as string);
         this.#loadUrdf({ instanceId, urdf });
+      } else if (field === "lod") {
+        // LOD never reloads the model; the next frame evaluates the new mode.
+        this.#loadUrdf({ instanceId, urdf });
+        this.renderer.queueAnimationFrame();
       } else {
         this.#loadUrdf({ instanceId, urdf });
       }
@@ -1450,7 +1534,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           ) {
             return;
           }
-          this.#loadRobot(loadedRenderable, parsed, baseUrl);
+          this.#loadRobot(loadedRenderable, parsed, baseUrl, urdf);
           this.renderer.settings.errors.remove(
             loadedRenderable.userData.settingsPath,
             PARSE_URDF_ERR,
@@ -1483,14 +1567,11 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     renderable: UrdfRenderable,
     { robot, frames, transforms }: ParsedUrdf,
     baseUrl: string | undefined,
+    urdfText: string,
   ): void {
     const renderer = this.renderer;
     const settings = renderable.userData.settings;
     const instanceId = settings.instanceId;
-    const displayMode = settings.displayMode;
-    const fallbackColor = settings.fallbackColor
-      ? stringToRgba(makeRgba(), settings.fallbackColor)
-      : undefined;
 
     this.#loadFrames(instanceId, frames);
     this.#loadTransforms(instanceId, transforms);
@@ -1538,6 +1619,66 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     }
     this.updateSettingsTree();
 
+    // LOD bookkeeping: resolve the tier base (URL sources derive sibling tier
+    // filenames; parameter/topic sources derive package:// tier URDFs from the
+    // same base their meshes resolve through), then record the just-parsed
+    // model under its own tier key so swapping back never refetches.
+    const customSettings = settings as Partial<LayerSettingsCustomUrdf>;
+    const framePrefix = customSettings.framePrefix ?? "";
+    const sourceType = customSettings.sourceType;
+    const sourceUrl =
+      sourceType === "url" && typeof customSettings.url === "string" && customSettings.url !== ""
+        ? customSettings.url
+        : sourceType === "filePath" &&
+            typeof customSettings.filePath === "string" &&
+            customSettings.filePath !== ""
+          ? `file://${customSettings.filePath}`
+          : undefined;
+    const lodBase =
+      sourceUrl != undefined
+        ? deriveUrdfTierUrlsFromUrl(sourceUrl)
+        : deriveUrdfTierUrlsFromContent(urdfText, robot.name);
+    const loadedTier: UrdfLodTier =
+      (sourceUrl != undefined ? urdfTierFromUrl(sourceUrl) : undefined) ?? "high";
+    const radius = urdfModelBoundingRadius(robot);
+    renderable.userData.lod = {
+      currentTier: loadedTier,
+      pendingTier: undefined,
+      failedTiers: new Set(),
+      base: lodBase,
+      radius,
+      lastMode: isUrdfLodMode(customSettings.lod) ? customSettings.lod : "auto",
+    };
+    if (lodBase != undefined) {
+      this.#tierModelCache.set(
+        `tier:${lodBase.tiers[loadedTier]}:${framePrefix}`,
+        Promise.resolve({ parsed: { robot, frames, transforms }, baseUrl, radius }),
+      );
+    }
+
+    this.#buildRobotRenderables(renderable, { robot, frames, transforms }, baseUrl);
+  }
+
+  /**
+   * (Re)build a robot's visuals from a parsed model: dispose the previous
+   * children and pooled slots, split static link subtrees into the shared
+   * instance pools, and keep articulated links on per-link renderables. Used
+   * both for a fresh model load (#loadRobot) and for LOD tier swaps
+   * (#applyTier) — frames, transforms and the root-frame bookkeeping are NOT
+   * touched here, since tier URDFs share them with the default model.
+   */
+  #buildRobotRenderables(
+    renderable: UrdfRenderable,
+    { robot, transforms }: ParsedUrdf,
+    baseUrl: string | undefined,
+  ): void {
+    const settings = renderable.userData.settings;
+    const instanceId = settings.instanceId;
+    const displayMode = settings.displayMode;
+    const fallbackColor = settings.fallbackColor
+      ? stringToRgba(makeRgba(), settings.fallbackColor)
+      : undefined;
+
     // Dispose any existing renderables
     renderable.removeChildren();
 
@@ -1545,6 +1686,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     // every joint on the chain from the URDF root to it is fixed; static links
     // draw from the shared instance pools, articulated links keep per-link
     // renderables that follow joint TF.
+    const rootFrame = this.#rootFramesByInstanceId.get(instanceId);
     const staticLinkNames =
       rootFrame != undefined ? computeStaticLinkNames(transforms, rootFrame) : new Set<string>();
     const instancing: RobotInstancingState | undefined =
@@ -1808,6 +1950,203 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         }
       }
     }
+  }
+
+  /**
+   * Per-frame LOD evaluation for one robot. A pinned mode requests its tier
+   * directly; auto mode projects the model bounding sphere into CSS px with
+   * the active camera and applies the hysteresis thresholds. Missing camera,
+   * viewport, or root pose skips evaluation — the current tier stays.
+   */
+  #evaluateLod(
+    renderable: UrdfRenderable,
+    rootFrameId: string | undefined,
+    rootPose: RootedPose | undefined,
+    scale: number,
+    renderFrameId: string,
+    fixedFrameId: string,
+    currentTime: bigint,
+  ): void {
+    const lod = renderable.userData.lod;
+    if (!lod) {
+      return;
+    }
+    const path = renderable.userData.settingsPath;
+    const settings = this.#getCurrentSettings(renderable.userData.settings.instanceId);
+    const rawMode = (settings as Partial<LayerSettingsCustomUrdf>).lod;
+    const mode: UrdfLodMode = isUrdfLodMode(rawMode) ? rawMode : "auto";
+    if (mode !== lod.lastMode) {
+      // A mode change re-arms tiers that failed before.
+      lod.failedTiers.clear();
+      lod.lastMode = mode;
+    }
+    if (lod.base == undefined) {
+      // No tier base is resolvable (e.g. a parameter URDF without package://
+      // meshes): auto degrades to the loaded default tier, with a note.
+      if (mode === "high") {
+        this.renderer.settings.errors.remove(path, URDF_LOD_ERR);
+      } else {
+        this.renderer.settings.errors.add(
+          path,
+          URDF_LOD_ERR,
+          "LOD tier URDFs are not resolvable for this robot; showing the default detail level.",
+        );
+      }
+      return;
+    }
+    if (mode !== "auto") {
+      if (mode !== lod.currentTier) {
+        this.#requestTierSwap(renderable, mode);
+      }
+      return;
+    }
+    if (lod.pendingTier != undefined) {
+      return; // A swap is already in flight; the next frame re-evaluates.
+    }
+    // Test doubles may omit the camera handler or input; auto LOD then holds.
+    const { cameraHandler, input } = this.renderer as {
+      cameraHandler?: ICameraHandler;
+      input?: Input;
+    };
+    const camera = cameraHandler?.getActiveCamera();
+    const viewportHeightPx = input?.canvasSize.height;
+    if (camera == undefined || viewportHeightPx == undefined || viewportHeightPx <= 0) {
+      return;
+    }
+    if (rootFrameId == undefined) {
+      return;
+    }
+    const pose =
+      rootPose ??
+      rootedIdentityPose(
+        renderable,
+        this.renderer.transformTree,
+        renderFrameId,
+        fixedFrameId,
+        rootFrameId,
+        currentTime,
+      );
+    if (!pose.applied) {
+      return;
+    }
+    let sizeCamera: UrdfScreenSizeCamera;
+    if (camera instanceof THREE.PerspectiveCamera) {
+      sizeCamera = { kind: "perspective", fovDeg: camera.fov, zoom: camera.zoom };
+    } else {
+      const zoom = camera.zoom > 0 ? camera.zoom : 1;
+      sizeCamera = { kind: "orthographic", height: (camera.top - camera.bottom) / zoom };
+    }
+    lodCenterVec.set(pose.position.x, pose.position.y, pose.position.z);
+    const sizePx = urdfScreenSizePx({
+      radius: lod.radius * scale,
+      distance: lodCenterVec.distanceTo(camera.position),
+      viewportHeightPx,
+      camera: sizeCamera,
+    });
+    const desired = selectUrdfLodTier(sizePx, lod.currentTier);
+    if (desired !== lod.currentTier) {
+      this.#requestTierSwap(renderable, desired);
+    }
+  }
+
+  /**
+   * Kick a tier swap for one robot. The tier model is fetched (lazily, on
+   * first need) and parsed through the same asset pipeline as the default
+   * URDF, cached per (tier URL, frame prefix), then built into the renderable
+   * by #applyTier. A newer request supersedes one in flight; a failed tier is
+   * remembered and reported once instead of refetched every frame.
+   */
+  #requestTierSwap(renderable: UrdfRenderable, tier: UrdfLodTier): void {
+    const lod = renderable.userData.lod;
+    if (lod?.base == undefined) {
+      return;
+    }
+    if (lod.currentTier === tier || lod.pendingTier === tier || lod.failedTiers.has(tier)) {
+      return;
+    }
+    const settings = renderable.userData.settings as Partial<LayerSettingsCustomUrdf>;
+    const framePrefix = settings.framePrefix ?? "";
+    const tierUrl = lod.base.tiers[tier];
+    const key = `tier:${tierUrl}:${framePrefix}`;
+    const instanceId = renderable.userData.settings.instanceId;
+    lod.pendingTier = tier;
+    this.#trackLoad(
+      this.#tierModel(key, tierUrl, framePrefix)
+        .then((model) => {
+          const current = renderable.userData.lod;
+          if (current?.pendingTier !== tier || this.renderables.get(instanceId) !== renderable) {
+            return;
+          }
+          current.pendingTier = undefined;
+          this.#applyTier(renderable, tier, model);
+        })
+        .catch((err: unknown) => {
+          const current = renderable.userData.lod;
+          if (current == undefined || this.renderables.get(instanceId) !== renderable) {
+            return;
+          }
+          if (current.pendingTier === tier) {
+            current.pendingTier = undefined;
+          }
+          current.failedTiers.add(tier);
+          log.warn(`Failed to load URDF LOD tier "${tier}" from "${tierUrl}": ${err}`);
+          this.renderer.settings.errors.add(
+            renderable.userData.settingsPath,
+            URDF_LOD_ERR,
+            `LOD tier "${tier}" is unavailable; keeping the current detail level.`,
+          );
+        }),
+    );
+  }
+
+  /**
+   * Fetch and parse a tier model, deduplicated through #tierModelCache so
+   * same-model robots and repeated crossings share one fetch+parse. Failures
+   * evict themselves so a later explicit request retries.
+   */
+  async #tierModel(key: string, tierUrl: string, framePrefix: string): Promise<CachedTierModel> {
+    let promise = this.#tierModelCache.get(key);
+    if (!promise) {
+      promise = (async (): Promise<CachedTierModel> => {
+        const asset = await this.renderer.fetchAsset(tierUrl, { referenceUrl: tierUrl });
+        const text = this.#textDecoder.decode(asset.data);
+        const parsed = await parseUrdf(
+          text,
+          async (uri) => await this.#getFileFetch(uri, tierUrl),
+          framePrefix,
+        );
+        return { parsed, baseUrl: tierUrl, radius: urdfModelBoundingRadius(parsed.robot) };
+      })();
+      this.#tierModelCache.set(key, promise);
+      promise.catch(() => {
+        if (this.#tierModelCache.get(key) === promise) {
+          this.#tierModelCache.delete(key);
+        }
+      });
+    }
+    return await promise;
+  }
+
+  /**
+   * Swap one robot to a loaded tier: release the old tier's pool slots and
+   * legacy children, then rebuild visuals from the tier model. TF frames,
+   * transforms and the root pose feed are untouched (tier URDFs differ only
+   * in visual mesh URIs), and the fresh instancing state starts force-dirty,
+   * so the next startFrame rewrites every instance matrix from the same
+   * poses — no glitch. A selected robot simply migrates to legacy children of
+   * the new tier through the existing selection mechanics.
+   */
+  #applyTier(renderable: UrdfRenderable, tier: UrdfLodTier, model: CachedTierModel): void {
+    const lod = renderable.userData.lod;
+    if (!lod) {
+      return;
+    }
+    renderable.removeChildren();
+    this.#buildRobotRenderables(renderable, model.parsed, model.baseUrl);
+    lod.currentTier = tier;
+    lod.radius = model.radius;
+    this.renderer.settings.errors.remove(renderable.userData.settingsPath, URDF_LOD_ERR);
+    this.renderer.queueAnimationFrame();
   }
 
   #loadFrames(instanceId: string, frames: string[]): void {
