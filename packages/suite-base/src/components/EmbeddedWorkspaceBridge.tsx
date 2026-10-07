@@ -16,9 +16,17 @@ import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/us
 
 import { embeddedSceneBridge } from "./EmbeddedSceneBridge";
 import { embeddedViewCapture } from "./EmbeddedViewCapture";
-import { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProtocol";
+import {
+  XGC2_EMBED_CHANNEL,
+  XGC2_EMBED_VERSION,
+  embeddedParentOrigin,
+} from "./EmbeddedWorkspaceProtocol";
 
-export { XGC2_EMBED_CHANNEL, XGC2_EMBED_VERSION } from "./EmbeddedWorkspaceProtocol";
+export {
+  XGC2_EMBED_CHANNEL,
+  XGC2_EMBED_VERSION,
+  embeddedParentOrigin,
+} from "./EmbeddedWorkspaceProtocol";
 export const XGC2_EMBED_SURFACES = [
   "3d-tools",
   "obstacle-scene",
@@ -146,7 +154,10 @@ export function isXgc2EmbeddedHostCommand(value: unknown): value is Xgc2Embedded
 }
 
 /**
- * Exposes the small, versioned command surface used by the same-origin XGC2 embed host.
+ * Exposes the small, versioned command surface used by the XGC2 embed host.
+ * The host may live on a different site (loopback alias) so the viewer gets an
+ * isolated renderer process; the expected parent origin comes from the embed
+ * URL rather than assuming the viewer's own origin.
  *
  * This component must only be mounted by an embedded Workspace. The source and origin checks keep
  * messages from other frames and windows from driving Workspace UI.
@@ -173,12 +184,12 @@ export default function EmbeddedWorkspaceBridge(): null {
     store.sidebars.right.open ? store.sidebars.right.item : undefined,
   );
 
-  useEffect(() => embeddedSceneBridge.connect(window.parent, window.location.origin), []);
-  useEffect(() => embeddedViewCapture.connect(window.parent, window.location.origin), []);
+  useEffect(() => embeddedSceneBridge.connect(window.parent, embeddedParentOrigin()), []);
+  useEffect(() => embeddedViewCapture.connect(window.parent, embeddedParentOrigin()), []);
 
   useEffect(() => {
     const parentWindow = window.parent;
-    const expectedOrigin = window.location.origin;
+    const expectedOrigin = embeddedParentOrigin();
 
     const handleMessage = (event: MessageEvent<unknown>) => {
       if (event.origin !== expectedOrigin || event.source !== parentWindow) {

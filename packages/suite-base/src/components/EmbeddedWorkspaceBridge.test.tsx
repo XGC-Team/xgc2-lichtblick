@@ -177,6 +177,29 @@ describe("EmbeddedWorkspaceBridge", () => {
     );
   });
 
+  it("addresses the parent origin declared by the embed URL", () => {
+    const parentOrigin = "http://127.0.0.1:5174";
+    window.history.pushState({}, "", `/?xgc2ParentOrigin=${encodeURIComponent(parentOrigin)}`);
+    try {
+      const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
+      render(<EmbeddedWorkspaceBridge />);
+
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "ready" }), parentOrigin);
+
+      act(() => {
+        dispatchHostMessage(hostCommand("topics"), { origin: parentOrigin });
+      });
+      expect(selectLeftItem).toHaveBeenCalledWith("topics");
+
+      act(() => {
+        dispatchHostMessage(hostCommand("layouts"));
+      });
+      expect(selectLeftItem).toHaveBeenCalledTimes(1);
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
+
   it.each([
     "panel-settings",
     "alerts",

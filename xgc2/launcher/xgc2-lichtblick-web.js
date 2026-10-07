@@ -27,7 +27,12 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8080;
 const DEFAULT_CONTROL_PLANE_URL = "ws://127.0.0.1:8765";
 const DEFAULT_PUBLIC_URL_PREFIX = "/";
-const DEFAULT_FRAME_ANCESTORS = "'self' http://127.0.0.1:5173 http://localhost:5173";
+// 'self' covers production same-origin proxying; the loopback pairs are the
+// XGC2 station ports (Vite dev 5173/5174, Core 8787/8788) whose 127.0.0.1 and
+// localhost aliases are different sites to the browser — the viewer iframe may
+// be served from either alias of the pair the operator's browser is not on.
+const DEFAULT_FRAME_ANCESTORS =
+  "'self' http://127.0.0.1:5173 http://localhost:5173 http://127.0.0.1:5174 http://localhost:5174 http://127.0.0.1:8787 http://localhost:8787 http://127.0.0.1:8788 http://localhost:8788";
 const ENV_FILE =
   process.env.XGC2_LICHTBLICK_WEB_ENV_FILE ?? path.join(__dirname, "lichtblick-web.env");
 const DEFAULT_STATIC_ROOT = path.resolve(__dirname, "../../web/.webpack");

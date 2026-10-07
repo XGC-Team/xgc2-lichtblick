@@ -30,6 +30,7 @@ import {
   EMBEDDED_NAVIGATION_EVENT,
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_VERSION,
+  embeddedParentOrigin,
   type EmbeddedNavigationCommand,
 } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
@@ -1099,7 +1100,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         goalActive: publishActive && renderer?.publishClickTool.publishClickType === "pose",
         followFrameId: config.followMode === "follow-none" ? undefined : config.followTf,
       },
-      window.location.origin,
+      embeddedParentOrigin(),
     );
   }, [
     embeddedPanelId,
@@ -1140,7 +1141,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           goalActive: false,
           followFrameId: undefined,
         },
-        window.location.origin,
+        embeddedParentOrigin(),
       );
     };
   }, [embeddedPanelId, interfaceMode, config.cameraState.perspective]);
@@ -1184,7 +1185,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
               panelId: embeddedPanelId,
               frames: urdfs?.robotFollowFrames() ?? [],
             },
-            window.location.origin,
+            embeddedParentOrigin(),
           );
           break;
         }
