@@ -843,7 +843,7 @@ describe("ImageRenderable error handling", () => {
     });
 
     // Backward seek: the full GOP (K, P1, P2, target) arrives in one render tick. The four
-    // setImage calls happen synchronously, mirroring Renderer.#handleSubscriptionQueues
+    // setImage calls happen synchronously, mirroring Renderer.handleSubscriptionQueues
     // iterating the filtered queue.
     let lastDecoded!: () => void;
     const lastDecodedPromise = new Promise<void>((resolve) => {

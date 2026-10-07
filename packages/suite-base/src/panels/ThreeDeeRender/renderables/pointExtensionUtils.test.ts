@@ -269,15 +269,16 @@ describe("PointCloud flat buffer updates", () => {
     jest.restoreAllMocks();
   });
 
-  it("reads only geometry and converts flat RGBA once, preserving every point and stixel", () => {
+  it("decodes flat-color clouds through the fused fast path, preserving every point and stixel", () => {
     const { renderable, settings, errors } = fixture();
     const message = cloud([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]);
     new DataView(message.data.buffer).setFloat32(0, Number.NaN, true);
     const reads = jest.spyOn(DataView.prototype, "getFloat32");
     const conversions = trackConversions();
     renderable.updatePointCloud(message, undefined, settings, 2n);
-    expect(reads).toHaveBeenCalledTimes(9);
-    expect(reads.mock.calls.some(([offset]) => offset % 16 === 12)).toBe(false);
+    // Fast path: positions come from a strided Float32Array view (stride 16 here), so no
+    // DataView reads happen at all; the flat color is still converted exactly once
+    expect(reads).not.toHaveBeenCalled();
     expect(conversions).toHaveBeenCalledTimes(1);
     const [points, stixels] = geometries(renderable);
     expect(points!.drawRange.count).toBe(3);
@@ -311,6 +312,7 @@ describe("PointCloud flat buffer updates", () => {
     const hypot = jest.spyOn(Math, "hypot");
     const conversions = trackConversions();
     renderable.updatePointCloud(cloud([1, 2, 3]), undefined, settings, 1n);
+    // The computed distance color field excludes the fast path, so the per-point reader loop runs
     expect(reads).toHaveBeenCalledTimes(9);
     expect(hypot).not.toHaveBeenCalled();
     expect(conversions).toHaveBeenCalledTimes(1);
@@ -323,7 +325,7 @@ describe("PointCloud flat buffer updates", () => {
     renderable.dispose();
   });
 
-  it("keeps RGB field reads and conversion per point with original sRGB bytes and alpha", () => {
+  it("decodes packed RGB through the fused fast path with original sRGB bytes and alpha", () => {
     const { renderable, settings } = fixture({ colorMode: "rgb", explicitAlpha: 0.5 });
     const reads = jest.spyOn(DataView.prototype, "getUint32");
     const conversions = trackConversions();
@@ -333,8 +335,10 @@ describe("PointCloud flat buffer updates", () => {
       settings,
       1n,
     );
-    expect(reads).toHaveBeenCalledTimes(3);
-    expect(conversions).toHaveBeenCalledTimes(3);
+    // Fast path: packed colors are extracted from a Uint32Array view, so neither per-point
+    // DataView reads nor color converter calls happen
+    expect(reads).not.toHaveBeenCalled();
+    expect(conversions).not.toHaveBeenCalled();
     const [points, stixels] = geometries(renderable);
     expect(Array.from(points!.attributes.color!.array)).toEqual([
       255, 0, 0, 128, 0, 255, 0, 128, 0, 0, 255, 128,
@@ -342,6 +346,115 @@ describe("PointCloud flat buffer updates", () => {
     expect(Array.from(stixels!.attributes.color!.array)).toEqual([
       255, 0, 0, 128, 255, 0, 0, 128, 0, 255, 0, 128, 0, 255, 0, 128, 0, 0, 255, 128, 0, 0, 255,
       128,
+    ]);
+    renderable.dispose();
+  });
+
+  it("produces byte-identical buffers to the reader loop for packed RGBA clouds, including NaN positions", () => {
+    // The same logical cloud in a fast layout (contiguous float32 x/y/z at offsets 0/4/8,
+    // stride 16) and a slow one (scattered field offsets force the per-point reader loop)
+    const colors = [0x80ff0000, 0x4000ff00, 0xc00000ff];
+    const fastMessage = cloud(colors, PointFieldType.UINT32);
+    new DataView(fastMessage.data.buffer).setFloat32(0, Number.NaN, true);
+
+    const slowData = new Uint8Array(3 * 24);
+    const slowView = new DataView(slowData.buffer);
+    for (let index = 0; index < 3; index++) {
+      slowView.setFloat32(index * 24, index === 0 ? Number.NaN : index + 1, true);
+      slowView.setFloat32(index * 24 + 8, index + 2, true);
+      slowView.setFloat32(index * 24 + 16, index + 3, true);
+      slowView.setUint32(index * 24 + 20, colors[index]!, true);
+    }
+    const slowMessage: PointCloud2 = {
+      header: { seq: 1, stamp: { sec: 1, nsec: 0 }, frame_id: "world" },
+      height: 1,
+      width: 3,
+      fields: [
+        { name: "x", offset: 0, datatype: PointFieldType.FLOAT32, count: 1 },
+        { name: "y", offset: 8, datatype: PointFieldType.FLOAT32, count: 1 },
+        { name: "z", offset: 16, datatype: PointFieldType.FLOAT32, count: 1 },
+        { name: "value", offset: 20, datatype: PointFieldType.UINT32, count: 1 },
+      ],
+      is_bigendian: false,
+      point_step: 24,
+      row_step: slowData.length,
+      data: slowData,
+      is_dense: false,
+    };
+
+    const fast = fixture({ colorMode: "rgba" });
+    const slow = fixture({ colorMode: "rgba" });
+    const floatReads = jest.spyOn(DataView.prototype, "getFloat32");
+    const packedReads = jest.spyOn(DataView.prototype, "getUint32");
+    fast.renderable.updatePointCloud(fastMessage, undefined, fast.settings, 1n);
+    expect(floatReads).not.toHaveBeenCalled();
+    expect(packedReads).not.toHaveBeenCalled();
+    slow.renderable.updatePointCloud(slowMessage, undefined, slow.settings, 1n);
+    expect(floatReads).toHaveBeenCalledTimes(9);
+    expect(packedReads).toHaveBeenCalledTimes(3);
+
+    const [fastPoints, fastStixels] = geometries(fast.renderable);
+    const [slowPoints, slowStixels] = geometries(slow.renderable);
+    expect(Array.from(fastPoints!.attributes.position!.array)).toEqual(
+      Array.from(slowPoints!.attributes.position!.array),
+    );
+    expect(Array.from(fastPoints!.attributes.color!.array)).toEqual(
+      Array.from(slowPoints!.attributes.color!.array),
+    );
+    expect(Array.from(fastStixels!.attributes.position!.array)).toEqual(
+      Array.from(slowStixels!.attributes.position!.array),
+    );
+    expect(Array.from(fastStixels!.attributes.color!.array)).toEqual(
+      Array.from(slowStixels!.attributes.color!.array),
+    );
+    // Spot-check the exact decoded bytes: 0xAARRGGBB packed colors, NaN passthrough in x
+    expect(Array.from(fastPoints!.attributes.color!.array)).toEqual([
+      255, 0, 0, 128, 0, 255, 0, 64, 0, 0, 255, 192,
+    ]);
+    expect(fastPoints!.attributes.position!.array[0]).toBeNaN();
+    fast.renderable.dispose();
+    slow.renderable.dispose();
+  });
+
+  it("uploads densely packed stride-12 positions with a single memcpy", () => {
+    const { renderable, settings } = fixture();
+    const data = new Uint8Array(3 * 12);
+    const view = new DataView(data.buffer);
+    for (let index = 0; index < 3; index++) {
+      view.setFloat32(index * 12, index === 0 ? Number.NaN : index + 1, true);
+      view.setFloat32(index * 12 + 4, index + 2, true);
+      view.setFloat32(index * 12 + 8, index + 3, true);
+    }
+    const message: PointCloud2 = {
+      header: { seq: 1, stamp: { sec: 1, nsec: 0 }, frame_id: "world" },
+      height: 1,
+      width: 3,
+      fields: ["x", "y", "z"].map((name, index) => ({
+        name,
+        offset: index * 4,
+        datatype: PointFieldType.FLOAT32,
+        count: 1,
+      })),
+      is_bigendian: false,
+      point_step: 12,
+      row_step: data.length,
+      data,
+      is_dense: false,
+    };
+    const memcpy = jest.spyOn(Float32Array.prototype, "set");
+    const reads = jest.spyOn(DataView.prototype, "getFloat32");
+    renderable.updatePointCloud(message, undefined, settings, 1n);
+    expect(memcpy).toHaveBeenCalledTimes(1);
+    expect(reads).not.toHaveBeenCalled();
+    const [points, stixels] = geometries(renderable);
+    expect(Array.from(points!.attributes.position!.array)).toEqual([
+      Number.NaN, 2, 3, 2, 3, 4, 3, 4, 5,
+    ]);
+    expect(Array.from(points!.attributes.color!.array)).toEqual([
+      55, 55, 55, 128, 55, 55, 55, 128, 55, 55, 55, 128,
+    ]);
+    expect(Array.from(stixels!.attributes.position!.array)).toEqual([
+      Number.NaN, 2, 3, Number.NaN, 2, 0, 2, 3, 4, 2, 3, 0, 3, 4, 5, 3, 4, 0,
     ]);
     renderable.dispose();
   });

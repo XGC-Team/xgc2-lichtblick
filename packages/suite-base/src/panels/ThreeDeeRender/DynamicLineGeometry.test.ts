@@ -156,3 +156,109 @@ it("does not include an unmatched LINE_LIST point in drawing or bounds", () => {
   expect(geometry.instanceCount).toBe(1);
   expect(geometry.boundingBox!.max.x).toBe(13.25);
 });
+
+describe("DynamicLineGeometry strip append", () => {
+  function expectMatchesReference(geometry: DynamicLineGeometry, allPoints: Vector3[]): void {
+    const reference = new DynamicLineGeometry();
+    reference.setPoints(allPoints, "strip");
+    for (const name of [
+      "instanceStart",
+      "instanceEnd",
+      "instanceDistanceStart",
+      "instanceDistanceEnd",
+    ]) {
+      expect(values(geometry, name, allPoints.length - 1)).toEqual(
+        values(reference, name, allPoints.length - 1),
+      );
+    }
+    expect(geometry.boundingBox).toEqual(reference.boundingBox);
+    expect(geometry.boundingSphere).toEqual(reference.boundingSphere);
+    reference.dispose();
+  }
+
+  it("writes only the tail and continues the distance chain", () => {
+    const geometry = new DynamicLineGeometry();
+    // Create spare capacity so the append reuses every buffer.
+    geometry.setPoints([...points, { x: 99, y: 99, z: 99 }], "strip");
+    geometry.setPoints(points, "strip");
+    const attributes = attributeNames.map((name) => geometry.getAttribute(name));
+    const colorBuffer = geometry.colorBuffer;
+
+    const grown = [...points, { x: 5, y: 5, z: 5 }];
+    geometry.appendPoints(grown, 4);
+    expect(geometry.instanceCount).toBe(4);
+    attributeNames.forEach((name, i) => {
+      expect(geometry.getAttribute(name)).toBe(attributes[i]);
+    });
+    expect(geometry.colorBuffer).toBe(colorBuffer);
+    expect(data(geometry, "instanceStart").updateRange).toEqual({ offset: 18, count: 6 });
+    expect(data(geometry, "instanceDistanceStart").updateRange).toEqual({ offset: 6, count: 2 });
+    expectMatchesReference(geometry, grown);
+
+    geometry.updateColors();
+    expect(data(geometry, "instanceColorStart").updateRange).toEqual({ offset: 0, count: 32 });
+    geometry.updateColors(3);
+    expect(data(geometry, "instanceColorStart").updateRange).toEqual({ offset: 24, count: 8 });
+    geometry.dispose();
+  });
+
+  it("grows with headroom while preserving the uploaded prefix", () => {
+    const geometry = new DynamicLineGeometry();
+    geometry.setPoints(points, "strip");
+    geometry.colorBuffer.fill(7);
+    const oldAttributes = attributeNames.map((name) => geometry.getAttribute(name));
+    const onDispose = jest.fn();
+    geometry.addEventListener("dispose", onDispose);
+
+    const grown = [...points, { x: 5, y: 5, z: 5 }, { x: 6, y: 1, z: 2 }];
+    geometry.appendPoints(grown, 4);
+    expect(onDispose).toHaveBeenCalledTimes(1);
+    attributeNames.forEach((name, i) => {
+      expect(geometry.getAttribute(name)).not.toBe(oldAttributes[i]);
+    });
+    expect(geometry.instanceCount).toBe(5);
+    expect(geometry.getAttribute("instanceStart").count).toBe(5);
+    // The old buffer was replaced without copying; the prefix must survive.
+    expect(Array.from(geometry.colorBuffer.slice(0, 24))).toEqual(new Array(24).fill(7));
+    expect(data(geometry, "instanceStart").updateRange).toEqual({ offset: 18, count: 12 });
+    expect(data(geometry, "instanceDistanceStart").updateRange).toEqual({ offset: 6, count: 4 });
+    expectMatchesReference(geometry, grown);
+    geometry.dispose();
+  });
+
+  it("chains consecutive appends across a growth step", () => {
+    const geometry = new DynamicLineGeometry();
+    geometry.setPoints(points, "strip");
+    const grown5 = [...points, { x: 5, y: 5, z: 5 }];
+    geometry.appendPoints(grown5, 4);
+    const attribute = geometry.getAttribute("instanceStart");
+    const grown6 = [...grown5, { x: 6, y: 1, z: 2 }];
+    geometry.appendPoints(grown6, 5);
+    expect(geometry.getAttribute("instanceStart")).toBe(attribute);
+    expect(geometry.instanceCount).toBe(5);
+    expect(data(geometry, "instanceStart").updateRange).toEqual({ offset: 24, count: 6 });
+    expectMatchesReference(geometry, grown6);
+    geometry.dispose();
+  });
+
+  it.each([0, 2])("falls back to a full upload for startIndex %s", (startIndex) => {
+    const geometry = new DynamicLineGeometry();
+    geometry.setPoints(points, "strip");
+    geometry.appendPoints(points, startIndex);
+    expect(geometry.instanceCount).toBe(3);
+    expect(data(geometry, "instanceStart").updateRange).toEqual({ offset: 0, count: 18 });
+    expectMatchesReference(geometry, points);
+    geometry.dispose();
+  });
+
+  it("appends to a singleton input whose bounds were empty", () => {
+    const geometry = new DynamicLineGeometry();
+    geometry.setPoints(points.slice(0, 1), "strip");
+    expect(geometry.getAttribute("instanceStart")).toBeUndefined();
+    geometry.appendPoints(points, 1);
+    expect(geometry.instanceCount).toBe(3);
+    expect(data(geometry, "instanceStart").updateRange).toEqual({ offset: 0, count: 18 });
+    expectMatchesReference(geometry, points);
+    geometry.dispose();
+  });
+});

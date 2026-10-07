@@ -66,6 +66,14 @@ type PointCloudFieldReaders = {
   alphaReader: FieldReader;
 };
 
+/**
+ * Message layout descriptor for the fused decode in `#updatePointCloudBuffers`,
+ * see `getPointCloudFastPath` for the gating conditions.
+ */
+type PointCloudFastPath =
+  | { colorMode: "flat"; xyzOffset: number }
+  | { colorMode: "rgb" | "rgba"; xyzOffset: number; colorOffset: number };
+
 type LayerSettingsPointClouds = LayerSettingsPointExtension & {
   stixelsEnabled: boolean;
   colorFieldComputed: "distance" | undefined;
@@ -495,10 +503,7 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
         continue;
       }
       const numericType = (field as Partial<PackedElementField>).type;
-      const type =
-        numericType != undefined
-          ? numericTypeToPointFieldType(numericType)
-          : (field as PointField).datatype;
+      const type = pointFieldType(field);
 
       if (field.offset < 0) {
         const message = `PointCloud field "${field.name}" has invalid offset ${field.offset}. Must be >= 0`;
@@ -636,85 +641,103 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     stixelColorAttribute: THREE.BufferAttribute,
   ): void {
     const data = pointCloud.data;
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const pointStep = getStride(pointCloud);
-    const {
-      xReader,
-      yReader,
-      zReader,
-      packedColorReader,
-      redReader,
-      greenReader,
-      blueReader,
-      alphaReader,
-    } = readers;
 
-    // Update position attribute
-    for (let i = 0; i < pointCount; i++) {
-      const pointOffset = i * pointStep;
-      const x = xReader(view, pointOffset);
-      const y = yReader(view, pointOffset);
-      const z = zReader(view, pointOffset);
-      positionAttribute.setXYZ(i, x, y, z);
-      if (settings.stixelsEnabled) {
-        stixelPositionAttribute.setXYZ(i * 2, x, y, z);
-        stixelPositionAttribute.setXYZ(i * 2 + 1, x, y, 0);
-      }
-    }
+    // When the message layout allows it (see getPointCloudFastPath), decode positions and
+    // colors through typed-array views instead of per-point field readers
+    const fastPath = getPointCloudFastPath(pointCloud, settings);
+    if (fastPath) {
+      this.#updatePointCloudBuffersFast(
+        fastPath,
+        data,
+        pointStep,
+        pointCount,
+        settings,
+        positionAttribute,
+        colorAttribute,
+        stixelPositionAttribute,
+        stixelColorAttribute,
+      );
+    } else {
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      const {
+        xReader,
+        yReader,
+        zReader,
+        packedColorReader,
+        redReader,
+        greenReader,
+        blueReader,
+        alphaReader,
+      } = readers;
 
-    // Update color attribute
-    if (settings.colorMode === "rgba-fields") {
+      // Update position attribute
       for (let i = 0; i < pointCount; i++) {
         const pointOffset = i * pointStep;
-        const r = redReader(view, pointOffset);
-        const g = greenReader(view, pointOffset);
-        const b = blueReader(view, pointOffset);
-        const a = alphaReader(view, pointOffset);
-        colorAttribute.setXYZW(i, r, g, b, a);
+        const x = xReader(view, pointOffset);
+        const y = yReader(view, pointOffset);
+        const z = zReader(view, pointOffset);
+        positionAttribute.setXYZ(i, x, y, z);
         if (settings.stixelsEnabled) {
-          stixelColorAttribute.setXYZW(i * 2, r, g, b, a);
-          stixelColorAttribute.setXYZW(i * 2 + 1, r, g, b, a);
+          stixelPositionAttribute.setXYZ(i * 2, x, y, z);
+          stixelPositionAttribute.setXYZ(i * 2 + 1, x, y, 0);
         }
       }
-    } else {
-      // Iterate the point cloud data to determine min/max color values (if needed)
-      this.#minMaxColorValues(
-        tempMinMaxColor,
-        packedColorReader,
-        view,
-        pointCount,
-        pointStep,
-        settings,
-      );
-      const [minColorValue, maxColorValue] = tempMinMaxColor;
 
-      // Build a method to convert raw color field values to RGBA
-      const colorConverter = getColorConverter(
-        settings as typeof settings & { colorMode: typeof settings.colorMode },
-        minColorValue,
-        maxColorValue,
-      );
-
-      const isFlatColor = settings.colorMode === "flat";
-      if (isFlatColor && pointCount > 0) {
-        colorConverter(tempColor, 0);
-      }
-      for (let i = 0; i < pointCount; i++) {
-        if (!isFlatColor) {
+      // Update color attribute
+      if (settings.colorMode === "rgba-fields") {
+        for (let i = 0; i < pointCount; i++) {
           const pointOffset = i * pointStep;
-          const colorValue = packedColorReader(view, pointOffset);
-          colorConverter(tempColor, colorValue);
+          const r = redReader(view, pointOffset);
+          const g = greenReader(view, pointOffset);
+          const b = blueReader(view, pointOffset);
+          const a = alphaReader(view, pointOffset);
+          colorAttribute.setXYZW(i, r, g, b, a);
+          if (settings.stixelsEnabled) {
+            stixelColorAttribute.setXYZW(i * 2, r, g, b, a);
+            stixelColorAttribute.setXYZW(i * 2 + 1, r, g, b, a);
+          }
         }
-        colorAttribute.setXYZW(i, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
-        if (settings.stixelsEnabled) {
-          stixelColorAttribute.setXYZW(i * 2, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
-          stixelColorAttribute.setXYZW(
-            i * 2 + 1,
-            tempColor.r,
-            tempColor.g,
-            tempColor.b,
-            tempColor.a,
-          );
+      } else {
+        // Iterate the point cloud data to determine min/max color values (if needed)
+        this.#minMaxColorValues(
+          tempMinMaxColor,
+          packedColorReader,
+          view,
+          pointCount,
+          pointStep,
+          settings,
+        );
+        const [minColorValue, maxColorValue] = tempMinMaxColor;
+
+        // Build a method to convert raw color field values to RGBA
+        const colorConverter = getColorConverter(
+          settings as typeof settings & { colorMode: typeof settings.colorMode },
+          minColorValue,
+          maxColorValue,
+        );
+
+        const isFlatColor = settings.colorMode === "flat";
+        if (isFlatColor && pointCount > 0) {
+          colorConverter(tempColor, 0);
+        }
+        for (let i = 0; i < pointCount; i++) {
+          if (!isFlatColor) {
+            const pointOffset = i * pointStep;
+            const colorValue = packedColorReader(view, pointOffset);
+            colorConverter(tempColor, colorValue);
+          }
+          colorAttribute.setXYZW(i, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
+          if (settings.stixelsEnabled) {
+            stixelColorAttribute.setXYZW(i * 2, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
+            stixelColorAttribute.setXYZW(
+              i * 2 + 1,
+              tempColor.r,
+              tempColor.g,
+              tempColor.b,
+              tempColor.a,
+            );
+          }
         }
       }
     }
@@ -723,6 +746,106 @@ export class PointCloudHistoryRenderable extends Renderable<PointCloudHistoryUse
     colorAttribute.needsUpdate = true;
     stixelPositionAttribute.needsUpdate = true;
     stixelColorAttribute.needsUpdate = true;
+  }
+
+  /**
+   * Fused decode for tightly packed float32 x/y/z layouts, selected by getPointCloudFastPath.
+   * Positions are copied through Float32Array views (a single memcpy when x/y/z span the whole
+   * point) and colors are written straight into the normalized Uint8Array, skipping per-point
+   * reader closures, DataView gets and BufferAttribute.setXYZ(W) overhead. The produced buffers
+   * are byte-identical to the per-point reader loop above.
+   */
+  #updatePointCloudBuffersFast(
+    fastPath: PointCloudFastPath,
+    data: Uint8Array,
+    pointStep: number,
+    pointCount: number,
+    settings: LayerSettingsPointClouds,
+    positionAttribute: THREE.BufferAttribute,
+    colorAttribute: THREE.BufferAttribute,
+    stixelPositionAttribute: THREE.BufferAttribute,
+    stixelColorAttribute: THREE.BufferAttribute,
+  ): void {
+    const positions = positionAttribute.array as Float32Array;
+    const strideFloats = pointStep >>> 2;
+
+    if (fastPath.xyzOffset === 0 && pointStep === 12) {
+      // x/y/z span the entire point, so the message buffer can be uploaded with one memcpy
+      positions.set(new Float32Array(data.buffer, data.byteOffset, pointCount * 3));
+    } else {
+      const floats = new Float32Array(data.buffer, data.byteOffset, data.byteLength >>> 2);
+      const xyzFloat = fastPath.xyzOffset >>> 2;
+      for (let i = 0, src = xyzFloat, dst = 0; i < pointCount; i++, src += strideFloats, dst += 3) {
+        positions[dst] = floats[src]!;
+        positions[dst + 1] = floats[src + 1]!;
+        positions[dst + 2] = floats[src + 2]!;
+      }
+    }
+
+    if (settings.stixelsEnabled) {
+      const stixelPositions = stixelPositionAttribute.array as Float32Array;
+      for (let i = 0, src = 0, dst = 0; i < pointCount; i++, src += 3, dst += 6) {
+        stixelPositions[dst] = positions[src]!;
+        stixelPositions[dst + 1] = positions[src + 1]!;
+        stixelPositions[dst + 2] = positions[src + 2]!;
+        stixelPositions[dst + 3] = positions[src]!;
+        stixelPositions[dst + 4] = positions[src + 1]!;
+        stixelPositions[dst + 5] = 0;
+      }
+    }
+
+    // setXYZW() stores Math.round(value * 255) for a normalized Uint8Array attribute; writing
+    // the rounded bytes through a Uint32Array view (little-endian platforms, i.e. all supported
+    // ones) produces the exact same bytes with one store per point
+    const colors = colorAttribute.array as Uint8Array;
+    const colorWords = new Uint32Array(colors.buffer, colors.byteOffset, pointCount);
+    if (fastPath.colorMode === "flat") {
+      // The flat color converter ignores min/max; the arguments mirror #minMaxColorValues
+      const colorConverter = getColorConverter(
+        settings as LayerSettingsPointClouds & { colorMode: "flat" },
+        settings.minValue ?? Number.POSITIVE_INFINITY,
+        settings.maxValue ?? Number.NEGATIVE_INFINITY,
+      );
+      if (pointCount > 0) {
+        colorConverter(tempColor, 0);
+      }
+      const colorWord =
+        Math.round(tempColor.r * 255) |
+        (Math.round(tempColor.g * 255) << 8) |
+        (Math.round(tempColor.b * 255) << 16) |
+        (Math.round(tempColor.a * 255) << 24);
+      colorWords.fill(colorWord);
+      if (settings.stixelsEnabled) {
+        const stixelColors = stixelColorAttribute.array as Uint8Array;
+        new Uint32Array(stixelColors.buffer, stixelColors.byteOffset, pointCount * 2).fill(
+          colorWord,
+        );
+      }
+      return;
+    }
+
+    const colorFloat = fastPath.colorOffset >>> 2;
+    const packedWords = new Uint32Array(data.buffer, data.byteOffset, data.byteLength >>> 2);
+    // "rgb" mode replaces the message alpha with the explicit alpha setting
+    const explicitAlphaBits = Math.round(settings.explicitAlpha * 255) << 24;
+    const stixelColors = stixelColorAttribute.array as Uint8Array;
+    const stixelWords = settings.stixelsEnabled
+      ? new Uint32Array(stixelColors.buffer, stixelColors.byteOffset, pointCount * 2)
+      : undefined;
+    for (let i = 0, src = colorFloat; i < pointCount; i++, src += strideFloats) {
+      const packed = packedWords[src]!;
+      // Same bytes as getColorBgra() + setXYZW(): packed is 0xAARRGGBB, attribute bytes are r,g,b,a
+      const colorWord =
+        ((packed >>> 16) & 0xff) |
+        (packed & 0xff00) |
+        ((packed & 0xff) << 16) |
+        (fastPath.colorMode === "rgba" ? packed & 0xff000000 : explicitAlphaBits);
+      colorWords[i] = colorWord;
+      if (stixelWords) {
+        stixelWords[i * 2] = colorWord;
+        stixelWords[i * 2 + 1] = colorWord;
+      }
+    }
   }
 }
 
@@ -972,6 +1095,13 @@ export class PointClouds extends SceneExtension<PointCloudHistoryRenderable> {
   }
 }
 
+function pointFieldType(field: PointField | PackedElementField): PointFieldType {
+  const numericType = (field as Partial<PackedElementField>).type;
+  return numericType != undefined
+    ? numericTypeToPointFieldType(numericType)
+    : (field as PointField).datatype;
+}
+
 function pointFieldTypeName(type: PointFieldType): string {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   return PointFieldType[type] ?? `${type}`;
@@ -998,6 +1128,97 @@ function pointFieldWidth(type: PointFieldType): number {
 
 function zeroReader(): number {
   return 0;
+}
+
+/**
+ * Decides whether `#updatePointCloudBuffers` can use the fused fast path, which uploads
+ * positions through Float32Array views and writes colors straight into the normalized
+ * Uint8Array instead of calling per-point field readers and BufferAttribute.setXYZ(W).
+ * All of the following must hold:
+ * - little-endian data (guaranteed: ROS `is_bigendian` is rejected by #validateRosPointCloud
+ *   and foxglove PointCloud is little-endian by definition)
+ * - x/y/z are all present as float32 fields at contiguous offsets (y = x + 4, z = x + 8), so
+ *   positions decode bit-identically (including NaN) without per-point DataView.getFloat32
+ * - the point stride and data buffer are 4-byte aligned so Float32Array/Uint32Array views work
+ * - color mode is "flat" (constant color, converted once), or packed "rgb"/"rgba" whose color
+ *   field resolves to the UINT32 reader at a 4-byte-aligned offset (including fields forced to
+ *   UINT32 because their byte width is >= 4, mirroring #getPointCloudFieldReaders)
+ * - the color field is not the computed "distance" field
+ * Everything else (gradient/colormap min/max pre-pass, rgba-fields, non-float32 or scattered
+ * x/y/z, unaligned packed colors) falls through to the per-point reader loop unchanged.
+ */
+function getPointCloudFastPath(
+  pointCloud: PointCloud | PointCloud2,
+  settings: LayerSettingsPointClouds,
+): PointCloudFastPath | undefined {
+  const colorMode = settings.colorMode;
+  if (
+    settings.colorFieldComputed === "distance" ||
+    (colorMode !== "flat" && colorMode !== "rgb" && colorMode !== "rgba")
+  ) {
+    return undefined;
+  }
+
+  const stride = getStride(pointCloud);
+  const data = pointCloud.data;
+  if ((stride & 3) !== 0 || (data.byteOffset & 3) !== 0 || (data.byteLength & 3) !== 0) {
+    return undefined;
+  }
+
+  let xField: PointField | PackedElementField | undefined;
+  let yField: PointField | PackedElementField | undefined;
+  let zField: PointField | PackedElementField | undefined;
+  let colorField: PointField | PackedElementField | undefined;
+  for (const field of pointCloud.fields) {
+    if (!isSupportedField(field)) {
+      continue;
+    }
+    if (field.name === "x") {
+      xField = field;
+    } else if (field.name === "y") {
+      yField = field;
+    } else if (field.name === "z") {
+      zField = field;
+    }
+    if (field.name === settings.colorField) {
+      colorField = field;
+    }
+  }
+  if (!xField || !yField || !zField) {
+    return undefined;
+  }
+
+  if (
+    pointFieldType(xField) !== PointFieldType.FLOAT32 ||
+    pointFieldType(yField) !== PointFieldType.FLOAT32 ||
+    pointFieldType(zField) !== PointFieldType.FLOAT32
+  ) {
+    return undefined;
+  }
+  const xyzOffset = xField.offset;
+  if ((xyzOffset & 3) !== 0 || yField.offset !== xyzOffset + 4 || zField.offset !== xyzOffset + 8) {
+    return undefined;
+  }
+
+  if (colorMode === "flat") {
+    return { colorMode, xyzOffset };
+  }
+
+  if (!colorField) {
+    return undefined;
+  }
+  const colorType = pointFieldType(colorField);
+  // Mirror #getPointCloudFieldReaders: packed rgb/rgba fields with byte width >= 4 are forced to UINT32
+  const effectiveColorType =
+    pointFieldWidth(colorType) >= 4 ? PointFieldType.UINT32 : colorType;
+  if (
+    effectiveColorType !== PointFieldType.UINT32 ||
+    (colorField.offset & 3) !== 0 ||
+    colorField.offset + 4 > stride
+  ) {
+    return undefined;
+  }
+  return { colorMode, xyzOffset, colorOffset: colorField.offset };
 }
 
 function normalizePointField(field: PartialMessage<PointField> | undefined): PointField {

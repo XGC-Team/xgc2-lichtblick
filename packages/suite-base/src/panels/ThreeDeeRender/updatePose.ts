@@ -14,6 +14,11 @@ import { Time } from "./transforms/time";
 
 const tempPose = makePose();
 
+// Identity input for root-relative queries; apply() never mutates its input.
+const identityPose = makePose();
+// Scratch output for rootedIdentityPose(); not reentrant, same as tempPose.
+const tempRootedPose = makePose();
+
 // Reused scratch buffers for path frame/offset collection during signature
 // walks; updatePose is not reentrant.
 const scratchSrcOffsets: (vec3 | undefined)[] = [];
@@ -398,4 +403,319 @@ function computePose(
     renderable.quaternion.set(q.x, q.y, q.z, q.w);
   }
   return poseApplied;
+}
+
+/**
+ * Cached outcome of one rootedIdentityPose() call. Shares updatePose()'s memo
+ * validity rules, but the hit path re-checks the captured frame versions
+ * directly instead of re-walking the ancestor chain: a version only ever
+ * increments, so unchanged versions and offset references prove the captured
+ * signature still matches what apply() would read.
+ */
+type RootedPoseMemo = RootedPose & {
+  tree: TransformTree;
+  frame: CoordinateFrame<AnyFrameId> | undefined;
+  fixedFrame: CoordinateFrame<AnyFrameId> | undefined;
+  srcFrame: CoordinateFrame<AnyFrameId> | undefined;
+  frameId: AnyFrameId;
+  rootFrameId: AnyFrameId;
+  srcFrameId: string;
+  /** The exact query time, or undefined when the result is time-independent */
+  timeKey: Time | undefined;
+  /** Ordered identity + mutation version of every frame apply() may read */
+  pathFrames: readonly CoordinateFrame<AnyFrameId>[];
+  pathVersions: readonly number[];
+  /** offsetPosition/offsetEulerDegrees references of every walked frame */
+  offsetRefs: readonly (vec3 | undefined)[];
+};
+
+/**
+ * Result of rootedIdentityPose(). The record is owned by the per-key memo and
+ * mutated in place on recompute: read its values before calling again with the
+ * same key.
+ */
+export type RootedPose = {
+  /** Whether the transform chain resolved (tree.apply() succeeded). */
+  applied: boolean;
+  /**
+   * True when the source frame is the root frame or its descendant, so a pose
+   * further down the chain decomposes exactly as `rootPose ⊕ this pose`. False
+   * when the query resolved through a common ancestor (or did not resolve);
+   * callers must not compose such results onto the root pose. Always false on
+   * the fallback-frame path.
+   */
+  rooted: boolean;
+  /** Result pose values; valid only when `applied` is true. */
+  position: { x: number; y: number; z: number };
+  orientation: { x: number; y: number; z: number; w: number };
+};
+
+// Renderables are owned by a single renderer and disposed with it, so a
+// WeakMap keeps memo entries collectible without explicit invalidation.
+const rootedPoseMemos = new WeakMap<THREE.Object3D, RootedPoseMemo>();
+
+// Returned from the fallback-frame path, which is never memoized.
+const bypassRootedPose: RootedPose = {
+  applied: false,
+  rooted: false,
+  position: { x: 0, y: 0, z: 0 },
+  orientation: { x: 0, y: 0, z: 0, w: 1 },
+};
+
+/**
+ * Memoized `transformTree.apply(out, identity, frameId, rootFrameId,
+ * srcFrameId, time, time)`. Used by the URDF extension to hoist the per-robot
+ * root pose (frameId=renderFrameId, rootFrameId=fixedFrameId) and to share
+ * per-link root→link transforms (frameId=rootFrameId=robot root frame) across
+ * frames. On a memo hit no tree walk and no apply() happen: the captured frame
+ * versions are scanned in place. A key must be used with a consistent query
+ * shape; mixing queries on one key thrashes the memo but stays correct.
+ */
+export function rootedIdentityPose(
+  memoKey: THREE.Object3D,
+  transformTree: TransformTree,
+  frameId: AnyFrameId,
+  rootFrameId: AnyFrameId,
+  srcFrameId: string,
+  time: Time,
+): RootedPose {
+  const frame = transformTree.frame(frameId);
+  const fixedFrame = transformTree.frame(rootFrameId);
+  const srcFrame = transformTree.frame(srcFrameId);
+
+  // The fallback frame shortcuts apply() without reading transform history and
+  // returns the shared scratch pose as-is, so results there are not a pure
+  // function of the memo key. Bypass memoization when it is involved, same as
+  // updatePose().
+  const fallbackInvolved =
+    frame?.id === CoordinateFrame.FALLBACK_FRAME_ID ||
+    fixedFrame?.id === CoordinateFrame.FALLBACK_FRAME_ID;
+  if (fallbackInvolved) {
+    bypassRootedPose.applied = Boolean(
+      transformTree.apply(tempRootedPose, identityPose, frameId, rootFrameId, srcFrameId, time, time),
+    );
+    bypassRootedPose.rooted = false;
+    const p = tempRootedPose.position;
+    const q = tempRootedPose.orientation;
+    bypassRootedPose.position.x = p.x;
+    bypassRootedPose.position.y = p.y;
+    bypassRootedPose.position.z = p.z;
+    bypassRootedPose.orientation.x = q.x;
+    bypassRootedPose.orientation.y = q.y;
+    bypassRootedPose.orientation.z = q.z;
+    bypassRootedPose.orientation.w = q.w;
+    return bypassRootedPose;
+  }
+
+  const memo = rootedPoseMemos.get(memoKey);
+  if (
+    memo?.tree === transformTree &&
+    memo.frame === frame &&
+    memo.fixedFrame === fixedFrame &&
+    memo.srcFrame === srcFrame &&
+    memo.frameId === frameId &&
+    memo.rootFrameId === rootFrameId &&
+    memo.srcFrameId === srcFrameId &&
+    (memo.timeKey == undefined || memo.timeKey === time) &&
+    memoPathStillValid(memo)
+  ) {
+    return memo;
+  }
+
+  // apply() falls back to the destination frame's own root when the fixed
+  // frame is missing, so mirror that here (same as updatePose()).
+  const rootFrame = fixedFrame ?? frame?.root();
+  scratchSrcOffsets.length = 0;
+  scratchDstOffsets.length = 0;
+  scratchSrcFrames.length = 0;
+  scratchSrcVersions.length = 0;
+  scratchDstFrames.length = 0;
+  scratchDstVersions.length = 0;
+  const srcSig = srcFrame
+    ? pathSignature(srcFrame, rootFrame, scratchSrcOffsets, scratchSrcFrames, scratchSrcVersions)
+    : undefined;
+  const dstSig = frame
+    ? pathSignature(frame, rootFrame, scratchDstOffsets, scratchDstFrames, scratchDstVersions)
+    : undefined;
+  // A missing frame fails apply() regardless of the query time.
+  const timeIndependent =
+    (!srcFrame || isTimeIndependent(srcSig!, time)) && (!frame || isTimeIndependent(dstSig!, time));
+
+  const applied = Boolean(
+    transformTree.apply(tempRootedPose, identityPose, frameId, rootFrameId, srcFrameId, time, time),
+  );
+
+  const pathLength = scratchSrcFrames.length + scratchDstFrames.length;
+  const p = tempRootedPose.position;
+  const q = tempRootedPose.orientation;
+  const next: RootedPoseMemo = {
+    tree: transformTree,
+    frame,
+    fixedFrame,
+    srcFrame,
+    frameId,
+    rootFrameId,
+    srcFrameId,
+    timeKey: timeIndependent ? undefined : time,
+    pathFrames: pathLength === 0 ? NO_FRAMES : [...scratchSrcFrames, ...scratchDstFrames],
+    pathVersions: pathLength === 0 ? NO_VERSIONS : [...scratchSrcVersions, ...scratchDstVersions],
+    offsetRefs:
+      scratchSrcOffsets.length + scratchDstOffsets.length === 0
+        ? NO_OFFSETS
+        : [...scratchSrcOffsets, ...scratchDstOffsets],
+    rooted: srcSig?.exact ?? false,
+    applied,
+    position: { x: p.x, y: p.y, z: p.z },
+    orientation: { x: q.x, y: q.y, z: q.z, w: q.w },
+  };
+  rootedPoseMemos.set(memoKey, next);
+  return next;
+}
+
+/**
+ * Version and offset-reference scan of the frames captured when the memo was
+ * computed. Reparenting bumps the reparented frame's version, so unchanged
+ * versions prove the walked path is identical to the captured one.
+ */
+function memoPathStillValid(memo: RootedPoseMemo): boolean {
+  const frames = memo.pathFrames;
+  const versions = memo.pathVersions;
+  const offsets = memo.offsetRefs;
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i]!;
+    if (
+      frame.getVersion() !== versions[i]! ||
+      frame.offsetPosition !== offsets[2 * i] ||
+      frame.offsetEulerDegrees !== offsets[2 * i + 1]
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Cached inputs and result of one updatePoseViaRoot() composition. */
+type ViaRootMemo = {
+  rootValues: readonly [number, number, number, number, number, number, number];
+  relValues: readonly [number, number, number, number, number, number, number];
+  poseValues: readonly [number, number, number, number, number, number, number];
+  position: { x: number; y: number; z: number };
+  orientation: { x: number; y: number; z: number; w: number };
+};
+
+const viaRootMemos = new WeakMap<THREE.Object3D, ViaRootMemo>();
+
+// Composition scratches for updatePoseViaRoot(); not reentrant, same as tempPose.
+const viaRootVecA = new THREE.Vector3();
+const viaRootVecB = new THREE.Vector3();
+const viaRootQuatA = new THREE.Quaternion();
+const viaRootQuatB = new THREE.Quaternion();
+const viaRootQuatC = new THREE.Quaternion();
+
+function poseValuesMatch(
+  values: readonly [number, number, number, number, number, number, number],
+  pose: { position: { x: number; y: number; z: number }; orientation: { x: number; y: number; z: number; w: number } },
+): boolean {
+  const p = pose.position;
+  const q = pose.orientation;
+  return (
+    values[0] === p.x &&
+    values[1] === p.y &&
+    values[2] === p.z &&
+    values[3] === q.x &&
+    values[4] === q.y &&
+    values[5] === q.z &&
+    values[6] === q.w
+  );
+}
+
+/**
+ * updatePose() variant that consumes a hoisted, already-memoized robot root
+ * pose: `renderFrame_T_root` is computed once per robot per frame by the
+ * caller, and each link composes `rootPose ⊕ root_T_link ⊕ pose` locally. The
+ * root→link transform is memoized per renderable, so an unchanged TF tree
+ * costs no tree.apply() per link — only a version scan — and an unchanged root
+ * pose plus unchanged link chain reuses the cached world pose outright.
+ *
+ * Equivalent to updatePose() whenever the robot root frame is the source
+ * frame or its ancestor. When it is not (a link reparented outside the robot)
+ * the decomposition is invalid and this falls back to updatePose() itself.
+ */
+export function updatePoseViaRoot(
+  renderable: THREE.Object3D,
+  transformTree: TransformTree,
+  renderFrameId: AnyFrameId,
+  fixedFrameId: AnyFrameId,
+  rootFrameId: string,
+  rootPose: RootedPose,
+  srcFrameId: string,
+  time: Time,
+): boolean {
+  const pose = renderable.userData.pose as Readonly<Pose> | undefined;
+  if (!pose) {
+    throw new Error(`Missing userData.pose for ${renderable.name}`);
+  }
+
+  const rel = rootedIdentityPose(
+    renderable,
+    transformTree,
+    rootFrameId,
+    rootFrameId,
+    srcFrameId,
+    time,
+  );
+  if (!rel.rooted) {
+    return updatePose(renderable, transformTree, renderFrameId, fixedFrameId, srcFrameId, time, time);
+  }
+  if (!rootPose.applied || !rel.applied) {
+    renderable.visible = false;
+    return false;
+  }
+
+  const memo = viaRootMemos.get(renderable);
+  if (
+    memo &&
+    poseValuesMatch(memo.rootValues, rootPose) &&
+    poseValuesMatch(memo.relValues, rel) &&
+    poseValuesMatch(memo.poseValues, pose)
+  ) {
+    // Re-apply the cached result: values cannot have changed, but restoring
+    // them keeps this function a full owner of the renderable pose.
+    renderable.visible = true;
+    const p = memo.position;
+    const q = memo.orientation;
+    renderable.position.set(p.x, p.y, p.z);
+    renderable.quaternion.set(q.x, q.y, q.z, q.w);
+    return true;
+  }
+
+  // world = rootPose ⊕ rel ⊕ pose
+  // t = root.t + root.q * (rel.t + rel.q * pose.t); q = root.q * rel.q * pose.q
+  viaRootQuatA.set(rel.orientation.x, rel.orientation.y, rel.orientation.z, rel.orientation.w);
+  viaRootVecA
+    .set(pose.position.x, pose.position.y, pose.position.z)
+    .applyQuaternion(viaRootQuatA)
+    .add(viaRootVecB.set(rel.position.x, rel.position.y, rel.position.z));
+  viaRootQuatA.multiply(
+    viaRootQuatC.set(pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w),
+  );
+  viaRootQuatB.set(rootPose.orientation.x, rootPose.orientation.y, rootPose.orientation.z, rootPose.orientation.w);
+  viaRootVecA.applyQuaternion(viaRootQuatB);
+  viaRootVecA.x += rootPose.position.x;
+  viaRootVecA.y += rootPose.position.y;
+  viaRootVecA.z += rootPose.position.z;
+  viaRootQuatB.multiply(viaRootQuatA);
+
+  renderable.visible = true;
+  renderable.position.copy(viaRootVecA);
+  renderable.quaternion.copy(viaRootQuatB);
+
+  viaRootMemos.set(renderable, {
+    rootValues: readPoseValues(rootPose),
+    relValues: readPoseValues(rel),
+    poseValues: readPoseValues(pose),
+    position: { x: viaRootVecA.x, y: viaRootVecA.y, z: viaRootVecA.z },
+    orientation: { x: viaRootQuatB.x, y: viaRootQuatB.y, z: viaRootQuatB.z, w: viaRootQuatB.w },
+  });
+  return true;
 }

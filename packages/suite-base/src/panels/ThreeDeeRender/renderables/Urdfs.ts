@@ -33,12 +33,18 @@ import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
 import { isValidUrl } from "@lichtblick/suite-base/util/isValidURL";
 import { parseXgc2LayoutScope } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
-import { RenderableCube } from "./markers/RenderableCube";
-import { RenderableCylinder } from "./markers/RenderableCylinder";
-import { RenderableMeshResource } from "./markers/RenderableMeshResource";
-import { RenderableSphere } from "./markers/RenderableSphere";
+import {
+  RobotInstancingState,
+  StaticLinkState,
+  StaticVisualState,
+  UrdfInstancePool,
+  UrdfPrimitiveKind,
+  AcquireMeshResult,
+} from "./UrdfInstancePool";
+import { customUrdfLayerNeedsReload, urdfLayerDisplayScale } from "./customUrdfLayer";
 import { missingTransformMessage, MISSING_TRANSFORM } from "./transforms";
 import type { AnyRendererSubscription, IRenderer } from "../IRenderer";
+import type { PickedRenderable } from "../Picker";
 import { BaseUserData, Renderable } from "../Renderable";
 import { PartialMessageEvent, SceneExtension, onlyLastByTopicMessage } from "../SceneExtension";
 import { SettingsTreeEntry } from "../SettingsManager";
@@ -59,8 +65,11 @@ import {
   PRECISION_DISTANCE,
 } from "../settings";
 import { Pose, makePose, TransformTree } from "../transforms";
-import { updatePose } from "../updatePose";
-import { customUrdfLayerNeedsReload, urdfLayerDisplayScale } from "./customUrdfLayer";
+import { RootedPose, rootedIdentityPose, updatePose, updatePoseViaRoot } from "../updatePose";
+import { RenderableCube } from "./markers/RenderableCube";
+import { RenderableCylinder } from "./markers/RenderableCylinder";
+import { MESH_FETCH_FAILED, RenderableMeshResource } from "./markers/RenderableMeshResource";
+import { RenderableSphere } from "./markers/RenderableSphere";
 
 const log = Logger.getLogger(__filename);
 
@@ -142,12 +151,20 @@ const tempQuaternion1 = new THREE.Quaternion();
 const tempQuaternion2 = new THREE.Quaternion();
 const tempEuler = new THREE.Euler();
 
-const IDENTITY_POSE: Pose = makePose();
-const scaledChainRootPose: Pose = makePose();
-const scaledChainRelPose: Pose = makePose();
 const scaledChainVec = new THREE.Vector3();
 const scaledChainQuat = new THREE.Quaternion();
 const scaledChainQuat2 = new THREE.Quaternion();
+
+// Composition scratches for pooled static-link instance matrices; startFrame
+// is not reentrant, same as the temps above.
+const tempInstanceMatrix = new THREE.Matrix4();
+const tempLeafMatrix = new THREE.Matrix4();
+const instancePosVec = new THREE.Vector3();
+const instanceOffsetVec = new THREE.Vector3();
+const instanceRootQuat = new THREE.Quaternion();
+const instanceChainQuat = new THREE.Quaternion();
+const instanceTempQuat = new THREE.Quaternion();
+const instanceScaleVec = new THREE.Vector3();
 
 export type UrdfUserData = BaseUserData & {
   settings: LayerSettingsUrdf | LayerSettingsCustomUrdf;
@@ -156,6 +173,8 @@ export type UrdfUserData = BaseUserData & {
   sourceType: LayerSettingsCustomUrdf["sourceType"] | undefined;
   parameter: string | undefined;
   renderables: Map<string, Renderable>;
+  /** Pooled static-link subtree state; undefined when the robot has no static links. */
+  instancing?: RobotInstancingState;
 };
 
 enum EmbeddedMaterialUsage {
@@ -185,6 +204,36 @@ type JointPosition = {
 export class UrdfRenderable extends Renderable<UrdfUserData> {
   public loadGeneration = 0;
 
+  /** Releases pooled static-link instances; invoked by removeChildren(). Set by Urdfs. */
+  public releaseInstancing?: () => void;
+  /**
+   * Pick loops hide and restore renderables between frames, and pooled
+   * instances are not children of this object — visibility transitions must
+   * reach the pool even when no startFrame runs in between. Set by Urdfs.
+   */
+  // eslint-disable-next-line @lichtblick/no-boolean-parameters
+  public onVisibilityChange?: (visible: boolean) => void;
+
+  public constructor(name: string, renderer: IRenderer, userData: UrdfUserData) {
+    super(name, renderer, userData);
+    // THREE.Object3D assigns `visible` as a plain instance property; replace it
+    // with an accessor that reports transitions so pooled static-link instances
+    // hide and restore in sync with this renderable.
+    let backing = this.visible;
+    Object.defineProperty(this, "visible", {
+      enumerable: true,
+      configurable: true,
+      get: () => backing,
+      // eslint-disable-next-line @lichtblick/no-boolean-parameters
+      set: (value: boolean) => {
+        if (value !== backing) {
+          backing = value;
+          this.onVisibilityChange?.(value);
+        }
+      },
+    });
+  }
+
   public override dispose(): void {
     ++this.loadGeneration;
     this.userData.fetching?.control.abort();
@@ -194,6 +243,7 @@ export class UrdfRenderable extends Renderable<UrdfUserData> {
   }
 
   public removeChildren(): void {
+    this.releaseInstancing?.();
     for (const childRenderable of this.userData.renderables.values()) {
       childRenderable.dispose();
     }
@@ -204,6 +254,8 @@ export class UrdfRenderable extends Renderable<UrdfUserData> {
 
 export class Urdfs extends SceneExtension<UrdfRenderable> {
   public static extensionId = "foxglove.Urdfs";
+  /** Shared InstancedMesh pools for static link subtrees of same-model robots. */
+  public readonly instancePool: UrdfInstancePool;
   #framesByInstanceId = new Map<string, string[]>();
   #transformsByInstanceId = new Map<string, TransformData[]>();
   #rootFramesByInstanceId = new Map<string, string>();
@@ -211,6 +263,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #textDecoder = new TextDecoder();
   #urdfsByTopic = new Map<string, string>();
   #pendingLoads = new Set<Promise<void>>();
+  /** The currently selected robot, if any; its static links render per-link. */
+  #selectedUrdf: UrdfRenderable | undefined;
 
   #trackLoad(promise: Promise<void>): void {
     this.#pendingLoads.add(promise);
@@ -239,8 +293,10 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
   public constructor(renderer: IRenderer, name: string = Urdfs.extensionId) {
     super(name, renderer);
+    this.instancePool = new UrdfInstancePool(renderer, this);
 
     renderer.on("parametersChange", this.#handleParametersChange);
+    renderer.on("selectedRenderable", this.#handleSelectedRenderable);
     renderer.addCustomLayerAction({
       layerId: LAYER_ID,
       label: i18next.t("threeDee:addURDF"),
@@ -255,6 +311,23 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       }
     }
   }
+
+  public override dispose(): void {
+    this.instancePool.dispose();
+    super.dispose();
+  }
+
+  #handleSelectedRenderable = (selection: PickedRenderable | undefined): void => {
+    const picked = selection?.renderable;
+    // Selection never flips layers on the shared instance batches (that would
+    // highlight every robot). The next startFrame migrates the selected robot's
+    // static links to the legacy per-link path, and migrates it back on
+    // deselect.
+    this.#selectedUrdf =
+      picked instanceof UrdfRenderable && this.renderables.get(picked.name) === picked
+        ? picked
+        : undefined;
+  };
 
   public override getSubscriptions(): readonly AnyRendererSubscription[] {
     return [
@@ -547,12 +620,35 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       const scale = urdfLayerDisplayScale(
         renderable.userData.settings as Partial<LayerSettingsCustomUrdf>,
       );
-      const rootFrameId =
-        scale === 1
-          ? undefined
-          : this.#rootFramesByInstanceId.get(renderable.userData.settings.instanceId);
-      let scaledRootPose: Pose | undefined;
-      let scaledRootResolved = false;
+      const rootFrameId = this.#rootFramesByInstanceId.get(renderable.userData.settings.instanceId);
+      // The robot root pose is resolved at most once per robot per frame and
+      // shared by every link. Both the root pose and the per-link root→link
+      // transforms are memoized on frame versions, so an unchanged TF tree
+      // performs no tree walks for links at all.
+      let rootPose: RootedPose | undefined;
+
+      // Static link subtrees draw from the shared instance pools. This also
+      // migrates links between the pool and the legacy per-link path
+      // (selection, or a link reparented outside the robot root).
+      const instancing = renderable.userData.instancing;
+      if (instancing && !instancing.released && rootFrameId != undefined) {
+        rootPose ??= rootedIdentityPose(
+          renderable,
+          this.renderer.transformTree,
+          renderFrameId,
+          fixedFrameId,
+          rootFrameId,
+          currentTime,
+        );
+        missingFrameId ??= this.#updateStaticInstances(
+          renderable,
+          instancing,
+          rootPose,
+          rootFrameId,
+          scale,
+          currentTime,
+        );
+      }
 
       // UrdfRenderables always stay at the origin. Their children renderables
       // are individually updated since each child exists in a different frame
@@ -561,25 +657,37 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         const frameId = childRenderable.userData.frameId;
         let updated: boolean;
         if (rootFrameId != undefined) {
-          if (!scaledRootResolved) {
-            scaledRootPose = this.#poseInRenderFrame(
-              rootFrameId,
+          rootPose ??= rootedIdentityPose(
+            renderable,
+            this.renderer.transformTree,
+            renderFrameId,
+            fixedFrameId,
+            rootFrameId,
+            currentTime,
+          );
+          if (scale === 1) {
+            updated = updatePoseViaRoot(
+              childRenderable,
+              this.renderer.transformTree,
               renderFrameId,
               fixedFrameId,
-              currentTime,
-            );
-            scaledRootResolved = true;
-          }
-          updated =
-            scaledRootPose != undefined &&
-            this.#applyScaledChildPose(
-              childRenderable,
-              scaledRootPose,
               rootFrameId,
+              rootPose,
               frameId,
-              scale,
-              currentTime,
+              srcTime,
             );
+          } else {
+            updated =
+              rootPose.applied &&
+              this.#applyScaledChildPose(
+                childRenderable,
+                rootPose,
+                rootFrameId,
+                frameId,
+                scale,
+                currentTime,
+              );
+          }
         } else {
           updated = updatePose(
             childRenderable,
@@ -608,52 +716,187 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         this.renderer.settings.errors.remove(path, MISSING_TRANSFORM);
       }
     }
+    this.instancePool.flush();
   }
 
-  /** Pose of `frameId` in the render frame, or undefined when the chain is incomplete. */
-  #poseInRenderFrame(
-    frameId: string,
-    renderFrameId: string,
-    fixedFrameId: string,
-    time: bigint,
-  ): Pose | undefined {
-    return this.renderer.transformTree.apply(
-      scaledChainRootPose,
-      IDENTITY_POSE,
-      renderFrameId,
-      fixedFrameId,
-      frameId,
-      time,
-      time,
-    );
+  /**
+   * Per-frame pool update for one robot's static links. Reconciles each link
+   * between the shared instance pools and the legacy per-link path, then
+   * rewrites instance matrices whose inputs changed:
+   *   instance = rootPose ⊕ (scale·rel.t, rel.q) ⊕ (scale·visual.t, visual.q),
+   * with the geometry dimensions folded into the matrix scale — the exact
+   * composition the legacy Object3D path produces, so scale never fragments
+   * batch keys. The root pose is the one already hoisted for the per-link
+   * path; the root→link transform reuses the same memoized rootedIdentityPose
+   * query, so an unchanged TF tree costs a version scan per link and no
+   * tree.apply calls.
+   *
+   * Returns the frame id to report when the robot's transform chain is
+   * unresolved, or undefined when every pooled link resolved.
+   */
+  #updateStaticInstances(
+    renderable: UrdfRenderable,
+    state: RobotInstancingState,
+    rootPose: RootedPose,
+    rootFrameId: string,
+    scale: number,
+    currentTime: bigint,
+  ): string | undefined {
+    const selected = this.#selectedUrdf === renderable;
+    let missingFrameId: string | undefined;
+    for (const link of state.staticLinks) {
+      const rel = rootedIdentityPose(
+        link.memoKey,
+        this.renderer.transformTree,
+        rootFrameId,
+        rootFrameId,
+        link.frameId,
+        currentTime,
+      );
+      // A link reparented outside the robot root cannot decompose onto the
+      // hoisted root pose; it follows TF through the legacy per-link path.
+      if (selected || !rel.rooted) {
+        this.#ensureLegacyLink(renderable, state, link);
+        continue;
+      }
+      this.#ensurePooledLink(renderable, state, link);
+      if (!rootPose.applied || !rel.applied) {
+        for (const visual of link.visuals) {
+          this.instancePool.hideSlots(visual.slots);
+        }
+        link.lastRoot = undefined;
+        link.lastRel = undefined;
+        missingFrameId ??= link.frameId;
+        continue;
+      }
+      if (
+        !link.forceDirty &&
+        poseValuesEqual(link.lastRoot, rootPose) &&
+        poseValuesEqual(link.lastRel, rel)
+      ) {
+        continue;
+      }
+      link.lastRoot = capturePoseValues(rootPose);
+      link.lastRel = capturePoseValues(rel);
+      link.forceDirty = false;
+      for (const visual of link.visuals) {
+        if (visual.slots.length === 0) {
+          continue;
+        }
+        composeStaticInstanceMatrix(tempInstanceMatrix, rootPose, rel, visual.pose, visual.dims, scale);
+        for (const slot of visual.slots) {
+          slot.batch.writeSlot(
+            slot.index,
+            slot.local
+              ? tempLeafMatrix.multiplyMatrices(tempInstanceMatrix, slot.local)
+              : tempInstanceMatrix,
+          );
+        }
+      }
+    }
+    return missingFrameId;
+  }
+
+  /**
+   * Move a static link to the legacy per-link path: release its pool slots and
+   * create the same child renderables an articulated link has. The children
+   * are posed by the regular per-link loop later in this startFrame.
+   */
+  #ensureLegacyLink(
+    renderable: UrdfRenderable,
+    state: RobotInstancingState,
+    link: StaticLinkState,
+  ): void {
+    if (link.legacyChildren) {
+      return;
+    }
+    link.legacyChildren = [];
+    for (const visual of link.visuals) {
+      visual.pooled = false;
+      this.instancePool.releaseSlots(visual.slots);
+      visual.slots = [];
+      if (visual.legacyChild) {
+        // Non-instancable model: the permanent legacy child already renders it.
+        continue;
+      }
+      const child = this.#createUrdfChild(renderable, state, link.frameId, visual.visualIndex, visual.visual);
+      // selectObject() flips layers on the subtree at selection time; children
+      // created by a selection migration afterwards inherit the robot's
+      // current mask so the highlight survives.
+      const mask = renderable.layers.mask;
+      child.traverse((object) => {
+        object.layers.mask = mask;
+      });
+      link.legacyChildren.push(child);
+    }
+    link.lastRoot = undefined;
+    link.lastRel = undefined;
+  }
+
+  /** Move a static link back into the shared instance pools. */
+  #ensurePooledLink(
+    renderable: UrdfRenderable,
+    state: RobotInstancingState,
+    link: StaticLinkState,
+  ): void {
+    if (!link.legacyChildren) {
+      return;
+    }
+    for (const child of link.legacyChildren) {
+      renderable.userData.renderables.delete(child.name);
+      renderable.remove(child);
+      child.dispose();
+    }
+    link.legacyChildren = undefined;
+    for (const visual of link.visuals) {
+      if (visual.legacyChild) {
+        continue;
+      }
+      visual.pooled = true;
+      if (visual.meshUrl != undefined) {
+        // The flattened model is cached, so re-acquire resolves synchronously.
+        this.#acquireMeshSlots(renderable, state, link, visual);
+      } else {
+        const kind = visual.visual.geometry.geometryType as UrdfPrimitiveKind;
+        visual.slots = [
+          this.instancePool.acquirePrimitiveSlot({
+            kind,
+            transparent: visual.color.a < 1,
+            color: visual.color,
+            owner: renderable,
+          }),
+        ];
+      }
+    }
+    link.forceDirty = true;
   }
 
   /**
    * Viewer-only display scale: place the child as
    * `rootPose ⊕ (scale · rel.t, rel.q) ⊕ visualPose`, where rel is the live
-   * root→link transform from the shared tree. Dynamic joint TF (spinning
-   * rotors, wheels) keeps its rotation and only its translation rides the
-   * factor, so the whole robot grows uniformly about its root while every
-   * other consumer of the tree keeps true dimensions.
+   * root→link transform from the shared tree (memoized per link on frame
+   * versions). Dynamic joint TF (spinning rotors, wheels) keeps its rotation
+   * and only its translation rides the factor, so the whole robot grows
+   * uniformly about its root while every other consumer of the tree keeps true
+   * dimensions.
    */
   #applyScaledChildPose(
     childRenderable: Renderable,
-    rootPose: Readonly<Pose>,
+    rootPose: RootedPose,
     rootFrameId: string,
     frameId: string,
     scale: number,
     time: bigint,
   ): boolean {
-    const rel = this.renderer.transformTree.apply(
-      scaledChainRelPose,
-      IDENTITY_POSE,
+    const rel = rootedIdentityPose(
+      childRenderable,
+      this.renderer.transformTree,
       rootFrameId,
       rootFrameId,
       frameId,
       time,
-      time,
     );
-    if (!rel) {
+    if (!rel.applied) {
       childRenderable.visible = false;
       return false;
     }
@@ -1113,7 +1356,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
 
     // Create a UrdfRenderable if it does not already exist
     if (!renderable) {
-      renderable = new UrdfRenderable(instanceId, this.renderer, {
+      const created = new UrdfRenderable(instanceId, this.renderer, {
         urdf,
         fetching: undefined,
         renderables: new Map(),
@@ -1127,6 +1370,13 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         topic,
         parameter,
       });
+      created.releaseInstancing = () => {
+        this.#releaseInstancing(created);
+      };
+      created.onVisibilityChange = (visible) => {
+        this.#handleRobotVisibility(created, visible);
+      };
+      renderable = created;
       this.add(renderable);
       this.renderables.set(instanceId, renderable);
     }
@@ -1238,7 +1488,6 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const settings = renderable.userData.settings;
     const instanceId = settings.instanceId;
     const displayMode = settings.displayMode;
-    const scale = urdfLayerDisplayScale(settings as Partial<LayerSettingsCustomUrdf>);
     const fallbackColor = settings.fallbackColor
       ? stringToRgba(makeRgba(), settings.fallbackColor)
       : undefined;
@@ -1292,24 +1541,21 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     // Dispose any existing renderables
     renderable.removeChildren();
 
+    // Split static link subtrees from articulated ones. A link is static iff
+    // every joint on the chain from the URDF root to it is fixed; static links
+    // draw from the shared instance pools, articulated links keep per-link
+    // renderables that follow joint TF.
+    const staticLinkNames =
+      rootFrame != undefined ? computeStaticLinkNames(transforms, rootFrame) : new Set<string>();
+    const instancing: RobotInstancingState | undefined =
+      staticLinkNames.size > 0
+        ? { staticLinks: [], robot, baseUrl, fallbackColor, released: false }
+        : undefined;
+    renderable.userData.instancing = instancing;
+
+    const legacyContext = { robot, baseUrl, fallbackColor };
     const createChild = (frameId: string, i: number, visual: UrdfVisual): void => {
-      const childRenderable = createRenderable({
-        visual,
-        robot,
-        id: i,
-        frameId,
-        renderer,
-        baseUrl,
-        fallbackColor,
-        scale,
-      });
-      // Set the childRenderable settingsPath so errors route to the correct place
-      childRenderable.userData.settingsPath = renderable.userData.settingsPath;
-      if (childRenderable instanceof RenderableMeshResource) {
-        this.#trackLoad(childRenderable.settleLoading());
-      }
-      renderable.userData.renderables.set(childRenderable.name, childRenderable);
-      renderable.add(childRenderable);
+      this.#createUrdfChild(renderable, legacyContext, frameId, i, visual);
     };
 
     // Create a renderable for each link
@@ -1318,6 +1564,30 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       const renderVisual = displayMode !== "collision";
       const renderCollision =
         displayMode === "collision" || (displayMode === "auto" && link.visuals.length === 0);
+
+      if (instancing && staticLinkNames.has(frameId)) {
+        const linkState: StaticLinkState = {
+          frameId,
+          memoKey: new THREE.Object3D(),
+          visuals: [],
+          legacyChildren: undefined,
+          lastRoot: undefined,
+          lastRel: undefined,
+          forceDirty: true,
+        };
+        instancing.staticLinks.push(linkState);
+        if (renderVisual) {
+          for (let i = 0; i < link.visuals.length; i++) {
+            this.#registerStaticVisual(renderable, instancing, linkState, i, link.visuals[i]!);
+          }
+        }
+        if (renderCollision) {
+          for (let i = 0; i < link.colliders.length; i++) {
+            this.#registerStaticVisual(renderable, instancing, linkState, i, link.colliders[i]!);
+          }
+        }
+        continue;
+      }
 
       if (renderVisual) {
         for (let i = 0; i < link.visuals.length; i++) {
@@ -1328,6 +1598,213 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       if (renderCollision) {
         for (let i = 0; i < link.colliders.length; i++) {
           createChild(frameId, i, link.colliders[i]!);
+        }
+      }
+    }
+  }
+
+  /**
+   * Create one per-link child renderable, the path articulated links (and
+   * static links migrated out of the pools) always take.
+   */
+  #createUrdfChild(
+    renderable: UrdfRenderable,
+    context: { robot: UrdfRobot; baseUrl: string | undefined; fallbackColor: ColorRGBA | undefined },
+    frameId: string,
+    i: number,
+    visual: UrdfVisual,
+  ): Renderable {
+    const scale = urdfLayerDisplayScale(
+      renderable.userData.settings as Partial<LayerSettingsCustomUrdf>,
+    );
+    const childRenderable = createRenderable({
+      visual,
+      robot: context.robot,
+      id: i,
+      frameId,
+      renderer: this.renderer,
+      baseUrl: context.baseUrl,
+      fallbackColor: context.fallbackColor,
+      scale,
+    });
+    // Set the childRenderable settingsPath so errors route to the correct place
+    childRenderable.userData.settingsPath = renderable.userData.settingsPath;
+    if (childRenderable instanceof RenderableMeshResource) {
+      this.#trackLoad(childRenderable.settleLoading());
+    }
+    renderable.userData.renderables.set(childRenderable.name, childRenderable);
+    renderable.add(childRenderable);
+    return childRenderable;
+  }
+
+  /**
+   * Register one visual of a static link into the shared instance pools.
+   * Primitives acquire their slot immediately; mesh visuals acquire one slot
+   * per model leaf once the shared ModelCache load resolves.
+   */
+  #registerStaticVisual(
+    renderable: UrdfRenderable,
+    state: RobotInstancingState,
+    linkState: StaticLinkState,
+    visualIndex: number,
+    visual: UrdfVisual,
+  ): void {
+    const color = getColor(visual, state.robot) ?? state.fallbackColor ?? DEFAULT_COLOR;
+    const visualState: StaticVisualState = {
+      visual,
+      visualIndex,
+      pose: { position: visual.origin.xyz, orientation: eulerToQuaternion(visual.origin.rpy) },
+      dims: VEC3_ONE,
+      color,
+      meshUrl: undefined,
+      embedded: false,
+      slots: [],
+      legacyChild: undefined,
+      pooled: true,
+      loadId: 0,
+    };
+    linkState.visuals.push(visualState);
+    const geometry = visual.geometry;
+    const transparent = color.a < 1;
+    switch (geometry.geometryType) {
+      case "box":
+        visualState.dims = geometry.size;
+        visualState.slots = [
+          this.instancePool.acquirePrimitiveSlot({ kind: "box", transparent, color, owner: renderable }),
+        ];
+        break;
+      case "cylinder":
+        visualState.dims = { x: geometry.radius * 2, y: geometry.radius * 2, z: geometry.length };
+        visualState.slots = [
+          this.instancePool.acquirePrimitiveSlot({
+            kind: "cylinder",
+            transparent,
+            color,
+            owner: renderable,
+          }),
+        ];
+        break;
+      case "sphere":
+        visualState.dims = { x: geometry.radius * 2, y: geometry.radius * 2, z: geometry.radius * 2 };
+        visualState.slots = [
+          this.instancePool.acquirePrimitiveSlot({
+            kind: "sphere",
+            transparent,
+            color,
+            owner: renderable,
+          }),
+        ];
+        break;
+      case "mesh":
+        visualState.embedded = geometry.filename.toLowerCase().endsWith(".dae");
+        visualState.meshUrl = new URL(geometry.filename, state.baseUrl).toString();
+        visualState.dims = geometry.scale ?? VEC3_ONE;
+        this.#acquireMeshSlots(renderable, state, linkState, visualState);
+        break;
+    }
+  }
+
+  #acquireMeshSlots(
+    renderable: UrdfRenderable,
+    state: RobotInstancingState,
+    linkState: StaticLinkState,
+    visualState: StaticVisualState,
+  ): void {
+    const url = visualState.meshUrl!;
+    const loadId = ++visualState.loadId;
+    const settingsPath = renderable.userData.settingsPath;
+    const outcome = this.instancePool.acquireMeshSlots({
+      url,
+      referenceUrl: state.baseUrl,
+      embedded: visualState.embedded,
+      transparent: visualState.color.a < 1,
+      color: visualState.color,
+      owner: renderable,
+      reportError: (err) => {
+        this.renderer.settings.errors.add(
+          settingsPath,
+          MESH_FETCH_FAILED,
+          `Error loading mesh from "${url}": ${err.message}`,
+        );
+      },
+    });
+    const finish = (result: AcquireMeshResult): void => {
+      if (
+        visualState.loadId !== loadId ||
+        state.released ||
+        renderable.userData.instancing !== state ||
+        !visualState.pooled
+      ) {
+        if (result.status === "ready") {
+          this.instancePool.releaseSlots(result.slots);
+        }
+        return;
+      }
+      switch (result.status) {
+        case "ready":
+          visualState.slots = result.slots;
+          linkState.forceDirty = true;
+          this.renderer.queueAnimationFrame();
+          break;
+        case "failed":
+          if (!this.renderer.settings.errors.hasError(settingsPath, MESH_FETCH_FAILED)) {
+            this.renderer.settings.errors.add(
+              settingsPath,
+              MESH_FETCH_FAILED,
+              `Failed to load mesh from "${url}"`,
+            );
+          }
+          break;
+        case "nonMesh":
+          // Models with line/point renderables keep the legacy per-link path.
+          visualState.legacyChild = this.#createUrdfChild(
+            renderable,
+            state,
+            linkState.frameId,
+            visualState.visualIndex,
+            visualState.visual,
+          );
+          this.renderer.queueAnimationFrame();
+          break;
+      }
+    };
+    if (outcome.status === "pending") {
+      this.#trackLoad(outcome.promise.then(finish));
+    } else {
+      finish(outcome);
+    }
+  }
+
+  #releaseInstancing(renderable: UrdfRenderable): void {
+    const state = renderable.userData.instancing;
+    if (!state || state.released) {
+      return;
+    }
+    state.released = true;
+    renderable.userData.instancing = undefined;
+    for (const link of state.staticLinks) {
+      for (const visual of link.visuals) {
+        this.instancePool.releaseSlots(visual.slots);
+        visual.slots = [];
+      }
+    }
+  }
+
+  // eslint-disable-next-line @lichtblick/no-boolean-parameters
+  #handleRobotVisibility(renderable: UrdfRenderable, visible: boolean): void {
+    const state = renderable.userData.instancing;
+    if (!state || state.released) {
+      return;
+    }
+    if (visible) {
+      // Rewritten by the next startFrame before anything renders.
+      for (const link of state.staticLinks) {
+        link.forceDirty = true;
+      }
+    } else {
+      for (const link of state.staticLinks) {
+        for (const visual of link.visuals) {
+          this.instancePool.hideSlots(visual.slots);
         }
       }
     }
@@ -1415,6 +1892,124 @@ async function parseUrdf(
 
 function scaledXyz(xyz: Vector3, scale: number): Vector3 {
   return scale === 1 ? xyz : { x: xyz.x * scale, y: xyz.y * scale, z: xyz.z * scale };
+}
+
+/**
+ * Names of links whose whole chain from the URDF root consists of fixed
+ * joints. The root itself is static; parentless links that are not the root
+ * (orphans, cycles) keep the legacy per-link path.
+ */
+function computeStaticLinkNames(transforms: TransformData[], rootFrame: string): Set<string> {
+  const jointByChild = new Map<string, UrdfJoint>();
+  for (const transform of transforms) {
+    jointByChild.set(transform.child, transform.joint);
+  }
+  const staticLinks = new Set<string>();
+  const articulated = new Set<string>();
+  const visiting = new Set<string>();
+  const isStatic = (link: string): boolean => {
+    if (staticLinks.has(link)) {
+      return true;
+    }
+    if (articulated.has(link) || visiting.has(link)) {
+      articulated.add(link);
+      return false;
+    }
+    const joint = jointByChild.get(link);
+    if (!joint) {
+      const isRoot = link === rootFrame;
+      (isRoot ? staticLinks : articulated).add(link);
+      return isRoot;
+    }
+    if (joint.jointType !== "fixed") {
+      articulated.add(link);
+      return false;
+    }
+    visiting.add(link);
+    const parentStatic = isStatic(joint.parent);
+    visiting.delete(link);
+    (parentStatic ? staticLinks : articulated).add(link);
+    return parentStatic;
+  };
+  for (const child of jointByChild.keys()) {
+    isStatic(child);
+  }
+  isStatic(rootFrame);
+  return staticLinks;
+}
+
+function poseValuesEqual(values: readonly number[] | undefined, pose: RootedPose): boolean {
+  if (values?.length !== 7) {
+    return false;
+  }
+  const p = pose.position;
+  const q = pose.orientation;
+  return (
+    values[0] === p.x &&
+    values[1] === p.y &&
+    values[2] === p.z &&
+    values[3] === q.x &&
+    values[4] === q.y &&
+    values[5] === q.z &&
+    values[6] === q.w
+  );
+}
+
+function capturePoseValues(pose: RootedPose): number[] {
+  const p = pose.position;
+  const q = pose.orientation;
+  return [p.x, p.y, p.z, q.x, q.y, q.z, q.w];
+}
+
+/**
+ * world = rootPose ⊕ (scale·rel.t, rel.q) ⊕ (scale·visual.t, visual.q), with
+ * (scale·dims) as the matrix scale — the same T·R·S composition the legacy
+ * per-link Object3D path produces (#applyScaledChildPose / updatePoseViaRoot
+ * plus the renderable's scale), computed here for one pooled instance. The
+ * caller multiplies the result by the model leaf's local matrix for meshes.
+ */
+function composeStaticInstanceMatrix(
+  out: THREE.Matrix4,
+  rootPose: RootedPose,
+  rel: RootedPose,
+  visualPose: Pose,
+  dims: Vector3,
+  scale: number,
+): void {
+  instanceRootQuat.set(
+    rootPose.orientation.x,
+    rootPose.orientation.y,
+    rootPose.orientation.z,
+    rootPose.orientation.w,
+  );
+  instanceChainQuat.copy(instanceRootQuat);
+  instanceChainQuat.multiply(
+    instanceTempQuat.set(rel.orientation.x, rel.orientation.y, rel.orientation.z, rel.orientation.w),
+  );
+  instancePosVec
+    .set(rel.position.x * scale, rel.position.y * scale, rel.position.z * scale)
+    .applyQuaternion(instanceRootQuat);
+  instancePosVec.x += rootPose.position.x;
+  instancePosVec.y += rootPose.position.y;
+  instancePosVec.z += rootPose.position.z;
+  instanceOffsetVec
+    .set(
+      visualPose.position.x * scale,
+      visualPose.position.y * scale,
+      visualPose.position.z * scale,
+    )
+    .applyQuaternion(instanceChainQuat);
+  instancePosVec.add(instanceOffsetVec);
+  instanceChainQuat.multiply(
+    instanceTempQuat.set(
+      visualPose.orientation.x,
+      visualPose.orientation.y,
+      visualPose.orientation.z,
+      visualPose.orientation.w,
+    ),
+  );
+  instanceScaleVec.set(dims.x * scale, dims.y * scale, dims.z * scale);
+  out.compose(instancePosVec, instanceChainQuat, instanceScaleVec);
 }
 
 function createRenderable(args: {

@@ -62,17 +62,78 @@ export class DynamicLineGeometry extends LineGeometry {
     }
 
     if (count > 0) {
-      this.#markUpdated("instanceStart", count * 6);
-      this.#markUpdated("instanceDistanceStart", count * 2);
+      this.#markUpdated("instanceStart", 0, count * 6);
+      this.#markUpdated("instanceDistanceStart", 0, count * 2);
     }
     this.computeBoundingBox();
     this.computeBoundingSphere();
   }
 
-  /** Call after writing the active endpoint RGBA values to colorBuffer. */
-  public updateColors(): void {
-    if (this.instanceCount > 0) {
-      this.#markUpdated("instanceColorStart", this.instanceCount * 8);
+  /**
+   * Append tail points to a line strip whose prefix is already uploaded.
+   * `startIndex` is the index in `points` of the first new point, so it must
+   * equal the number of previously uploaded points; the first new segment then
+   * connects points[startIndex - 1] to points[startIndex] and the cumulative
+   * distances continue from the last uploaded value. Any other `startIndex`
+   * means the buffered prefix does not match: fall back to a full setPoints.
+   */
+  public appendPoints(points: readonly Vector3[], startIndex: number): void {
+    if (startIndex !== this.instanceCount + 1) {
+      this.setPoints(points, "strip");
+      return;
+    }
+    const count = points.length - 1;
+    if (count > this.#capacity) {
+      this.#growPreservingPrefix(Math.max(count, Math.ceil(this.#capacity * 1.5)));
+    }
+    const first = startIndex - 1;
+    for (let i = first; i < count; i++) {
+      const start = points[i]!;
+      const end = points[i + 1]!;
+      const offset = 6 * i;
+      this.#positions[offset] = start.x;
+      this.#positions[offset + 1] = start.y;
+      this.#positions[offset + 2] = start.z;
+      this.#positions[offset + 3] = end.x;
+      this.#positions[offset + 4] = end.y;
+      this.#positions[offset + 5] = end.z;
+
+      const dx = this.#positions[offset + 3]! - this.#positions[offset];
+      const dy = this.#positions[offset + 4]! - this.#positions[offset + 1]!;
+      const dz = this.#positions[offset + 5]! - this.#positions[offset + 2]!;
+      const distance = i === 0 ? 0 : this.#distances[2 * i - 1]!;
+      this.#distances[2 * i] = distance;
+      this.#distances[2 * i + 1] = distance + Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    this.instanceCount = count;
+    if (count > first) {
+      this.#markUpdated("instanceStart", first * 6, (count - first) * 6);
+      this.#markUpdated("instanceDistanceStart", first * 2, (count - first) * 2);
+    }
+
+    // The box of an unchanged prefix plus a tail is the old box expanded by the
+    // new endpoints. Read them back from the float32 buffer (as a full recompute
+    // would) and include the connecting point: while it formed no segment
+    // (singleton input) it was never bounded. The sphere center follows the box
+    // center, so old radii do not transfer and a rescan is required.
+    const box = (this.boundingBox ??= new THREE.Box3());
+    for (let i = first * 6; i < count * 6; i += 3) {
+      box.expandByPoint(tempPoint.fromArray(this.#positions, i));
+    }
+    this.computeBoundingSphere();
+  }
+
+  /**
+   * Call after writing the active endpoint RGBA values to colorBuffer. Pass
+   * `firstSegment` when an append rewrote only the tail pairs.
+   */
+  public updateColors(firstSegment = 0): void {
+    if (this.instanceCount > firstSegment) {
+      this.#markUpdated(
+        "instanceColorStart",
+        firstSegment * 8,
+        (this.instanceCount - firstSegment) * 8,
+      );
     }
   }
 
@@ -104,9 +165,9 @@ export class DynamicLineGeometry extends LineGeometry {
     sphere.radius = Math.sqrt(radiusSquared);
   }
 
-  #markUpdated(name: string, count: number): void {
+  #markUpdated(name: string, offset: number, count: number): void {
     const attribute = this.getAttribute(name) as THREE.InterleavedBufferAttribute;
-    attribute.data.updateRange.offset = 0;
+    attribute.data.updateRange.offset = offset;
     attribute.data.updateRange.count = count;
     attribute.data.needsUpdate = true;
   }
@@ -142,5 +203,20 @@ export class DynamicLineGeometry extends LineGeometry {
     this.colorBuffer = colors;
     this.#distances = distances;
     this.#capacity = capacity;
+  }
+
+  // #grow replaces every buffer without copying; appends instead keep the
+  // unchanged prefix so only the tail needs writing afterwards. The fresh GPU
+  // buffers upload in full on first use, so the prefix copy reaches the GPU
+  // even though only the tail range is marked.
+  #growPreservingPrefix(capacity: number): void {
+    const active = this.instanceCount;
+    const positions = this.#positions.subarray(0, active * 6);
+    const colors = this.colorBuffer.subarray(0, active * 8);
+    const distances = this.#distances.subarray(0, active * 2);
+    this.#grow(capacity);
+    this.#positions.set(positions);
+    this.colorBuffer.set(colors);
+    this.#distances.set(distances);
   }
 }

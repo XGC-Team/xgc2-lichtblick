@@ -274,6 +274,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   // followFrameId value the current FOLLOW_FRAME_NOT_FOUND error was written
   // for; avoids re-translating the message every frame.
   #followFrameNotFoundFor: string | undefined;
+  // TF application batching: a queue drain (handleSubscriptionQueues) wraps TF
+  // ingestion in a batch so the frame list recompute and "transformTreeUpdated"
+  // fan-out happen at most once per drain instead of once per new frame.
+  #transformBatchDepth = 0;
+  #transformTreeDirty = false;
   #devicePixelRatioMediaQuery?: MediaQueryList;
   #fetchAsset: BuiltinPanelExtensionContext["unstable_fetchAsset"];
 
@@ -1167,10 +1172,37 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     const normalizedFrameId = this.normalizeFrameId(frameId);
     if (!this.transformTree.hasFrame(normalizedFrameId)) {
       this.transformTree.getOrCreateFrame(normalizedFrameId);
-      this.coordinateFrameList = this.transformTree.frameList();
       // log.debug(`Added coordinate frame "${normalizedFrameId}"`);
-      this.emit("transformTreeUpdated", this);
+      this.#markTransformTreeUpdated();
     }
+  }
+
+  #beginTransformTreeBatch(): void {
+    this.#transformBatchDepth++;
+  }
+
+  #endTransformTreeBatch(): void {
+    if (--this.#transformBatchDepth > 0 || !this.#transformTreeDirty) {
+      return;
+    }
+    this.#transformTreeDirty = false;
+    this.coordinateFrameList = this.transformTree.frameList();
+    this.emit("transformTreeUpdated", this);
+  }
+
+  /**
+   * Recompute the coordinate frame list and notify listeners. Inside a TF
+   * batch (a subscription queue drain) both are deferred to the batch end, so
+   * a flood of N new frames costs one frameList() sort and one
+   * "transformTreeUpdated" fan-out instead of N.
+   */
+  #markTransformTreeUpdated(): void {
+    if (this.#transformBatchDepth > 0) {
+      this.#transformTreeDirty = true;
+      return;
+    }
+    this.coordinateFrameList = this.transformTree.frameList();
+    this.emit("transformTreeUpdated", this);
   }
 
   // Layout-enabled frame gizmos (XGC: transforms["frame:world"]) are scene
@@ -1267,8 +1299,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     const status = this.transformTree.addTransform(childFrameId, parentFrameId, stamp, transform);
 
     if (status === AddTransformResult.UPDATED) {
-      this.coordinateFrameList = this.transformTree.frameList();
-      this.emit("transformTreeUpdated", this);
+      this.#markTransformTreeUpdated();
     }
 
     if (status === AddTransformResult.CYCLE_DETECTED) {
@@ -1300,8 +1331,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   public removeTransform(childFrameId: string, parentFrameId: string, stamp: bigint): void {
     this.transformTree.removeTransform(childFrameId, parentFrameId, stamp);
-    this.coordinateFrameList = this.transformTree.frameList();
-    this.emit("transformTreeUpdated", this);
+    this.#markTransformTreeUpdated();
   }
 
   // Callback handlers
@@ -1363,14 +1393,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       // Nothing on screen: keep transforms and renderable state current so subscription queues
       // never pile up, but skip pose updates, video decodes and the draw itself. Setting the
       // canvas visible again queues a full frame.
-      this.#handleSubscriptionQueues();
+      this.handleSubscriptionQueues();
       this.#seedConfiguredFrames();
       return;
     }
     // Resize immediately before painting, never in a separate observer/rAF turn:
     // changing canvas dimensions clears its drawing buffer.
     this.#applyCanvasSize();
-    this.#handleSubscriptionQueues();
+    this.handleSubscriptionQueues();
     this.#seedConfiguredFrames();
     this.#updateFrameErrors();
     this.#updateFixedFrameId();
@@ -1429,33 +1459,45 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.gl.info.reset();
   };
 
-  /** iterates through all subscription message queues, processes them, and calls their handler for each message in the frame */
-  #handleSubscriptionQueues(): void {
-    for (const subscriptions of this.topicSubscriptions.values()) {
-      for (const subscription of subscriptions) {
-        if (!subscription.queue) {
-          continue;
-        }
-        const { queue, filterQueue } = subscription;
-        const processedQueue = filterQueue ? filterQueue(queue) : queue;
-        subscription.queue = undefined;
-        for (const messageEvent of processedQueue) {
-          subscription.handler(messageEvent);
-        }
-      }
-    }
-    for (const subscriptions of this.schemaSubscriptions.values()) {
-      for (const subscription of subscriptions) {
-        if (!subscription.queue) {
-          continue;
-        }
-        const { queue, filterQueue } = subscription;
-        const processedQueue = filterQueue ? filterQueue(queue) : queue;
-        subscription.queue = undefined;
-        for (const messageEvent of processedQueue) {
-          subscription.handler(messageEvent);
+  /**
+   * Iterates through all subscription message queues, processes them, and calls
+   * their handler for each message in the frame. TF application is wrapped in a
+   * batch so the frame list recompute and "transformTreeUpdated" emit happen at
+   * most once per drain.
+   *
+   * Only public for testing - production drains run from #frameHandler once per frame.
+   */
+  public handleSubscriptionQueues(): void {
+    this.#beginTransformTreeBatch();
+    try {
+      for (const subscriptions of this.topicSubscriptions.values()) {
+        for (const subscription of subscriptions) {
+          if (!subscription.queue) {
+            continue;
+          }
+          const { queue, filterQueue } = subscription;
+          const processedQueue = filterQueue ? filterQueue(queue) : queue;
+          subscription.queue = undefined;
+          for (const messageEvent of processedQueue) {
+            subscription.handler(messageEvent);
+          }
         }
       }
+      for (const subscriptions of this.schemaSubscriptions.values()) {
+        for (const subscription of subscriptions) {
+          if (!subscription.queue) {
+            continue;
+          }
+          const { queue, filterQueue } = subscription;
+          const processedQueue = filterQueue ? filterQueue(queue) : queue;
+          subscription.queue = undefined;
+          for (const messageEvent of processedQueue) {
+            subscription.handler(messageEvent);
+          }
+        }
+      }
+    } finally {
+      this.#endTransformTreeBatch();
     }
   }
 
@@ -1752,6 +1794,15 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       );
       instanceIndex = instanceIndex === -1 ? undefined : instanceIndex;
       log.debug("Instance picking pass on", renderable, "returned", instanceIndex);
+      if (instanceIndex != undefined) {
+        // Instance pools shared by several logical renderables (e.g. URDF
+        // static links, where one InstancedMesh draws many robots) map the
+        // instance back to its owner so selection acts on the owner alone.
+        const owner = renderable.instanceOwner(instanceIndex);
+        if (owner != undefined) {
+          return { renderable: owner };
+        }
+      }
     }
 
     return { renderable, instanceIndex };

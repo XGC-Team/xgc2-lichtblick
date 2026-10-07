@@ -333,7 +333,7 @@ export class ImageMode
     fixedFrameId: AnyFrameId,
   ): void {
     // All setImage() calls for this frame have been made by the time startFrame() fires (they
-    // happen inside #handleSubscriptionQueues(), which runs before startFrame()). Flushing here
+    // happen inside handleSubscriptionQueues(), which runs before startFrame()). Flushing here
     // means the full GOP batch is already in the queue, so skipRender correctly suppresses every
     // intermediate frame and only the last one triggers a GPU upload.
     this.imageRenderable?.flushPendingDecodes();

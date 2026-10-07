@@ -21,7 +21,7 @@ jest.mock("three/examples/jsm/loaders/GLTFLoader.js", () => ({}));
 jest.mock("three/examples/jsm/loaders/OBJLoader.js", () => ({}));
 jest.mock("three/examples/jsm/loaders/STLLoader.js", () => ({}));
 const mockParse = jest.fn((_manager: THREE.LoadingManager) => ({
-  scene: new THREE.Group(),
+  scene: colladaScene(),
 }));
 jest.mock("three/examples/jsm/loaders/ColladaLoader.js", () => ({
   ColladaLoader: class {
@@ -178,7 +178,7 @@ it("drains the real model and texture promise before an offline frame can settle
   mockParse.mockImplementationOnce((manager) => {
     manager.itemStart("texture");
     decoding.resolve(manager);
-    return { scene: new THREE.Group() };
+    return { scene: colladaScene() };
   });
   const { extension, modelCache } = setup();
   let settled = false;
@@ -189,13 +189,18 @@ it("drains the real model and texture promise before an offline frame can settle
   await new Promise<void>((resolve) => {
     nextTurn(resolve);
   });
-  const child = [...extension.renderables.get("model")!.userData.renderables.values()][0]!;
+  // The static link's mesh visual draws from the shared instance pool; its
+  // per-link renderable list stays empty and nothing is instanced until the
+  // real texture promise resolves.
+  expect(extension.renderables.get("model")!.userData.renderables.size).toBe(0);
   expect(extension.robotFollowFrames()).toEqual([{ label: "Robot", value: "base_link" }]);
   expect(settled).toBe(false);
-  expect(child.children).toHaveLength(0);
+  expect(extension.instancePool.batches()).toHaveLength(0);
   manager.itemEnd("texture");
   await ready;
-  expect(child.children).toHaveLength(1);
+  const batches = extension.instancePool.batches();
+  expect(batches).toHaveLength(1);
+  expect(batches[0]!.instancedMesh().count).toBe(1);
   extension.dispose();
   modelCache.dispose();
 });
@@ -205,7 +210,7 @@ it("settles a failed texture with an authoritative error, never a mesh", async (
   mockParse.mockImplementationOnce((manager) => {
     manager.itemStart("texture");
     decoding.resolve(manager);
-    return { scene: new THREE.Group() };
+    return { scene: colladaScene() };
   });
   const { extension, renderer, modelCache } = setup();
   const ready = extension.settleVideoDecodes();
@@ -213,8 +218,8 @@ it("settles a failed texture with an authoritative error, never a mesh", async (
   manager.itemError("texture");
   manager.itemEnd("texture");
   await ready;
-  const child = [...extension.renderables.get("model")!.userData.renderables.values()][0]!;
-  expect(child.children).toHaveLength(0);
+  expect(extension.renderables.get("model")!.userData.renderables.size).toBe(0);
+  expect(extension.instancePool.batches()).toHaveLength(0);
   expect(renderer.settings.errors.add).toHaveBeenCalledWith(
     ["layers", "model"],
     "MESH_FETCH_FAILED",
@@ -242,20 +247,21 @@ it("preserves parked URDFs on seek and reuses the cache after layer disposal", a
   mockParse.mockImplementationOnce((manager) => {
     manager.itemStart("texture");
     decoding.resolve(manager);
-    return { scene: new THREE.Group() };
+    return { scene: colladaScene() };
   });
   const { extension, renderer, modelCache } = setup();
   const manager = await decoding.promise;
-  const removed = [...extension.renderables.get("model")!.userData.renderables.values()][0]!;
   extension.removeAllRenderables();
   expect(extension.renderables.size).toBe(1);
   extension.dispose();
+  expect(extension.instancePool.batches()).toHaveLength(0);
   const reloaded = new Urdfs(renderer as unknown as IRenderer);
   manager.itemEnd("texture");
   await Promise.all([extension.settleVideoDecodes(), reloaded.settleVideoDecodes()]);
-  const current = [...reloaded.renderables.get("model")!.userData.renderables.values()][0]!;
-  expect(removed.children).toHaveLength(0);
-  expect(current.children).toHaveLength(1);
+  expect(extension.instancePool.batches()).toHaveLength(0);
+  const batches = reloaded.instancePool.batches();
+  expect(batches).toHaveLength(1);
+  expect(batches[0]!.instancedMesh().count).toBe(1);
   expect(
     renderer.fetchAsset.mock.calls.filter(([url]) => (url as string).endsWith(".dae")),
   ).toHaveLength(1);
@@ -263,3 +269,10 @@ it("preserves parked URDFs on seek and reuses the cache after layer disposal", a
   reloaded.dispose();
   modelCache.dispose();
 });
+
+// One-leaf Collada stand-in so the pooled static mesh visual gets a slot.
+function colladaScene(): THREE.Group {
+  const scene = new THREE.Group();
+  scene.add(new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial()));
+  return scene;
+}

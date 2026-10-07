@@ -9,7 +9,11 @@ import * as THREE from "three";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 
 import { RenderableLineList } from "./RenderableLineList";
-import { RenderableLineStrip } from "./RenderableLineStrip";
+import {
+  RenderableLineStrip,
+  lineStripPointsEqual,
+  lineStripPointsExtendedBy,
+} from "./RenderableLineStrip";
 import { RenderableMarker } from "./RenderableMarker";
 import { DynamicLineGeometry } from "../../DynamicLineGeometry";
 import type { IRenderer } from "../../IRenderer";
@@ -52,6 +56,31 @@ function makeRenderer(): TestRenderer {
     input: { canvasSize: new THREE.Vector2(640, 480) },
   } as unknown as TestRenderer;
 }
+
+function geometryData(geometry: DynamicLineGeometry, name: string): THREE.InterleavedBuffer {
+  return (geometry.getAttribute(name) as THREE.InterleavedBufferAttribute).data;
+}
+
+describe("line strip point comparison", () => {
+  const base = [
+    { x: 0, y: 0, z: 0 },
+    { x: 1, y: 2, z: 3 },
+  ];
+
+  it("distinguishes identical, appended, diverged and shorter paths", () => {
+    const appended = [...base, { x: 2, y: 4, z: 6 }];
+    expect(lineStripPointsEqual(undefined, base)).toBe(false);
+    expect(lineStripPointsEqual(base, [...base])).toBe(true);
+    expect(lineStripPointsEqual(base, appended)).toBe(false);
+    expect(lineStripPointsExtendedBy(base, appended)).toBe(true);
+    expect(lineStripPointsExtendedBy(base, base)).toBe(false);
+    expect(lineStripPointsExtendedBy(base, [base[0]!])).toBe(false);
+    expect(
+      lineStripPointsExtendedBy(base, [base[0]!, { x: 9, y: 9, z: 9 }, { x: 2, y: 4, z: 6 }]),
+    ).toBe(false);
+    expect(lineStripPointsExtendedBy([], [base[0]!])).toBe(true);
+  });
+});
 
 describe.each([
   { name: "LINE_STRIP", type: MarkerType.LINE_STRIP, Constructor: RenderableLineStrip },
@@ -215,6 +244,144 @@ describe.each([
     expect(releasePicking).toHaveBeenCalledTimes(1);
     expect(colorLine.userData.pickingMaterial).toBeUndefined();
     expect(renderable.children).toHaveLength(0);
+  });
+});
+
+describe("LINE_STRIP append-only path growth", () => {
+  it("uploads only appended tail segments, skipping identical paths", () => {
+    const renderable = new RenderableLineStrip(
+      "/path",
+      makeMarker(MarkerType.LINE_STRIP, 4),
+      1n,
+      makeRenderer(),
+    );
+    const geometry = (renderable.children[1] as LineSegments2).geometry as DynamicLineGeometry;
+    const setPoints = jest.spyOn(geometry, "setPoints");
+    const appendPoints = jest.spyOn(geometry, "appendPoints");
+
+    // Identical values in a fresh message: no upload at all.
+    renderable.update(makeMarker(MarkerType.LINE_STRIP, 4), 2n);
+    expect(setPoints).not.toHaveBeenCalled();
+    expect(appendPoints).not.toHaveBeenCalled();
+
+    // Same prefix plus a tail: only the new segments are uploaded.
+    const grown = makeMarker(MarkerType.LINE_STRIP, 6);
+    renderable.update(grown, 3n);
+    expect(appendPoints).toHaveBeenCalledTimes(1);
+    expect(appendPoints).toHaveBeenCalledWith(grown.points, 4);
+    expect(setPoints).not.toHaveBeenCalled();
+    expect(geometry.instanceCount).toBe(5);
+    expect(geometryData(geometry, "instanceStart").updateRange).toEqual({ offset: 18, count: 12 });
+
+    // A changed prefix point forces a full upload...
+    const diverged = makeMarker(MarkerType.LINE_STRIP, 6);
+    diverged.points[2] = { x: -1, y: -1, z: -1 };
+    renderable.update(diverged, 4n);
+    expect(setPoints).toHaveBeenCalledTimes(1);
+    expect(setPoints).toHaveBeenLastCalledWith(diverged.points, "strip");
+    expect(appendPoints).toHaveBeenCalledTimes(1);
+
+    // ...and so does a shorter path.
+    const shorter = makeMarker(MarkerType.LINE_STRIP, 2);
+    renderable.update(shorter, 5n);
+    expect(setPoints).toHaveBeenCalledTimes(2);
+    expect(setPoints).toHaveBeenLastCalledWith(shorter.points, "strip");
+    expect(appendPoints).toHaveBeenCalledTimes(1);
+    expect(geometry.instanceCount).toBe(1);
+    renderable.dispose();
+  });
+
+  it("seeds appended colors from the old end point and reuses prefix pairs", () => {
+    const marker = makeMarker(MarkerType.LINE_STRIP, 3);
+    marker.colors = [
+      { r: 1, g: 0, b: 0, a: 1 },
+      { r: 0, g: 1, b: 0, a: 1 },
+      { r: 0, g: 0, b: 1, a: 1 },
+    ];
+    const renderable = new RenderableLineStrip("/path", marker, 1n, makeRenderer());
+    const geometry = (renderable.children[1] as LineSegments2).geometry as DynamicLineGeometry;
+
+    const grown = makeMarker(MarkerType.LINE_STRIP, 5);
+    grown.colors = [...marker.colors, { r: 1, g: 1, b: 0, a: 1 }, { r: 0, g: 1, b: 1, a: 0.5 }];
+    renderable.update(grown, 2n);
+
+    expect(geometry.instanceCount).toBe(4);
+    // Only the two new pairs (segments 2 and 3) are marked for upload.
+    expect(geometryData(geometry, "instanceColorStart").updateRange).toEqual({
+      offset: 16,
+      count: 16,
+    });
+    // The chain seeds from the old end point color: [c2, c3], [c3, c4].
+    expect(Array.from(geometry.colorBuffer.slice(16, 32))).toEqual([
+      0, 0, 255, 255, 255, 255, 0, 255, 255, 255, 0, 255, 0, 255, 255, 127,
+    ]);
+    // The previously uploaded prefix pairs [c0, c1], [c1, c2] survive the
+    // append-induced buffer growth.
+    expect(Array.from(geometry.colorBuffer.slice(0, 16))).toEqual([
+      255, 0, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255,
+    ]);
+    renderable.dispose();
+  });
+
+  it("rewrites every color pair when prefix colors change during an append", () => {
+    // Base marker color only (no per-point colors).
+    const renderable = new RenderableLineStrip(
+      "/path",
+      makeMarker(MarkerType.LINE_STRIP, 3),
+      1n,
+      makeRenderer(),
+    );
+    const geometry = (renderable.children[1] as LineSegments2).geometry as DynamicLineGeometry;
+
+    const grown = makeMarker(MarkerType.LINE_STRIP, 5);
+    grown.color = { r: 0, g: 0, b: 1, a: 1 };
+    renderable.update(grown, 2n);
+
+    // Positions take the append path...
+    expect(geometry.instanceCount).toBe(4);
+    expect(geometryData(geometry, "instanceStart").updateRange).toEqual({ offset: 12, count: 12 });
+    // ...but the base color change invalidates the buffered prefix pairs.
+    expect(geometryData(geometry, "instanceColorStart").updateRange).toEqual({
+      offset: 0,
+      count: 32,
+    });
+    expect(Array.from(geometry.colorBuffer.slice(0, 8))).toEqual([0, 0, 255, 255, 0, 0, 255, 255]);
+
+    // A changed per-point prefix color also forces a full color upload.
+    const recolored = makeMarker(MarkerType.LINE_STRIP, 6);
+    recolored.color = { r: 0, g: 0, b: 1, a: 1 };
+    recolored.colors = [{ r: 1, g: 0, b: 0, a: 1 }];
+    renderable.update(recolored, 3n);
+    expect(geometry.instanceCount).toBe(5);
+    expect(geometryData(geometry, "instanceColorStart").updateRange).toEqual({
+      offset: 0,
+      count: 40,
+    });
+    // Segment 0 now starts red and ends blue.
+    expect(Array.from(geometry.colorBuffer.slice(0, 8))).toEqual([255, 0, 0, 255, 0, 0, 255, 255]);
+    renderable.dispose();
+  });
+
+  it("uploads in full when appending to a singleton path", () => {
+    const renderable = new RenderableLineStrip(
+      "/path",
+      makeMarker(MarkerType.LINE_STRIP, 1),
+      1n,
+      makeRenderer(),
+    );
+    const geometry = (renderable.children[1] as LineSegments2).geometry as DynamicLineGeometry;
+    expect(geometry.instanceCount).toBe(0);
+
+    const appendPoints = jest.spyOn(geometry, "appendPoints");
+    renderable.update(makeMarker(MarkerType.LINE_STRIP, 4), 2n);
+    expect(appendPoints).toHaveBeenCalledTimes(1);
+    expect(geometry.instanceCount).toBe(3);
+    expect(geometryData(geometry, "instanceStart").updateRange).toEqual({ offset: 0, count: 18 });
+    expect(geometryData(geometry, "instanceColorStart").updateRange).toEqual({
+      offset: 0,
+      count: 24,
+    });
+    renderable.dispose();
   });
 });
 

@@ -116,4 +116,17 @@ export class Renderable<
     void instanceId;
     return undefined;
   }
+
+  /**
+   * For `pickableInstances` renderables whose instances are shared between
+   * logical owners (e.g. the URDF static-link instance pools, where one
+   * InstancedMesh draws many robots), map a picked instance index to the
+   * Renderable that owns it. The Renderer treats the returned Renderable as
+   * the picked object for selection and inspection. Returning undefined keeps
+   * this renderable as the picked object.
+   */
+  public instanceOwner(instanceId: number): Renderable | undefined {
+    void instanceId;
+    return undefined;
+  }
 }

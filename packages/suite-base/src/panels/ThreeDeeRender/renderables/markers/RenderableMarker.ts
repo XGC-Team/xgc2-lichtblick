@@ -103,15 +103,17 @@ export class RenderableMarker extends Renderable<MarkerUserData> {
     this.userData.expiresIn = hasLifetime ? toNanoSec(marker.lifetime) : undefined;
   }
 
-  // Convert sRGB values to linear
+  // Convert sRGB values to linear. `startIndex` skips prefix points whose
+  // colors were already consumed by a previous call.
   protected _markerColorsToLinear(
     marker: Marker,
     pointsLength: number,
     callback: (color: THREE.Vector4Tuple, i: number) => void,
+    startIndex = 0,
   ): void {
     rgbToThreeColor(tempColor, marker.color);
 
-    for (let i = 0; i < pointsLength; i++) {
+    for (let i = startIndex; i < pointsLength; i++) {
       const srgb = marker.colors[i];
       if (srgb) {
         // Per-point color

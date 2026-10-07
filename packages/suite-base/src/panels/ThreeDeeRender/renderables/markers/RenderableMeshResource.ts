@@ -16,7 +16,7 @@ import { rgbToThreeColor } from "../../color";
 import { Marker } from "../../ros";
 import { removeLights } from "../models";
 
-const MESH_FETCH_FAILED = "MESH_FETCH_FAILED";
+export const MESH_FETCH_FAILED = "MESH_FETCH_FAILED";
 
 export class RenderableMeshResource extends RenderableMarker {
   #mesh: THREE.Group | THREE.Scene | undefined;

@@ -76,7 +76,7 @@ export function createGeometry(): THREE.BoxGeometry {
   cubeGeometry.computeBoundingSphere();
   return cubeGeometry;
 }
-function createEdgesGeometry(cubeGeometry: THREE.BoxGeometry): THREE.EdgesGeometry {
+export function createEdgesGeometry(cubeGeometry: THREE.BoxGeometry): THREE.EdgesGeometry {
   const cubeEdgesGeometry = new THREE.EdgesGeometry(cubeGeometry, 40);
   cubeEdgesGeometry.computeBoundingSphere();
   return cubeEdgesGeometry;

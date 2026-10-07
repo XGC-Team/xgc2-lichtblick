@@ -72,7 +72,7 @@ export class RenderableCylinder extends RenderableMarker {
     this.scale.set(marker.scale.x, marker.scale.y, marker.scale.z);
   }
 }
-function createGeometry(lod: DetailLevel): THREE.CylinderGeometry {
+export function createGeometry(lod: DetailLevel): THREE.CylinderGeometry {
   const subdivisions = cylinderSubdivisions(lod);
   const cylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, subdivisions);
   cylinderGeometry.rotateX(Math.PI / 2); // Make the cylinder geometry stand upright
@@ -80,7 +80,7 @@ function createGeometry(lod: DetailLevel): THREE.CylinderGeometry {
   return cylinderGeometry;
 }
 
-function createEdgesGeometry(geometry: THREE.CylinderGeometry): THREE.EdgesGeometry {
+export function createEdgesGeometry(geometry: THREE.CylinderGeometry): THREE.EdgesGeometry {
   const cylinderEdgesGeometry = new THREE.EdgesGeometry(geometry, 40);
   cylinderEdgesGeometry.computeBoundingSphere();
   return cylinderEdgesGeometry;

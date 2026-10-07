@@ -19,6 +19,7 @@ import { RenderableSpheres } from "./primitives/RenderableSpheres";
 import { RenderableTexts } from "./primitives/RenderableTexts";
 import { RenderableTriangles } from "./primitives/RenderableTriangles";
 import { ALL_PRIMITIVE_TYPES, PrimitiveType } from "./primitives/constants";
+import { hashSceneEntityContent } from "./sceneEntityHash";
 import { missingTransformMessage, MISSING_TRANSFORM } from "./transforms";
 import type { IRenderer } from "../IRenderer";
 import { BaseUserData, Renderable } from "../Renderable";
@@ -57,6 +58,13 @@ const PRIMITIVE_KEYS = {
 export class TopicEntities extends Renderable<EntityTopicUserData> {
   public override pickable = false;
   #renderablesById = new Map<string, EntityRenderables>();
+  /**
+   * Last-seen content hash per entity id, for skipping renderable.update() when
+   * a republished entity is unchanged. Entries must be evicted wherever
+   * #renderablesById entries are removed so a stale hash can never skip a needed
+   * update after the renderable was released back to the pool.
+   */
+  #contentHashById = new Map<string, number>();
 
   public constructor(
     name: string,
@@ -140,6 +148,18 @@ export class TopicEntities extends Renderable<EntityTopicUserData> {
       this.#renderablesById.set(entity.id, renderables);
     }
 
+    // Hash the normalized entity here rather than the raw message in
+    // FoxgloveSceneEntities#handleSceneUpdate: the normalized graph is freshly
+    // allocated per message (the player can never mutate it after delivery) and
+    // it is exactly what the renderables consume. Walking numbers is cheap
+    // compared to renderable.update(), which reserializes geometry and replaces
+    // GPU buffers even when nothing changed.
+    const contentHash = hashSceneEntityContent(entity);
+    if (this.#contentHashById.get(entity.id) === contentHash) {
+      this.#refreshEntityRenderables(renderables, entity, receiveTime);
+      return;
+    }
+
     for (const primitiveType of ALL_PRIMITIVE_TYPES) {
       const hasPrimitives = entity[PRIMITIVE_KEYS[primitiveType]].length > 0;
       let renderable = renderables[primitiveType];
@@ -160,6 +180,31 @@ export class TopicEntities extends Renderable<EntityTopicUserData> {
         delete renderables[primitiveType];
         this.primitivePool.release(primitiveType, renderable);
       }
+    }
+    this.#contentHashById.set(entity.id, contentHash);
+  }
+
+  /**
+   * Skip-path bookkeeping for an unchanged entity. renderable.update() is the
+   * expensive part (GPU buffer rebuilds), but it also stores per-message state
+   * that must stay fresh: the expiry time (recomputed from the new receiveTime,
+   * mirroring the update() implementations of all primitive renderables) and the
+   * latest entity, which startFrame() reads for frame_id/timestamp pose lookup
+   * and details() returns to the user.
+   */
+  #refreshEntityRenderables(
+    renderables: EntityRenderables,
+    entity: SceneEntity,
+    receiveTime: bigint,
+  ): void {
+    const lifetimeNs = toNanoSec(entity.lifetime);
+    const expiresAt = lifetimeNs === 0n ? undefined : receiveTime + lifetimeNs;
+    for (const renderable of Object.values(renderables)) {
+      renderable.userData.topic = this.userData.topic;
+      renderable.userData.entity = entity;
+      renderable.userData.settings = this.userData.settings;
+      renderable.userData.receiveTime = receiveTime;
+      renderable.userData.expiresAt = expiresAt;
     }
   }
 
@@ -199,6 +244,7 @@ export class TopicEntities extends Renderable<EntityTopicUserData> {
       this.#removeRenderables(renderables);
     }
     this.#renderablesById.delete(id);
+    this.#contentHashById.delete(id);
   }
 
   #deleteAllEntities() {
@@ -206,5 +252,6 @@ export class TopicEntities extends Renderable<EntityTopicUserData> {
       this.#removeRenderables(renderables);
     }
     this.#renderablesById.clear();
+    this.#contentHashById.clear();
   }
 }
