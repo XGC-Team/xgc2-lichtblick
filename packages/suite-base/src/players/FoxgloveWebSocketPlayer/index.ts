@@ -39,6 +39,7 @@ import {
   Time,
 } from "@lichtblick/rostime";
 import { ParameterValue } from "@lichtblick/suite";
+import { subscribeEmbeddedParkedState } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import { Asset } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import PlayerAlertManager from "@lichtblick/suite-base/players/PlayerAlertManager";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
@@ -82,6 +83,11 @@ import {
   LiveMessageRetention,
 } from "./liveMessageQueue";
 import {
+  isDeletionSemanticSchema,
+  makeSceneLayerClearEvent,
+  PARKED_FRAME_MAXIMUM_SIZE_BYTES,
+} from "./parkedParsePause";
+import {
   isDeferredSnapshotEvent,
   isSnapshotStateSchema,
   makeDeferredSnapshotEvent,
@@ -121,6 +127,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
   #parsedMessages = new LiveMessageQueue<LiveQueueMessage>(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
   #snapshotCoalescingTopics = new Set<string>();
+  /**
+   * True while every registered 3D canvas reports hidden (parked embed). The
+   * gate is a single boolean check on the message hot path; see
+   * parkedParsePause.ts for the per-schema-class mechanism.
+   */
+  #parked = false;
+  /** Deletion-semantic topics whose server subscription is paused while parked (topic → schemaName). */
+  #parkedSceneTopics = new Map<string, string>();
+  /** Subscription ids canceled by the park pause; suppresses unknown-subscription alerts for in-flight messages. */
+  #parkedUnsubscribedIds = new Set<SubscriptionId>();
+  #unsubscribeParkedSignal?: () => void;
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
   #presence: PlayerPresence = PlayerPresence.INITIALIZING;
@@ -186,6 +203,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
       sourceId: this.#sourceId,
       parameters: { url: this.#url },
     };
+    // Invoked immediately with the current state, so a player constructed
+    // while the embed is already parked starts parked.
+    this.#unsubscribeParkedSignal = subscribeEmbeddedParkedState((parked) => {
+      this.#setParked(parked);
+    });
     this.#open();
   }
 
@@ -529,7 +551,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#client.on("message", ({ subscriptionId, data }) => {
       const chanInfo = this.#resolvedSubscriptionsById.get(subscriptionId);
       if (!chanInfo) {
-        const wasRecentlyCanceled = this.#recentlyCanceledSubscriptions.has(subscriptionId);
+        const wasRecentlyCanceled =
+          this.#recentlyCanceledSubscriptions.has(subscriptionId) ||
+          this.#parkedUnsubscribedIds.has(subscriptionId);
         if (!wasRecentlyCanceled) {
           this.#alerts.addAlert(`message-missing-subscription:${subscriptionId}`, {
             severity: "warn",
@@ -544,6 +568,34 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#receivedBytes += data.byteLength;
         const receiveTime = this.#getCurrentTime();
         const topic = chanInfo.channel.topic;
+
+        // Parked embed: collapse every schema to the latest message per topic,
+        // kept as raw bytes so nothing is deserialized while hidden. The drain
+        // stays closed until resume (see #emitState), so no scene application
+        // happens either. Deletion-semantic channels cannot arrive here: they
+        // are unsubscribed while parked, and their layers are reset on resume
+        // before resubscribing, so missed deletions leave no ghosts.
+        if (this.#parked) {
+          this.#parsedMessages.enqueue(
+            {
+              value: makeDeferredSnapshotEvent({
+                topic,
+                schemaName: chanInfo.channel.schemaName,
+                receiveTime,
+                data,
+                deserialize: chanInfo.parsedChannel.deserialize,
+              }),
+              sizeInBytes: data.byteLength,
+              key: topic,
+              retention: "replaceable",
+            },
+            { supersedeReplaceable: true },
+          );
+          this.#bumpTopicStats(topic);
+          // No #emitState: emitting would wake the pipeline for a frame that
+          // must not be applied while hidden. Counts are emitted on resume.
+          return;
+        }
 
         // Snapshot-semantics topics: defer deserialization to drain time and
         // keep only the latest when every subscriber permits sampling. A stalled
@@ -983,7 +1035,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#topicsStatsChanged = false;
     }
 
-    const drained = this.#parsedMessages.drain();
+    // While parked the queue holds deferred bytes for resume; draining here
+    // would parse and deliver messages into a hidden pipeline.
+    const drained = this.#parked ? [] : this.#parsedMessages.drain();
     const messages: MessageEvent[] = [];
     for (const entry of drained) {
       if (!isDeferredSnapshotEvent(entry)) {
@@ -1037,6 +1091,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
   public close(): void {
     this.#closed = true;
+    this.#unsubscribeParkedSignal?.();
+    this.#unsubscribeParkedSignal = undefined;
     this.#client?.close();
     if (this.#openTimeout != undefined) {
       clearTimeout(this.#openTimeout);
@@ -1056,6 +1112,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
       // Remember requested subscriptions so we can retry subscribing when
       // the client is available.
       this.#unresolvedSubscriptions = newTopics;
+      for (const topic of [...this.#parkedSceneTopics.keys()]) {
+        if (!newTopics.has(topic)) {
+          this.#parkedSceneTopics.delete(topic);
+        }
+      }
       return;
     }
 
@@ -1082,6 +1143,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
         );
       }
     }
+    for (const topic of [...this.#parkedSceneTopics.keys()]) {
+      if (!newTopics.has(topic)) {
+        // Already unsubscribed by the park pause; just forget the intent to resume.
+        this.#parkedSceneTopics.delete(topic);
+        topicStats.delete(topic);
+      }
+    }
     this.#topicsStats = topicStats;
 
     for (const topic of this.#unresolvedSubscriptions) {
@@ -1101,12 +1169,108 @@ export default class FoxgloveWebSocketPlayer implements Player {
     for (const topic of this.#unresolvedSubscriptions) {
       const chanInfo = this.#channelsByTopic.get(topic);
       if (chanInfo) {
+        if (this.#parked && isDeletionSemanticSchema(chanInfo.channel.schemaName)) {
+          // Channels advertised (or re-advertised after a reconnect) while
+          // parked stay paused; they resume with the same clear-then-subscribe
+          // path as channels parked while subscribed.
+          this.#unresolvedSubscriptions.delete(topic);
+          this.#parkedSceneTopics.set(topic, chanInfo.channel.schemaName);
+          continue;
+        }
         const subId = this.#client.subscribe(chanInfo.channel.id);
         this.#unresolvedSubscriptions.delete(topic);
         this.#resolvedSubscriptionsByTopic.set(topic, subId);
         this.#resolvedSubscriptionsById.set(subId, chanInfo);
       }
     }
+  }
+
+  // eslint-disable-next-line @lichtblick/no-boolean-parameters
+  #setParked(parked: boolean): void {
+    if (this.#closed || parked === this.#parked) {
+      return;
+    }
+    this.#parked = parked;
+    if (parked) {
+      // Discard anything enqueued but not yet drained: it could only be
+      // applied after resume, where it would be older than the parked
+      // latest-per-topic entries. Deletion-semantic layers are reset on
+      // resume regardless, so dropping their backlog cannot lose a deletion.
+      this.#parsedMessages.clear();
+      this.#parsedMessages.setMaximumSize(PARKED_FRAME_MAXIMUM_SIZE_BYTES);
+      this.#pauseDeletionSemanticSubscriptions();
+      return;
+    }
+    this.#parsedMessages.setMaximumSize(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
+    this.#resumeDeletionSemanticSubscriptions();
+    // Drains the parked latest-per-topic entries and the scene-layer clears.
+    this.#emitState();
+  }
+
+  /**
+   * Deletion-semantic channels (SceneUpdate, Marker, MarkerArray) are
+   * unsubscribed while parked: latest-wins retention would drop deletions and
+   * leave ghost entities. The websocket connection and all other
+   * subscriptions stay up; the server simply stops sending these channels.
+   */
+  #pauseDeletionSemanticSubscriptions(): void {
+    if (!this.#client) {
+      return;
+    }
+    for (const [topic, subId] of this.#resolvedSubscriptionsByTopic) {
+      const chanInfo = this.#resolvedSubscriptionsById.get(subId);
+      if (chanInfo == undefined || !isDeletionSemanticSchema(chanInfo.channel.schemaName)) {
+        continue;
+      }
+      this.#client.unsubscribe(subId);
+      this.#resolvedSubscriptionsById.delete(subId);
+      this.#resolvedSubscriptionsByTopic.delete(topic);
+      this.#parkedUnsubscribedIds.add(subId);
+      this.#recentlyCanceledSubscriptions.add(subId);
+      setTimeout(
+        () => this.#recentlyCanceledSubscriptions.delete(subId),
+        SUBSCRIPTION_WARNING_SUPPRESSION_MS,
+      );
+      this.#parkedSceneTopics.set(topic, chanInfo.channel.schemaName);
+    }
+  }
+
+  /**
+   * Reset each paused scene layer BEFORE resubscribing its channel. The clear
+   * events drain ahead of anything the server sends after the subscribe, so
+   * deletions missed while parked cannot survive as ghosts; the producer's
+   * next full publish (or the server replay of a latched channel) then
+   * repopulates current truth.
+   */
+  #resumeDeletionSemanticSubscriptions(): void {
+    const receiveTime = this.#getCurrentTime();
+    for (const [topic, schemaName] of this.#parkedSceneTopics) {
+      this.#parsedMessages.enqueue({
+        value: makeSceneLayerClearEvent({ topic, schemaName, receiveTime }),
+        sizeInBytes: 0,
+        retention: "replaceable",
+      });
+      const chanInfo = this.#channelsByTopic.get(topic);
+      if (this.#client && chanInfo) {
+        const subId = this.#client.subscribe(chanInfo.channel.id);
+        this.#resolvedSubscriptionsByTopic.set(topic, subId);
+        this.#resolvedSubscriptionsById.set(subId, chanInfo);
+      } else {
+        // Channel unknown (unadvertised while parked) or no connection:
+        // resolve through the normal advertise/open path.
+        this.#unresolvedSubscriptions.add(topic);
+      }
+    }
+    this.#parkedSceneTopics.clear();
+    // Late stragglers on the canceled ids stay suppressed briefly past resume.
+    for (const subId of this.#parkedUnsubscribedIds) {
+      this.#recentlyCanceledSubscriptions.add(subId);
+      setTimeout(
+        () => this.#recentlyCanceledSubscriptions.delete(subId),
+        SUBSCRIPTION_WARNING_SUPPRESSION_MS,
+      );
+    }
+    this.#parkedUnsubscribedIds.clear();
   }
 
   public setPublishers(publishers: AdvertiseOptions[]): void {

@@ -6,7 +6,15 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import * as _ from "lodash-es";
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useLatest } from "react-use";
 import { DeepPartial } from "ts-essentials";
 import { useDebouncedCallback } from "use-debounce";
@@ -25,6 +33,7 @@ import {
   Topic,
 } from "@lichtblick/suite";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
+import { registerEmbeddedCanvasVisibility } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import {
   EMBEDDED_3D_PANEL_ATTRIBUTE,
   EMBEDDED_NAVIGATION_EVENT,
@@ -302,16 +311,22 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   // that: this observer (panel collapsed or scrolled away inside the viewer document) and the
   // host's visibility message. A parked XGC2 embed hides the iframe element in the HOST document;
   // inside the viewer the canvas still intersects, so only the host message reports it.
+  // In an embedded host the same converged result also drives the parked-embed signal: while
+  // every 3D canvas is hidden, the player pauses message processing, not just drawing.
+  // Standalone sessions never register: a scrolled-away 3D panel must not starve Plot and
+  // other history consumers, so there drawing stops but messages keep flowing.
   const ioVisibleRef = useRef(true);
   const hostVisibleRef = useRef(true);
+  const parkedCanvasId = useId();
   useEffect(() => {
     if (!renderer) {
       return;
     }
+    const parkedReporter = embedded ? registerEmbeddedCanvasVisibility(parkedCanvasId) : undefined;
     const apply = () => {
-      renderer.setCanvasVisibility(
-        ioVisibleRef.current && hostVisibleRef.current ? "visible" : "hidden",
-      );
+      const visible = ioVisibleRef.current && hostVisibleRef.current;
+      renderer.setCanvasVisibility(visible ? "visible" : "hidden");
+      parkedReporter?.setVisible(visible);
     };
     // No initial apply(): the renderer already assumes visible; only events move it.
     const onHostVisibility = (event: Event) => {
@@ -325,6 +340,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     if (!canvas || typeof IntersectionObserver === "undefined") {
       return () => {
         window.removeEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
+        parkedReporter?.dispose();
       };
     }
     const observer = new IntersectionObserver((entries) => {
@@ -338,8 +354,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     return () => {
       window.removeEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
       observer.disconnect();
+      parkedReporter?.dispose();
     };
-  }, [canvas, renderer]);
+  }, [canvas, renderer, embedded, parkedCanvasId]);
 
   // Maintain the settings tree
   const [settingsTree, setSettingsTree] = useState<SettingsTreeNodes | undefined>(undefined);

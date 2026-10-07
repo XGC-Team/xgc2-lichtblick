@@ -9,6 +9,8 @@
 import { LineType, SceneEntityDeletionType, SceneUpdate } from "@foxglove/schemas";
 import * as THREE from "three";
 
+import { makeSceneLayerClearEvent } from "@lichtblick/suite-base/players/FoxgloveWebSocketPlayer/parkedParsePause";
+
 import { FoxgloveSceneEntities } from "./SceneEntities";
 import type { IRenderer, RendererConfig } from "../IRenderer";
 import { PartialMessage } from "../SceneExtension";
@@ -136,5 +138,48 @@ describe("FoxgloveSceneEntities republish diffing", () => {
     );
     send(extension, makeUpdate(), 4);
     expect(updateSpy).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("FoxgloveSceneEntities parked resume layer reset", () => {
+  let extension: FoxgloveSceneEntities;
+
+  beforeEach(() => {
+    extension = makeExtension();
+  });
+
+  afterEach(() => {
+    extension.dispose();
+    jest.restoreAllMocks();
+  });
+
+  it("the player's synthetic clear empties the layer so a deletion missed while parked leaves no ghost", () => {
+    // Before the park, the scene holds drone-1.
+    send(extension, makeUpdate(), 1);
+    const topicEntities = extension.renderables.get(TOPIC)!;
+    expect(topicEntities.children.length).toBeGreaterThan(0);
+
+    // While parked, the producer deletes drone-1; the viewer never sees that
+    // deletion. On resume the player clears the layer BEFORE resubscribing.
+    const clear = makeSceneLayerClearEvent({
+      topic: TOPIC,
+      schemaName: "foxglove.SceneUpdate",
+      receiveTime: { sec: 2, nsec: 0 },
+    });
+    send(extension, clear.message as PartialMessage<SceneUpdate>, 2);
+    expect(topicEntities.children).toHaveLength(0);
+
+    // The next full publish repopulates current truth, which now contains
+    // only drone-2: drone-1 from before the park can never reappear.
+    const republish = makeUpdate();
+    republish.entities![0]!.id = "drone-2";
+    send(extension, republish, 3);
+    const renderable = topicEntities.children[0] as RenderableLines;
+    expect(renderable.userData.entity?.id).toBe("drone-2");
+    expect(
+      topicEntities.children.some(
+        (child) => (child as RenderableLines).userData.entity?.id === "drone-1",
+      ),
+    ).toBe(false);
   });
 });
