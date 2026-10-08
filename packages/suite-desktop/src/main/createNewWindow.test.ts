@@ -17,7 +17,7 @@ jest.mock("./fileUtils", () => ({
 jest.mock("./injectFilesToOpen", () => jest.fn());
 
 // Mock StudioWindow completely to avoid React dependencies
-const mockLoad = jest.fn();
+const mockLoad = jest.fn(async () => undefined);
 const mockGetBrowserWindow = jest.fn();
 
 jest.mock("./StudioWindow", () => {

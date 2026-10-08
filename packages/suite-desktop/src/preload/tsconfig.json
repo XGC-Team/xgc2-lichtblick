@@ -1,11 +1,23 @@
 {
   "extends": "@lichtblick/tsconfig/base",
-  "include": ["./**/*", "../common/*", "../../package.json"],
+  "include": [
+    "./**/*",
+    "../common/*",
+    "../../package.json",
+    "../../../suite-base/src/typings/webpack-defines.d.ts"
+  ],
   "compilerOptions": {
-    "rootDir": "../../",
+    "rootDir": "../../../..",
     "noEmit": true,
     "lib": ["dom", "es2022"],
     "types": ["node", "jest"],
-    "useUnknownInCatchVariables": false
+    "useUnknownInCatchVariables": false,
+    "paths": {
+      "@lichtblick/suite-base/*": [
+        "../../../suite-base/src/*",
+        "../../../suite-base/*"
+      ]
+    },
+    "jsx": "react-jsx"
   }
 }

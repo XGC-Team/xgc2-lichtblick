@@ -7,35 +7,26 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import os from "os";
-import { join as pathJoin } from "path";
 
 import { PreloaderSockets } from "@lichtblick/electron-socket/preloader";
 import Logger from "@lichtblick/log";
-import { NetworkInterface, OsContext } from "@lichtblick/suite-base/src/OsContext";
+import {
+  NetworkInterface,
+  OsContext,
+} from "@lichtblick/suite-base/src/OsContext";
 
-import { ExtensionsHandler } from "./ExtensionHandler";
-import LocalFileStorage from "./LocalFileStorage";
-import { fetchLayouts } from "./layouts";
-import { decodeRendererArg } from "../common/rendererArgs";
+import { createPersistenceBridge } from "./persistence";
 import {
   CLIFlags,
   Desktop,
   ForwardedMenuEvent,
   ForwardedWindowEvent,
   NativeMenuBridge,
-  Storage,
 } from "../common/types";
-import { LICHTBLICK_PRODUCT_NAME, LICHTBLICK_PRODUCT_VERSION } from "../common/webpackDefines";
-
-// Since we have no way of modifying `window.process.argv` we use a sentinel cookie and reload
-// hack to reset the page without deep links. By setting a session cookie and reloading
-// we allow this preload script to read the cookie and ignore deep links in `getDeepLinks`
-const ignoreDeepLinks = document.cookie.includes("fox.ignoreDeepLinks=true");
-document.cookie = "fox.ignoreDeepLinks=;max-age=0;";
-
-const deepLinks = ignoreDeepLinks
-  ? []
-  : (decodeRendererArg("deepLinks", window.process.argv) ?? []);
+import {
+  LICHTBLICK_PRODUCT_NAME,
+  LICHTBLICK_PRODUCT_VERSION,
+} from "../common/webpackDefines";
 
 export function main(): void {
   const log = Logger.getLogger(__filename);
@@ -71,14 +62,15 @@ export function main(): void {
     { once: true },
   );
 
-  const localFileStorage = new LocalFileStorage();
-
   const ctx: OsContext = {
     platform: process.platform,
     pid: process.pid,
 
     // Environment queries
-    getEnvVar: (envVar: string) => process.env[envVar],
+    getEnvVar: (envVar: string) =>
+      ["ROS_MASTER_URI", "ROS_PACKAGE_PATH"].includes(envVar)
+        ? process.env[envVar]
+        : undefined,
     getHostname: os.hostname,
     getNetworkInterfaces: (): NetworkInterface[] => {
       const output: NetworkInterface[] = [];
@@ -105,17 +97,6 @@ export function main(): void {
   ipcRenderer.on("maximize", () => (isMaximized = true));
   ipcRenderer.on("unmaximize", () => (isMaximized = false));
 
-  let extensionHandler: ExtensionsHandler | undefined;
-
-  const getExtensionHandler = async (): Promise<ExtensionsHandler> => {
-    if (!extensionHandler) {
-      const homePath = (await ipcRenderer.invoke("getHomePath")) as string;
-      const userExtensionsDir = pathJoin(homePath, ".lichtblick-suite", "extensions");
-      extensionHandler = new ExtensionsHandler(userExtensionsDir);
-    }
-    return extensionHandler;
-  };
-
   const desktopBridge: Desktop = {
     addIpcEventListener(eventName: ForwardedWindowEvent, handler: () => void) {
       ipcRenderer.on(eventName, handler);
@@ -135,43 +116,11 @@ export function main(): void {
     async getCLIFlags(): Promise<CLIFlags> {
       return await (ipcRenderer.invoke("getCLIFlags") as Promise<CLIFlags>);
     },
-    getDeepLinks(): string[] {
-      return deepLinks;
+    async getDeepLinks(): Promise<string[]> {
+      return (await ipcRenderer.invoke("getDeepLinks")) as string[];
     },
     resetDeepLinks(): void {
-      // See `ignoreDeepLinks` comment above for why we do this hack to reset deep links
-
-      // set a session cookie called "fox.ignoreDeepLinks"
-      document.cookie = "fox.ignoreDeepLinks=true;";
-
-      // Reload the window so the new preloader script can read the cookie
-      window.location.reload();
-    },
-    // Layout management
-    async fetchLayouts() {
-      const userLayoutsDir = pathJoin(
-        (await ipcRenderer.invoke("getHomePath")) as string,
-        ".lichtblick-suite",
-        "layouts",
-      );
-      return await fetchLayouts(userLayoutsDir);
-    },
-    // Extension management
-    async getExtensions() {
-      const handler = await getExtensionHandler();
-      return await handler.list();
-    },
-    async loadExtension(id: string) {
-      const handler = await getExtensionHandler();
-      return await handler.load(id);
-    },
-    async installExtension(foxeFileData: Uint8Array) {
-      const handler = await getExtensionHandler();
-      return await handler.install(foxeFileData);
-    },
-    async uninstallExtension(id: string): Promise<boolean> {
-      const handler = await getExtensionHandler();
-      return await handler.uninstall(id);
+      ipcRenderer.send("resetDeepLinks");
     },
     handleTitleBarDoubleClick() {
       ipcRenderer.send("titleBarDoubleClicked");
@@ -194,16 +143,6 @@ export function main(): void {
     reloadWindow() {
       ipcRenderer.send("reloadMainWindow");
     },
-  };
-
-  const storageBridge: Storage = {
-    // Context bridge cannot expose "classes" only exposes functions
-    // We use .bind to attach the localFileStorage instance as _this_ to the function
-    list: localFileStorage.list.bind(localFileStorage),
-    all: localFileStorage.all.bind(localFileStorage),
-    get: localFileStorage.get.bind(localFileStorage),
-    put: localFileStorage.put.bind(localFileStorage),
-    delete: localFileStorage.delete.bind(localFileStorage),
   };
 
   const menuBridge: NativeMenuBridge = {
@@ -229,7 +168,10 @@ export function main(): void {
   // i.e.: returning a class instance doesn't work because prototypes do not survive the boundary
   contextBridge.exposeInMainWorld("ctxbridge", ctx);
   contextBridge.exposeInMainWorld("menuBridge", menuBridge);
-  contextBridge.exposeInMainWorld("storageBridge", storageBridge);
+  contextBridge.exposeInMainWorld(
+    "persistenceBridge",
+    createPersistenceBridge(ipcRenderer.invoke.bind(ipcRenderer)),
+  );
   contextBridge.exposeInMainWorld("desktopBridge", desktopBridge);
 
   log.debug(`End Preload`);

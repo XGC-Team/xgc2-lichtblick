@@ -7,7 +7,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { SnackbarProvider, useSnackbar } from "notistack";
 import { useEffect } from "react";
 
@@ -16,6 +16,7 @@ import { CurrentLayoutSyncAdapter } from "@lichtblick/suite-base/components/Curr
 import {
   CurrentLayoutActions,
   LayoutData,
+  LayoutID,
   LayoutState,
   useCurrentLayoutActions,
   useCurrentLayoutSelector,
@@ -72,11 +73,13 @@ function makeMockLayoutManager() {
     getLayouts: jest.fn(),
     getLayout: jest.fn(),
     saveNewLayout: jest.fn().mockImplementation(mockThrow("saveNewLayout")),
+    importLayoutFiles: jest.fn().mockImplementation(mockThrow("importLayoutFiles")),
     updateLayout: jest.fn().mockImplementation(mockThrow("updateLayout")),
     deleteLayout: jest.fn().mockImplementation(mockThrow("deleteLayout")),
     overwriteLayout: jest.fn().mockImplementation(mockThrow("overwriteLayout")),
     revertLayout: jest.fn().mockImplementation(mockThrow("revertLayout")),
     makePersonalCopy: jest.fn().mockImplementation(mockThrow("makePersonalCopy")),
+    syncWithRemote: jest.fn(),
   };
 }
 function makeMockUserProfile() {
@@ -138,12 +141,79 @@ function renderTest({
 }
 
 describe("CurrentLayoutProvider", () => {
+  it("waits for the old working receipt before queued profile selections and preserves the camera draft", async () => {
+    const manager = makeMockLayoutManager();
+    const profile = makeMockUserProfile();
+    const data = { ...TEST_LAYOUT, configById: { "3D!1": { cameraState: { distance: 20 } } } };
+    const layouts = ["a", "b", "c"].map((id) => ({
+      id,
+      name: id,
+      permission: "CREATOR_WRITE",
+      baseline: { data, savedAt: undefined },
+      working: undefined,
+      syncInfo: undefined,
+    }));
+    manager.getLayouts.mockResolvedValue(layouts);
+    manager.getLayout.mockImplementation(async (id: string) =>
+      layouts.find((layout) => layout.id === id),
+    );
+    profile.getUserProfile.mockResolvedValue({ currentLayoutId: "a" });
+    const events: string[] = [];
+    profile.setUserProfile.mockImplementation(async (value: { currentLayoutId: string }) => {
+      events.push(`profile-${value.currentLayoutId}`);
+    });
+    let acknowledge!: () => void;
+    const full = new Promise<void>((resolve) => {
+      acknowledge = resolve;
+    });
+    manager.updateLayout.mockImplementation(async () => {
+      events.push("working-start");
+      await full;
+      events.push("working-FULL");
+      return layouts[0];
+    });
+    const { result } = renderTest({ mockLayoutManager: manager, mockUserProfile: profile });
+    await waitFor(() => {
+      expect(result.current.layoutState.selectedLayout?.data).toBe(data);
+    });
+    act(() => {
+      result.current.actions.savePanelConfigs({
+        configs: [{ id: "3D!1", config: { cameraState: { distance: 7 } } }],
+      });
+    });
+    act(() => {
+      result.current.actions.setSelectedLayoutId("b" as LayoutID);
+      result.current.actions.setSelectedLayoutId("c" as LayoutID);
+    });
+    await waitFor(() => {
+      expect(manager.updateLayout).toHaveBeenCalled();
+    });
+    expect(result.current.layoutState.selectedLayout?.id).toBe("a");
+    expect(profile.setUserProfile).not.toHaveBeenCalled();
+    await act(async () => {
+      acknowledge();
+      await full;
+    });
+    await waitFor(() => {
+      expect(result.current.layoutState.selectedLayout?.id).toBe("c");
+    });
+    expect(events).toEqual(["working-start", "working-FULL", "profile-b", "profile-c"]);
+    expect(manager.updateLayout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "a",
+        data: expect.objectContaining({ configById: { "3D!1": { cameraState: { distance: 7 } } } }),
+      }),
+    );
+  });
   const mockLayoutManager = makeMockLayoutManager();
   const mockUserProfile = makeMockUserProfile();
 
   beforeEach(() => {
     // Default mocks
-    mockLayoutManager.getLayout.mockImplementation(async () => undefined);
+    mockLayoutManager.getLayout.mockImplementation(async (id: string) =>
+      (await mockLayoutManager.getLayouts()).find((layout: { id: string }) => layout.id === id),
+    );
+    mockUserProfile.setUserProfile.mockResolvedValue(undefined);
     mockLayoutManager.getLayouts.mockImplementation(() => []);
     mockUserProfile.getUserProfile.mockResolvedValue({ currentLayoutId: undefined });
   });
@@ -258,7 +328,7 @@ describe("CurrentLayoutProvider", () => {
         {
           id: "example",
           name: "Test layout",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
       ];
@@ -297,13 +367,13 @@ describe("CurrentLayoutProvider", () => {
         {
           id: "layout1",
           name: "LAYOUT 1",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
         {
           id: "layout2",
           name: "ABC Layout 2",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
       ];
@@ -331,13 +401,13 @@ describe("CurrentLayoutProvider", () => {
         {
           id: "layout1",
           name: "LAYOUT 1",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
         {
           id: "layout2",
           name: "ORG Layout 2",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "ORG_READ",
         },
       ];
@@ -366,19 +436,19 @@ describe("CurrentLayoutProvider", () => {
         {
           id: "layout1",
           name: "ABC Layout 1",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
         {
           id: "layout2",
           name: "DEF Layout 2",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "ORG_READ",
         },
         {
           id: "layout3",
           name: "ABC Layout 3",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "ORG_READ",
         },
       ];
@@ -407,19 +477,19 @@ describe("CurrentLayoutProvider", () => {
         {
           id: "layout1",
           name: "LAYOUT 1",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
         {
           id: "layout2",
           name: "LAYOUT 2",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
         {
           id: "layout3",
           name: "ABC Layout 3",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "ORG_READ",
         },
       ];
@@ -451,13 +521,13 @@ describe("CurrentLayoutProvider", () => {
         {
           id: "personal",
           name: "SHARED LAYOUT",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "CREATOR_WRITE",
         },
         {
           id: "org",
           name: "SHARED LAYOUT",
-          data: { data: TEST_LAYOUT },
+          baseline: { data: TEST_LAYOUT, savedAt: undefined },
           permission: "ORG_READ",
         },
       ];

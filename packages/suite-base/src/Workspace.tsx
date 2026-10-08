@@ -625,11 +625,12 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
             )[0]
           : undefined;
 
-        // Always import the current Core wiring. Only the matching scoped IDB view may overlay it.
+        // Always import the current Core wiring. Only the matching scoped managed view may overlay it.
         const text = await response.text();
         const file = new File([text], filename, { type: "application/json" });
-        const newLayout = await parseAndInstallLayout(file, "local", {
+        await parseAndInstallLayout(file, "local", {
           managedAuthority: true,
+          replaceIds: matchingLayouts.map((layout) => layout.id),
           ...(scope
             ? {
                 xgc2LayoutScope: scope,
@@ -638,13 +639,6 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
               }
             : {}),
         });
-
-        // Only delete old layouts after successful save to avoid data loss
-        if (newLayout) {
-          for (const layout of matchingLayouts) {
-            await layoutManager.deleteLayout({ id: layout.id });
-          }
-        }
       } catch (error) {
         log.error(`Could not load layout from ${safeUrlLabel}`, error);
         enqueueSnackbar("Failed to load layout from URL", { variant: "error" });

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xgc2.dev/contracts/lichtblick/bootstrap-application-v1",
+  "title": "Lichtblick BootstrapInput.application v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "operator_time_zone", "storage", "assets"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "operator_time_zone": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Authoritative Settings time zone: system or a valid IANA zone; validated by Intl.DateTimeFormat. Metadata instants remain UTC."
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grant", "authorization", "reference", "scope"],
+      "properties": {
+        "grant": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "authorization": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "reference": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target_id", "service", "api_version", "instance_id", "profile", "endpoint"],
+          "properties": {
+            "target_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "service": {
+              "const": "xgc2.storage.v1.Storage"
+            },
+            "api_version": {
+              "const": "1"
+            },
+            "instance_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "profile": {
+              "const": "http.v1"
+            },
+            "endpoint": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "address"],
+              "properties": {
+                "kind": {
+                  "const": "unix"
+                },
+                "address": {
+                  "type": "string",
+                  "pattern": "^/",
+                  "maxLength": 107
+                }
+              }
+            }
+          }
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "user", "workspace"],
+          "properties": {
+            "namespace": {
+              "const": "lichtblick"
+            },
+            "user": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "workspace": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grant", "root", "access"],
+      "properties": {
+        "grant": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "root": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "Existing canonical non-symlink directory granted by deployment; no HOME or cwd expansion."
+        },
+        "access": {
+          "enum": ["read-write", "read-only"],
+          "description": "At most one live read-write owner per root. Other readers do not acquire the writer lease."
+        }
+      }
+    }
+  }
+}

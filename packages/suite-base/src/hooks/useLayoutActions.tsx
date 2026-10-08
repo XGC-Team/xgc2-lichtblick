@@ -54,6 +54,7 @@ export function useLayoutActions({ state, dispatch }: LayoutSetupOptions): UseLa
         name: `${item.name} copy`,
         data: item.working?.data ?? item.baseline.data,
         permission: "CREATOR_WRITE",
+        activate: true,
       });
       await onSelectLayout(newLayout);
       void analytics.logEvent(AppEvent.LAYOUT_DUPLICATE, { permission: item.permission });

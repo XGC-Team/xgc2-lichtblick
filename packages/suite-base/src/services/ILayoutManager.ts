@@ -77,10 +77,16 @@ export interface ILayoutManager {
 
   getLayout(id: LayoutID): Promise<Layout | undefined>;
 
+  importLayoutFiles(
+    entries: readonly { name: string; data: LayoutData }[],
+  ): Promise<readonly Layout[]>;
+
   saveNewLayout(params: {
     name: string;
     data: LayoutData;
     permission: LayoutPermission;
+    activate?: boolean;
+    replaceIds?: readonly LayoutID[];
   }): Promise<Layout>;
 
   /**

@@ -13,10 +13,9 @@ import {
   IExtensionLoader,
   FoxgloveWebSocketDataSourceFactory,
   IDataSourceFactory,
-  IdbExtensionLoader,
+  ManagedExtensionLoader,
   McapLocalDataSourceFactory,
   RemoteDataSourceFactory,
-  RemoteExtensionLoader,
   Ros1LocalBagDataSourceFactory,
   Ros2LocalBagDataSourceFactory,
   RosbridgeDataSourceFactory,
@@ -25,10 +24,9 @@ import {
   UlogLocalDataSourceFactory,
   type WorkspaceAppearance,
 } from "@lichtblick/suite-base";
-import { APP_CONFIG } from "@lichtblick/suite-base/constants/config";
 import { AppParametersInput } from "@lichtblick/suite-base/context/AppParametersContext";
-
-import LocalStorageAppConfiguration from "./services/LocalStorageAppConfiguration";
+import { ManagedAppConfiguration } from "@lichtblick/suite-base/services/persistence/ManagedAppConfiguration";
+import { getManagedDocumentStore } from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 
@@ -40,29 +38,21 @@ export function WebRoot(props: {
 }): React.JSX.Element {
   const appConfiguration = useMemo(
     () =>
-      new LocalStorageAppConfiguration({
-        defaults: {
-          [AppSetting.SHOW_DEBUG_PANELS]: isDevelopment,
-        },
+      new ManagedAppConfiguration(getManagedDocumentStore(), {
+        [AppSetting.SHOW_DEBUG_PANELS]: isDevelopment,
       }),
     [],
   );
 
   const url = new URL(globalThis.location.href);
-  const workspace = url.searchParams.get("workspace");
   const workspaceAppearance: WorkspaceAppearance =
     url.searchParams.get("xgc2Embed") === "1" ? "embedded" : "standard";
-  // XGC2 embeds only the panels compiled into this bundle. Opening the two
-  // browser extension databases adds no capability there and can leave the
-  // canvas waiting indefinitely when IndexedDB is blocked inside an iframe.
+  // Embedded workspaces use the panels compiled into this bundle.
   const defaultExtensionLoaders: IExtensionLoader[] =
     workspaceAppearance === "embedded"
       ? []
-      : [new IdbExtensionLoader("org"), new IdbExtensionLoader("local")];
+      : [new ManagedExtensionLoader("org"), new ManagedExtensionLoader("local")];
 
-  if (workspaceAppearance === "standard" && workspace && APP_CONFIG.apiUrl) {
-    defaultExtensionLoaders.push(new RemoteExtensionLoader("org", workspace));
-  }
   const [extensionLoaders] = useState(() => defaultExtensionLoaders);
 
   const layout = url.searchParams.get("layout");

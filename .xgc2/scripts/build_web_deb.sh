@@ -39,6 +39,14 @@ source_date_epoch="${SOURCE_DATE_EPOCH:?build entry must supply the commit times
 [[ "$(node --version)" == "v${LICHTBLICK_NODE_VERSION}" ]]
 [[ "$(cd "${source_dir}" && corepack yarn --version)" == "${LICHTBLICK_YARN_VERSION}" ]]
 
+[[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/index.d.cts ]] || { echo "Installed node-xgc2-xrpc build dependency is required." >&2; exit 1; }
+node - <<'NODE'
+const sdk = require("/usr/lib/xgc2/node_modules/@xgc2/xrpc");
+for (const name of ["Diagnostics", "derivePolicy", "loadBootstrapInput", "HTTPClient", "createBoundHTTPHost"]) {
+  if (typeof sdk[name] !== "function") throw new Error(`Installed Node xRPC SDK lacks ${name}`);
+}
+NODE
+
 (
   cd "${source_dir}"
   corepack yarn web:build:prod
@@ -64,6 +72,10 @@ install -m 0755 "${repo_root}/xgc2/launcher/xgc2-lichtblick-web" \
   "${pkg_root}/usr/bin/xgc2-lichtblick-web"
 install -m 0644 "${repo_root}/xgc2/launcher/xgc2-lichtblick-web.js" \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/xgc2-lichtblick-web.js"
+install -m 0644 "${repo_root}/xgc2/launcher/managed-storage.cjs" \
+  "${pkg_root}/usr/lib/xgc2/lichtblick-web/managed-storage.cjs"
+install -m 0644 "${repo_root}/xgc2/launcher/managed-rpc.cjs" \
+  "${pkg_root}/usr/lib/xgc2/lichtblick-web/managed-rpc.cjs"
 python3 - \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/build-info.json" \
   "${package_version}" \
@@ -127,7 +139,7 @@ Section: web
 Priority: optional
 Architecture: ${target_arch}
 Maintainer: ${maintainer}
-Depends: ca-certificates, libc6, libgcc-s1, libstdc++6
+Depends: ca-certificates, util-linux, libc6, libgcc-s1, libstdc++6, node-xgc2-xrpc (>= 0.1.0-1~), xgc2-storage
 Recommends: ${bridge_package}
 Description: XGC2 Lichtblick browser-based robotics visualization
  Serves the pinned Lichtblick web application from a command-line HTTP server,

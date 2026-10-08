@@ -60,22 +60,11 @@ describe("webpackMainConfig", () => {
       expect(config.mode).toBeUndefined();
       expect(config.devtool).toBe("eval-cheap-module-source-map");
       expect(config.target).toBe("electron-main");
+      expect(config.externals).toEqual({
+        "@xgc2/xrpc": "commonjs /usr/lib/xgc2/node_modules/@xgc2/xrpc",
+      });
     });
 
-    it("should include electron-devtools-installer in development", () => {
-      // Given
-      const params = createTestParams();
-      const argv: WebpackArgv = {
-        mode: "development",
-        env: {},
-      };
-
-      // When
-      const config = webpackMainConfig(params)({}, argv);
-
-      // Then
-      expect(config.resolve?.alias).toBeUndefined();
-    });
   });
 
   describe("production mode", () => {
@@ -96,22 +85,6 @@ describe("webpackMainConfig", () => {
       expect(config.optimization?.removeAvailableModules).toBe(true);
     });
 
-    it("should stub out electron-devtools-installer in production", () => {
-      // Given
-      const params = createTestParams();
-      const argv: WebpackArgv = {
-        mode: "production",
-        env: {},
-      };
-
-      // When
-      const config = webpackMainConfig(params)({}, argv);
-
-      // Then
-      expect(config.resolve?.alias).toEqual({
-        "electron-devtools-installer": false,
-      });
-    });
   });
 
   describe("configuration output", () => {

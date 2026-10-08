@@ -9,6 +9,7 @@
     "experimentalDecorators": true,
     "useUnknownInCatchVariables": false,
     "paths": {
+      "@xgc2/xrpc": ["/usr/lib/xgc2/node_modules/@xgc2/xrpc/index.d.cts"],
       "@lichtblick/suite-base/*": ["../suite-base/src/*"]
     }
   }

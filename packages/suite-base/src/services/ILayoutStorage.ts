@@ -38,11 +38,6 @@ export type Layout = {
   from?: string;
   permission: LayoutPermission;
 
-  /** @deprecated old field name, migrated to working/baseline */
-  data?: LayoutData;
-  /** @deprecated old field name, migrated to working/baseline */
-  state?: LayoutData;
-
   /** The last explicitly saved version of this layout. */
   baseline: LayoutBaseline;
 
@@ -55,17 +50,18 @@ export type Layout = {
   syncInfo: LayoutSyncInfo | undefined;
 };
 
+export type LayoutPutOptions = { activate?: boolean; replaceIds?: readonly LayoutID[] };
+
 export interface ILayoutStorage {
   list(namespace: string): Promise<readonly Layout[]>;
   get(namespace: string, id: LayoutID): Promise<Layout | undefined>;
-  put(namespace: string, layout: Layout): Promise<Layout>;
+  put(namespace: string, layout: Layout, options?: LayoutPutOptions): Promise<Layout>;
+  putLayouts?(
+    namespace: string,
+    layouts: readonly Layout[],
+    options?: LayoutPutOptions,
+  ): Promise<readonly Layout[]>;
   delete(namespace: string, id: LayoutID): Promise<void>;
-
-  /**
-   * If applicable, the layout manager will call this method to migrate any old existing local
-   * layouts into the new namespace used for local layouts.
-   */
-  migrateUnnamespacedLayouts?(namespace: string): Promise<void>;
 
   /**
    * The layout manager will call this method to convert any local layouts to personal layouts when logging in.

@@ -6,21 +6,32 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { AppSetting } from "@lichtblick/suite-base";
-import { Storage } from "@lichtblick/suite-desktop/src/common/types";
-import { main as rendererMain } from "@lichtblick/suite-desktop/src/renderer/index";
-import NativeStorageAppConfiguration from "@lichtblick/suite-desktop/src/renderer/services/NativeStorageAppConfiguration";
+import { ManagedAppConfiguration } from "@lichtblick/suite-base/src/services/persistence/ManagedAppConfiguration";
+import { initializeManagedPersistence } from "@lichtblick/suite-base/src/services/persistence/ManagedPersistence";
+
+import { unwrapManagedIPC } from "../../packages/suite-desktop/src/common/managedIPC";
+import { PersistenceBridge } from "../../packages/suite-desktop/src/common/types";
+import { main as rendererMain } from "../../packages/suite-desktop/src/renderer/index";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 
 async function main() {
-  const appConfiguration = await NativeStorageAppConfiguration.Initialize(
-    (global as { storageBridge?: Storage }).storageBridge!,
+  const bridge = (global as { persistenceBridge?: PersistenceBridge })
+    .persistenceBridge;
+  if (!bridge) {
+    throw new Error("Managed persistence bridge is missing");
+  }
+  const store = await initializeManagedPersistence(
+    async (request) => unwrapManagedIPC(await bridge.domainRequest(request)),
     {
-      defaults: {
-        [AppSetting.SHOW_DEBUG_PANELS]: isDevelopment,
-      },
+      publish: async (bytes, info) =>
+        unwrapManagedIPC(await bridge.publish(bytes, info)),
+      load: async (asset) => unwrapManagedIPC(await bridge.load(asset)),
     },
   );
+  const appConfiguration = new ManagedAppConfiguration(store, {
+    [AppSetting.SHOW_DEBUG_PANELS]: isDevelopment,
+  });
 
   await rendererMain({ appConfiguration });
 }

@@ -20,6 +20,7 @@ export default class MockLayoutManager implements ILayoutManager {
   public getLayouts = jest.fn().mockResolvedValue([]);
   public getLayout = jest.fn();
   public saveNewLayout = jest.fn();
+  public importLayoutFiles = jest.fn();
   public updateLayout = jest.fn();
   public deleteLayout = jest.fn();
   public overwriteLayout = jest.fn();

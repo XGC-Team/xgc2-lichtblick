@@ -22,7 +22,6 @@ export type {
 } from "./context/AppConfigurationContext";
 export { AppContext } from "./context/AppContext";
 export type { IAppContext } from "./context/AppContext";
-export { migratePanelsState } from "./services/migrateLayout";
 export type { INativeAppMenu, NativeAppMenuEvent } from "./context/NativeAppMenuContext";
 export { default as NativeWindowContext } from "./context/NativeWindowContext";
 export type { INativeWindow, NativeWindowEvent } from "./context/NativeWindowContext";
@@ -32,7 +31,6 @@ export { default as overwriteFetch } from "./util/overwriteFetch";
 export { default as waitForFonts } from "./util/waitForFonts";
 export { initI18n } from "./i18n";
 export type { Namespace, WorkspaceAppearance } from "./types";
-export { RemoteExtensionLoader } from "./services/extension/RemoteExtensionLoader";
 export type {
   IExtensionLoader,
   TypeExtensionLoader,
@@ -57,5 +55,9 @@ export { LaunchPreferenceValue } from "@lichtblick/suite-base/types/LaunchPrefer
 export { reportError, setReportErrorHandler } from "./reportError";
 export { makeWorkspaceContextInitialState } from "./providers/WorkspaceContextProvider";
 export type { AppBarProps } from "./components/AppBar";
-export { IdbExtensionLoader } from "./services/extension/IdbExtensionLoader";
-export { LOCAL_STORAGE_APP_CONFIGURATION } from "./constants/browserStorageKeys";
+
+export * from "./services/persistence/ManagedDocumentStore";
+export * from "./services/persistence/ManagedPersistence";
+export { ManagedAppConfiguration } from "./services/persistence/ManagedAppConfiguration";
+export { ManagedLayoutStorage } from "./services/persistence/ManagedLayoutStorage";
+export { ManagedExtensionLoader } from "./services/persistence/ManagedExtensionLoader";

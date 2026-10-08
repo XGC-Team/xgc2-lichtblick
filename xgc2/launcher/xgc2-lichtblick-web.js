@@ -12,16 +12,16 @@
 // Override per-launch with --control-plane-url, or per-machine by setting
 // CONTROL_PLANE_URL in xgc2/launcher/lichtblick-web.env.
 //
-// Pure Node stdlib so source development has no launcher-only dependencies.
+// HTTP lifecycle and WebSocket transport are provided by @xgc2/xrpc.
 
 "use strict";
 
 const fs = require("node:fs");
-const http = require("node:http");
-const net = require("node:net");
+const { createHTTPHost, proxyWebSocket, loadBootstrapInput, derivePolicy, Diagnostics } = require("@xgc2/xrpc");
 const path = require("node:path");
-const tls = require("node:tls");
 const url = require("node:url");
+const { MAX_WIRE_BYTES, MAX_ASSET_BYTES, PersistenceError, createManagedPolicy, createManagedDomainClientFromBootstrap } = require("./managed-storage.cjs");
+const { createManagedDomainRPC } = require("./managed-rpc.cjs");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8080;
@@ -68,6 +68,7 @@ function parseArgs(argv) {
     allowedOrigins: [],
     frameAncestors: null,
     assetUrlPrefix: null,
+    bootstrapInput: null,
     showHelp: false,
   };
 
@@ -101,6 +102,10 @@ function parseArgs(argv) {
         break;
       case "--asset-url-prefix":
         opts.assetUrlPrefix = argv[++i];
+        break;
+      case "--bootstrap-input":
+        if (opts.bootstrapInput != null || !argv[i + 1] || argv[i + 1].startsWith("--")) throw new Error("one explicit --bootstrap-input file is required");
+        opts.bootstrapInput = argv[++i];
         break;
       default:
         if (arg.startsWith("--")) {
@@ -136,6 +141,7 @@ function printHelp() {
       "                                   Env: FRAME_ANCESTORS.",
       `                                   Default: ${DEFAULT_FRAME_ANCESTORS}`,
       "  --asset-url-prefix <path>      Stable same-origin hashed-asset path. Env: ASSET_URL_PREFIX.",
+      "  --bootstrap-input <file>       Required private application input granted by the process owner.",
       "  -h, --help                     Show this help and exit.",
       "",
       "Environment variables override compiled-in defaults but are themselves",
@@ -187,7 +193,7 @@ function loadEnvFile(envPath) {
   }
 }
 
-// ---- WebSocket reverse proxy (RFC 6455, handcrafted over net.Socket) --------
+// ---- WebSocket target and access policy -----------------------------------
 
 function parseWsUrl(rawUrl) {
   const parsed = new url.URL(rawUrl);
@@ -272,130 +278,6 @@ function websocketOriginAllowed(originHeader, allowedOrigins) {
   } catch {
     return false;
   }
-}
-
-function proxyWebSocket(clientReq, clientSocket, clientHead, target) {
-  const useTls = target.protocol === "wss:";
-  const tlsOptions = useTls
-    ? {
-        hostname: target.hostname,
-        port: target.port,
-        servername: target.hostname,
-        rejectUnauthorized: true,
-      }
-    : undefined;
-
-  // Preserve the browser's WebSocket key, protocol, extensions, cookies, and
-  // authorization. The browser validates Sec-WebSocket-Accept against its
-  // original key, so replacing that key would make every upgrade fail.
-  const clientHeaders = { ...clientReq.headers };
-  delete clientHeaders.host;
-  delete clientHeaders.upgrade;
-  delete clientHeaders.connection;
-
-  logInfo(
-    `proxying ${clientSocket.remoteAddress}:${clientSocket.remotePort} ` +
-      `${clientReq.url} -> ${target.protocol}//${target.hostname}:${target.port}${target.path}`,
-  );
-
-  const upstream = useTls
-    ? tls.connect(tlsOptions, () => onUpstreamConnect())
-    : net.connect(target.port, target.hostname, () => onUpstreamConnect());
-
-  let headWritten = false;
-  function onUpstreamConnect() {
-    if (headWritten) {
-      return;
-    }
-    headWritten = true;
-    // If the client had pending data after the upgrade request, send it.
-    const head = clientHead && clientHead.length > 0 ? clientHead : Buffer.alloc(0);
-
-    const headerLines = [`GET ${target.path} HTTP/1.1`];
-    headerLines.push(`Host: ${target.hostname}:${target.port}`);
-    for (const [name, value] of Object.entries(clientHeaders)) {
-      if (Array.isArray(value)) {
-        for (const v of value) {
-          headerLines.push(`${name}: ${v}`);
-        }
-      } else if (value != undefined) {
-        headerLines.push(`${name}: ${value}`);
-      }
-    }
-    headerLines.push("Upgrade: websocket");
-    headerLines.push("Connection: Upgrade");
-    upstream.write(headerLines.join("\r\n") + "\r\n\r\n");
-    if (head.length > 0) {
-      upstream.write(head);
-    }
-  }
-
-  let upstreamBuf = Buffer.alloc(0);
-  let upgraded = false;
-  upstream.on("data", (chunk) => {
-    if (!upgraded) {
-      upstreamBuf = Buffer.concat([upstreamBuf, chunk]);
-      const headerEnd = upstreamBuf.indexOf("\r\n\r\n");
-      if (headerEnd < 0) {
-        return;
-      }
-      const headText = upstreamBuf.slice(0, headerEnd).toString();
-      const statusMatch = /^HTTP\/\d\.\d\s+(\d{3})/.exec(headText);
-      const status = statusMatch ? Number.parseInt(statusMatch[1], 10) : 0;
-      if (status !== 101) {
-        logWarn(`upstream returned HTTP ${status} for upgrade`);
-        try {
-          clientSocket.write(
-            "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-          );
-        } catch {
-          /* ignore */
-        }
-        clientSocket.destroy();
-        upstream.destroy();
-        return;
-      }
-      // Forward everything buffered so far (status line + headers, plus any
-      // post-header bytes already received) to the client.
-      const after = upstreamBuf.slice(headerEnd + 4);
-      clientSocket.write(upstreamBuf.slice(0, headerEnd + 4));
-      upgraded = true;
-      if (after.length > 0) {
-        clientSocket.write(after);
-      }
-      logInfo(`bidirectional WebSocket pipe established for ${clientReq.url}`);
-    } else {
-      clientSocket.write(chunk);
-    }
-  });
-
-  function onSocketError(err) {
-    logWarn(`socket error during WebSocket proxy: ${err.message}`);
-  }
-  upstream.on("error", (err) => {
-    logError(`upstream connect error: ${err.message}`);
-    try {
-      clientSocket.write(
-        "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-      );
-    } catch {
-      /* ignore */
-    }
-    clientSocket.destroy();
-  });
-  clientSocket.on("error", onSocketError);
-
-  // Forward bytes from client to upstream once the upgrade has succeeded.
-  clientSocket.on("data", (chunk) => {
-    if (upgraded) {
-      upstream.write(chunk);
-    }
-  });
-
-  clientSocket.on("end", () => upstream.end());
-  clientSocket.on("close", () => upstream.destroy());
-  upstream.on("end", () => clientSocket.end());
-  upstream.on("close", () => clientSocket.destroy());
 }
 
 // ---- Static file serving ---------------------------------------------------
@@ -717,8 +599,50 @@ function buildRequestListener(
   transformedIndex,
   buildInfo,
   responseSecurityHeaders,
+  persistence,
+  originAllowed = () => false,
 ) {
-  return function requestListener(req, res) {
+  return async function requestListener(req, res) {
+    const requestUrl = new URL(req.url, "http://localhost");
+    const base = publicPrefix === "/" ? "" : publicPrefix;
+    const documentRoute = requestUrl.pathname === `${base}/xgc2/storage`;
+    const assetRoute = requestUrl.pathname === `${base}/xgc2/extensions/assets`;
+    const assetRead = requestUrl.pathname.startsWith(`${base}/xgc2/extensions/assets/`);
+    if (documentRoute || assetRoute || assetRead) {
+      let input;
+      try {
+        // Require a declared browser Origin on every persistence route. The
+        // desktop bridge calls the domain client inside the main process.
+        const browserOrigin = req.headers.origin ?? (assetRead && req.headers["sec-fetch-site"] === "same-origin" && req.headers.referer ? new URL(req.headers.referer).origin : undefined);
+        if (!originAllowed(browserOrigin)) throw new PersistenceError("permission_denied", "persistence origin is not allowed", 403);
+        if (!persistence) throw new PersistenceError("unavailable", "managed persistence is not configured", 503);
+        if (documentRoute) {
+          if (req.method !== "POST" || req.headers["content-type"]?.split(";")[0] !== "application/json") throw new PersistenceError("invalid_argument", "JSON POST required", 400);
+          input = JSON.parse((await readBoundedBody(req, MAX_WIRE_BYTES)).toString("utf8"));
+          writeJson(res, 200, await persistence.request(input), responseSecurityHeaders);
+        } else if (assetRoute) {
+          if (req.method !== "POST" || req.headers["content-type"] !== "application/octet-stream") throw new PersistenceError("invalid_argument", "binary archive POST required", 400);
+          const bytes = await readBoundedBody(req, MAX_ASSET_BYTES);
+          const asset = await persistence.publish(bytes, { id: requestUrl.searchParams.get("name"), version: requestUrl.searchParams.get("version") });
+          writeJson(res, 200, asset, responseSecurityHeaders);
+        } else {
+          if (req.method !== "GET") throw new PersistenceError("invalid_argument", "archive GET required", 400);
+          const rawBytes = requestUrl.searchParams.get("bytes");
+          if (!/^[1-9][0-9]{0,7}$/.test(rawBytes ?? "")) throw new PersistenceError("invalid_argument", "canonical archive length required", 400);
+          const bytes = await persistence.load({ owner: "lichtblick", asset_id: decodeURIComponent(requestUrl.pathname.slice(`${base}/xgc2/extensions/assets/`.length)), sha256: requestUrl.searchParams.get("sha256"), bytes: Number(rawBytes) });
+          res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": bytes.byteLength, "Cache-Control": "no-store", ...responseSecurityHeaders });
+          res.end(bytes);
+        }
+      } catch (error) {
+        if (!res.destroyed && !res.headersSent) writeJson(res, error.status ?? (error instanceof SyntaxError || error instanceof URIError ? 400 : 503), {
+          code: error.code ?? (error instanceof SyntaxError ? "invalid_argument" : "unavailable"),
+          message: error instanceof PersistenceError || error instanceof SyntaxError ? error.message : "managed persistence operation failed",
+          ...(error.outcome ? { outcome: error.outcome } : {}),
+          ...(error.requestId || input?.requestId ? { requestId: error.requestId ?? input.requestId } : {}),
+        }, responseSecurityHeaders);
+      }
+      return;
+    }
     if (isWebSocketPath(req.url)) {
       // Hand off to raw socket handling in `upgrade` handler below.
       res.writeHead(426, { "Content-Type": "text/plain; charset=utf-8" });
@@ -752,7 +676,19 @@ function buildRequestListener(
 
 // ---- Entry point -----------------------------------------------------------
 
-function main() {
+async function readBoundedBody(request, limit) {
+  const length = request.headers["content-length"];
+  if (length !== undefined && (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) > limit)) throw new PersistenceError("resource_exhausted", "request body exceeds product limit", 413);
+  const chunks = []; let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) throw new PersistenceError("resource_exhausted", "request body exceeds product limit", 413);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size);
+}
+
+async function main() {
   loadEnvFile(ENV_FILE);
 
   let opts;
@@ -815,12 +751,57 @@ function main() {
   }
 
   const responseSecurityHeaders = securityHeaders(validatedFrameAncestors);
-  const server = http.createServer(
-    buildRequestListener(targetWs, prefix, loadIndex, buildInfo, responseSecurityHeaders),
-  );
+  let persistence;
+  let productRPC;
+  let hostRuntime;
+  let serviceRef;
+  let policy;
+  let diagnostics;
   let allowedOrigins = configuredOrigins;
+  let closing;
+  const close = () => {
+    if (!closing) {
+      persistence?.beginDrain();
+      closing = (async () => {
+        const results = await Promise.allSettled([hostRuntime?.close(), productRPC?.close()]);
+        const failure = results.find((result) => result.status === "rejected");
+        if (failure) throw failure.reason;
+        await persistence?.close();
+        await diagnostics?.close({ timeoutMs: policy?.fields.SHUTDOWN_TIMEOUT_MS.value ?? 16000 });
+      })().catch((error) => { closing = undefined; throw error; });
+    }
+    return closing;
+  };
+  const shutdown = (signal) => {
+    logInfo(`received ${signal}, shutting down`);
+    void close().then(() => process.exit(0), (error) => {
+      logError(`shutdown incomplete; owner retains resources: ${error.message}`);
+      process.exitCode = 1;
+    });
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  try {
+    const bootstrap = loadBootstrapInput(opts.bootstrapInput, { role: "server" });
+    diagnostics = new Diagnostics({ sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" } });
+    policy = createManagedPolicy(process.env, diagnostics);
+    persistence = createManagedDomainClientFromBootstrap(bootstrap, derivePolicy(policy, { role: "lichtblick-storage", ceilings: { MAX_REQUEST_BYTES: MAX_WIRE_BYTES, MAX_RESPONSE_BYTES: MAX_WIRE_BYTES } }));
+    await persistence.ready;
+    productRPC = createManagedDomainRPC(persistence, { ...bootstrap, policy: derivePolicy(policy, { role: "lichtblick-private", ceilings: { MAX_REQUEST_BYTES: MAX_ASSET_BYTES, MAX_RESPONSE_BYTES: MAX_ASSET_BYTES } }) });
+    serviceRef = await productRPC.start();
+    hostRuntime = createHTTPHost(
+      buildRequestListener(targetWs, prefix, loadIndex, buildInfo, responseSecurityHeaders, persistence, (origin) => websocketOriginAllowed(origin, allowedOrigins)),
+      { policy: derivePolicy(policy, { role: "lichtblick-public", ceilings: { MAX_REQUEST_BYTES: MAX_ASSET_BYTES, MAX_RESPONSE_BYTES: 64 * 1024 * 1024 } }) },
+    );
+  } catch (error) {
+    logError(`managed persistence startup failed: ${error.message}`);
+    await close();
+    process.exitCode = 1;
+    return;
+  }
+  const server = hostRuntime.server;
 
-  server.on("upgrade", (req, clientSocket, head) => {
+  hostRuntime.onUpgrade((req, clientSocket, head) => {
     if (!isWebSocketUpgrade(req)) {
       clientSocket.destroy();
       return;
@@ -840,7 +821,7 @@ function main() {
       clientSocket.destroy();
       return;
     }
-    proxyWebSocket(req, clientSocket, head, targetWs);
+    proxyWebSocket(req, clientSocket, head, `${targetWs.protocol}//${targetWs.hostname}:${targetWs.port}${targetWs.path}`);
   });
 
   server.on("listening", () => {
@@ -857,25 +838,31 @@ function main() {
     logInfo("open the URL above in a browser, or embed behind a reverse proxy");
   });
 
-  server.on("error", (err) => {
-    logError(`server error: ${err.message}`);
-    process.exit(1);
-  });
-
-  const shutdown = (signal) => {
-    logInfo(`received ${signal}, shutting down`);
-    server.close(() => process.exit(0));
-    // Force-exit if close hangs on lingering keep-alive sockets.
-    setTimeout(() => process.exit(0), 3000).unref();
-  };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-  server.listen(port, host);
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
+    });
+    process.stdout.write(`${JSON.stringify({ type: "service_ref", service_ref: serviceRef })}\n`);
+    server.on("error", (error) => {
+      logError(`server error: ${error.message}`);
+      void close().then(() => { process.exitCode = 1; }, (drainError) => {
+        logError(`shutdown incomplete; owner retains resources: ${drainError.message}`);
+        process.exitCode = 1;
+      });
+    });
+  } catch (error) {
+    logError(`public listener startup failed: ${error.message}`);
+    await close();
+    process.exitCode = 1;
+  }
 }
 
 if (require.main === module) {
-  main();
+  void main().catch((error) => { logError(`startup failed: ${error.message}`); process.exitCode = 1; });
 }
 
 module.exports = {
@@ -883,6 +870,7 @@ module.exports = {
   staticCacheControl,
   notModifiedSince,
   buildAutoConnectScript,
+  buildRequestListener,
   createIndexLoader,
   defaultListenerOrigins,
   endpointMatches,

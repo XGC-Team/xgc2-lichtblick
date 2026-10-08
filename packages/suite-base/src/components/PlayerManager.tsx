@@ -47,9 +47,7 @@ import {
   useUserScriptState,
 } from "@lichtblick/suite-base/context/UserScriptStateContext";
 import { GlobalVariables } from "@lichtblick/suite-base/hooks/useGlobalVariables";
-import useIndexedDbRecents, {
-  RecentRecord,
-} from "@lichtblick/suite-base/hooks/useIndexedDbRecents";
+import useManagedRecents, { RecentRecord } from "@lichtblick/suite-base/hooks/useManagedRecents";
 import AnalyticsMetricsCollector from "@lichtblick/suite-base/players/AnalyticsMetricsCollector";
 import {
   TopicAliasFunctions,
@@ -95,7 +93,7 @@ export default function PlayerManager(
 
   const [basePlayer, setBasePlayer] = useState<Player | undefined>();
 
-  const { recents, addRecent } = useIndexedDbRecents();
+  const { recents, addRecent } = useManagedRecents();
 
   const userScripts = useCurrentLayoutSelector(userScriptsSelector);
   const globalVariables = useCurrentLayoutSelector(globalVariablesSelector);
@@ -222,8 +220,7 @@ export default function PlayerManager(
             const files = args.files;
 
             // files we can try loading immediately
-            // We do not add these to recents entries because putting File in indexedb results in
-            // the entire file being stored in the database.
+            // File bytes are player input; they are not persisted as recent-source metadata.
             if (files) {
               let file = files[0];
               const fileList: File[] = [];
@@ -350,6 +347,12 @@ function createSelectRecentCallback(
         break;
       }
       case "file": {
+        if (foundRecent.handles.length === 0) {
+          enqueueSnackbar("Select the local file again to grant access in this session.", {
+            variant: "info",
+          });
+          return;
+        }
         void selectSource(foundRecent.sourceId, {
           type: "file",
           handles: foundRecent.handles,

@@ -5,6 +5,8 @@ set -euo pipefail
 package_name="xgc2-lichtblick"
 binary="/opt/Lichtblick/lichtblick"
 launcher="/usr/bin/lichtblick"
+fixture="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../xgc2/tests" && pwd)/installed_fixture.cjs"
+unset NODE_PATH
 
 status="$(dpkg-query -W -f='${db:Status-Abbrev}' "${package_name}")"
 [[ "${status}" == ii* ]]
@@ -22,6 +24,11 @@ status="$(dpkg-query -W -f='${db:Status-Abbrev}' "${package_name}")"
 [[ -f /usr/share/doc/xgc2-lichtblick/upstream.lock ]]
 [[ -f /usr/share/doc/xgc2-lichtblick/LICENSE.upstream ]]
 [[ -f /usr/share/doc/xgc2-lichtblick/copyright ]]
+[[ -x /usr/bin/xgc2-storage ]] || { echo "Installed /usr/bin/xgc2-storage is required." >&2; exit 1; }
+[[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/package.json ]] || { echo "Installed Node xRPC SDK is required." >&2; exit 1; }
+for prerequisite in openssl xvfb-run dbus-run-session setsid; do
+  command -v "${prerequisite}" >/dev/null || { echo "Installed smoke requires ${prerequisite}." >&2; exit 1; }
+done
 if dpkg-query -L "${package_name}" | grep -q '^/usr/share/doc/lichtblick/'; then
   echo "Legacy upstream documentation directory remains installed." >&2
   exit 1
@@ -36,10 +43,22 @@ if [[ -n "${PACKAGE_DISTRIBUTION:-}" ]]; then
 fi
 
 ldd_output="$(mktemp)"
-smoke_home="$(mktemp -d)"
+smoke_dir="$(mktemp -d)"
+launcher_pid=""
+fixture_node() { ELECTRON_RUN_AS_NODE=1 "${binary}" "${fixture}" "$@"; }
 cleanup() {
+  if [[ -n "${launcher_pid}" ]]; then
+    kill -TERM -- "-${launcher_pid}" 2>/dev/null || true
+    for _ in $(seq 1 100); do
+      kill -0 "${launcher_pid}" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -KILL -- "-${launcher_pid}" 2>/dev/null || true
+    wait "${launcher_pid}" 2>/dev/null || true
+  fi
+  fixture_node stop "${smoke_dir}" || true
   rm -f "${ldd_output}"
-  rm -rf "${smoke_home}"
+  rm -rf "${smoke_dir}"
 }
 trap cleanup EXIT
 
@@ -56,23 +75,39 @@ esac
 
 dpkg --verify "${package_name}"
 
-launch_seconds="${LICHTBLICK_SMOKE_LAUNCH_SECONDS:-12}"
-set +e
-HOME="${smoke_home}" \
-  timeout --signal=TERM --kill-after=5 "${launch_seconds}" \
-  xvfb-run -a dbus-run-session -- \
+launch_seconds="${LICHTBLICK_SMOKE_LAUNCH_SECONDS:-25}"
+fixture_node prepare "${smoke_dir}"
+setsid xvfb-run -a dbus-run-session -- \
   "${launcher}" \
+    --bootstrap-input "${smoke_dir}/bootstrap.json" \
+    --user-data-dir="${smoke_dir}/electron" \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port=0 \
     --no-sandbox \
-    --disable-gpu \
+    --enable-unsafe-swiftshader \
     --disable-dev-shm-usage \
-    >"${smoke_home}/lichtblick.log" 2>&1
-launch_status=$?
-set -e
+    >"${smoke_dir}/lichtblick.log" 2>&1 &
+launcher_pid=$!
+fixture_node verify-desktop "${smoke_dir}" "${smoke_dir}/lichtblick.log" "${launch_seconds}"
+cat "${smoke_dir}/actual-service-ref.json"
+printf '\n'
 
-if [[ "${launch_status}" != 124 ]]; then
-  echo "Lichtblick exited before the ${launch_seconds}s headless smoke window (status ${launch_status})." >&2
-  sed -n '1,240p' "${smoke_home}/lichtblick.log" >&2
+kill -TERM -- "-${launcher_pid}"
+for _ in $(seq 1 100); do
+  kill -0 "${launcher_pid}" 2>/dev/null || break
+  sleep 0.1
+done
+if kill -0 "${launcher_pid}" 2>/dev/null; then
+  echo "Installed desktop process group did not stop after SIGTERM." >&2
   exit 1
 fi
+set +e
+wait "${launcher_pid}"
+launch_status=$?
+set -e
+launcher_pid=""
+[[ "${launch_status}" == 0 || "${launch_status}" == 143 ]]
+fixture_node verify-closed "${smoke_dir}"
+fixture_node stop "${smoke_dir}"
 
-echo "xgc2-lichtblick installed headless smoke test passed."
+echo "xgc2-lichtblick installed Bootstrap, actual mTLS ServiceRef, renderer restore and shutdown smoke passed."

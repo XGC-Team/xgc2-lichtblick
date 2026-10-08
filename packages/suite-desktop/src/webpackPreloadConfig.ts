@@ -25,6 +25,7 @@ export const webpackPreloadConfig =
 
     return {
       ...commonConfig,
+      name: "preload",
       context: params.preloadContext,
       entry: params.preloadEntrypoint,
       target: "electron-preload",

@@ -5,70 +5,115 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { app } from "electron";
-import fs from "fs";
-import path from "path";
-
 import { AppSetting } from "@lichtblick/suite-base/src/AppSetting";
-
 import {
-  DATASTORES_DIR_NAME,
-  SETTINGS_DATASTORE_NAME,
-  SETTINGS_JSON_DATASTORE_KEY,
-} from "../common/storage";
+  ManagedDocumentStore,
+  ManagedRequest,
+  ManagedTransport,
+} from "@lichtblick/suite-base/src/services/persistence/ManagedDocumentStore";
 
-type Options = {
-  /** User data dir to use instead of `app.getPath("userData")`, used for tests */
-  overrideUserDataDir?: string;
-};
+let configuration:
+  | Map<string, { value?: unknown; version: string; deleted?: boolean }>
+  | undefined;
 
-export function getAppSetting<T>(
-  key: AppSetting,
-  { overrideUserDataDir }: Options = {},
-): T | undefined {
-  const datastoreDir = path.join(
-    overrideUserDataDir ?? app.getPath("userData"),
-    DATASTORES_DIR_NAME,
-    SETTINGS_DATASTORE_NAME,
+/** Main's read-only projection is loaded before creating any native windows. */
+export async function initializeAppSettings(
+  transport: ManagedTransport,
+): Promise<void> {
+  const store = new ManagedDocumentStore(transport);
+  await store.bootstrap(["configuration"]);
+  configuration = new Map(
+    store
+      .records("configuration")
+      .map(({ key, value, version }) => [key, { value, version }]),
   );
-  const settingsPath = path.join(datastoreDir, SETTINGS_JSON_DATASTORE_KEY);
-
-  try {
-    fs.mkdirSync(datastoreDir, { recursive: true });
-  } catch {
-    // Ignore directory creation errors, including dir already exists
-  }
-
-  try {
-    const settings = JSON.parse(fs.readFileSync(settingsPath, { encoding: "utf8" }));
-    return settings[key];
-  } catch {
-    // Ignore file load or parsing errors, including settings.json not existing
-    return undefined;
-  }
 }
 
-export function setAppSetting(
-  key: AppSetting,
-  value: unknown,
-  { overrideUserDataDir }: Options = {},
-): void {
-  const datastoreDir = path.join(
-    overrideUserDataDir ?? app.getPath("userData"),
-    DATASTORES_DIR_NAME,
-    SETTINGS_DATASTORE_NAME,
-  );
-  const settingsPath = path.join(datastoreDir, SETTINGS_JSON_DATASTORE_KEY);
-
-  const existingSettings = {};
-  try {
-    fs.mkdirSync(datastoreDir, { recursive: true });
-  } catch {
-    // Ignore directory creation errors, including dir already exists
+export function getAppSetting<T>(key: AppSetting): T | undefined {
+  if (!configuration) {
+    throw new Error(
+      "Managed app settings must load before native initialization",
+    );
   }
+  const record = configuration.get(key);
+  return record?.deleted === true
+    ? undefined
+    : (structuredClone(record?.value) as T | undefined);
+}
 
-  fs.writeFileSync(
-    settingsPath,
-    JSON.stringify({ ...existingSettings, [key]: value }, undefined, 2)!,
+/** Project an acknowledged product batch without a second persistent writer. */
+export function observeCommittedSettings(
+  request: ManagedRequest,
+  receipt: unknown,
+): void {
+  if (request.operation !== "batch") {
+    return;
+  }
+  const value = receipt as
+    | {
+        requestId?: unknown;
+        durability?: unknown;
+        token?: { database_id?: unknown; schema?: unknown; revision?: unknown };
+        versions?: unknown;
+      }
+    | undefined;
+  if (
+    !value?.token ||
+    value.requestId !== request.requestId ||
+    value.durability !== "sqlite-full" ||
+    value.token.database_id !== request.expected.database_id ||
+    value.token.schema !== request.expected.schema ||
+    typeof value.token.revision !== "string" ||
+    !/^(0|[1-9][0-9]*)$/.test(value.token.revision) ||
+    BigInt(value.token.revision) <= BigInt(request.expected.revision) ||
+    !Array.isArray(value.versions) ||
+    value.versions.length !== request.changes.length
+  ) {
+    throw new Error("Invalid managed commit receipt");
+  }
+  const versions = new Map(
+    request.changes.map((change) => [
+      JSON.stringify([change.family, change.key]),
+      change.expectedVersion,
+    ]),
   );
+  for (const version of value.versions as {
+    family: string;
+    key: string;
+    version: unknown;
+  }[]) {
+    const id = JSON.stringify([version.family, version.key]);
+    const previous = versions.get(id);
+    if (
+      previous == undefined ||
+      typeof version.version !== "string" ||
+      !/^(0|[1-9][0-9]*)$/.test(version.version) ||
+      BigInt(version.version) <= BigInt(previous)
+    ) {
+      throw new Error("Invalid managed commit versions");
+    }
+    versions.delete(id);
+  }
+  if (!configuration) {
+    throw new Error("Managed app settings have not loaded");
+  }
+  for (const change of request.changes) {
+    if (change.family === "configuration") {
+      const version = (
+        value.versions as { family: string; key: string; version: string }[]
+      ).find(
+        (record) =>
+          record.family === change.family && record.key === change.key,
+      )!.version;
+      const existingVersion = configuration.get(change.key)?.version ?? "0";
+      if (BigInt(version) > BigInt(existingVersion)) {
+        configuration.set(change.key, {
+          version,
+          ...(change.delete === true
+            ? { deleted: true }
+            : { value: structuredClone(change.value) }),
+        });
+      }
+    }
+  }
 }

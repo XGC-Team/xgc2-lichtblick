@@ -5,6 +5,23 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { main } from "@lichtblick/suite-desktop/src/main";
+import { app } from "electron";
 
-void main();
+import { main } from "../../packages/suite-desktop/src/main";
+import { parseDesktopArguments } from "../../packages/suite-desktop/src/main/parseDesktopArguments";
+
+void (async () => {
+  const parsed = parseDesktopArguments(process.argv);
+  if (parsed.bootstrapInput == undefined) {
+    throw new Error("Desktop startup requires --bootstrap-input <granted file>");
+  }
+  await main({ bootstrapInput: parsed.bootstrapInput, argv: parsed.argv });
+})().catch((error: unknown) => {
+  console.error(
+    "Desktop initialization failed",
+    error instanceof Error ? error.message : "Managed persistence unavailable",
+  );
+  // Startup must fail explicitly; never create a window backed by another store.
+  process.exitCode = 1;
+  app.quit();
+});

@@ -7,7 +7,7 @@
 
 import { useEffect } from "react";
 
-import { useSessionStorageValue } from "@lichtblick/hooks";
+import { useMemoryValue } from "@lichtblick/hooks";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
 import {
   MessagePipelineContext,
@@ -20,11 +20,9 @@ const selectHasUrlState = (ctx: MessagePipelineContext) => ctx.playerState.urlSt
 
 export function useDefaultWebLaunchPreference(): void {
   const hasUrlState = useMessagePipeline(selectHasUrlState);
-  const [launchPreference, setLaunchPreference] = useSessionStorageValue(
-    AppSetting.LAUNCH_PREFERENCE,
-  );
+  const [launchPreference, setLaunchPreference] = useMemoryValue(AppSetting.LAUNCH_PREFERENCE);
 
-  // Set a sessionStorage preference for web if we have a stable URL state.
+  // Set a temporary preference for web if we have a stable URL state.
   // This allows us to avoid asking for the preference immediately on
   // launch of an empty session and makes refreshes do the right thing.
   useEffect(() => {

@@ -33,5 +33,5 @@ export const createNewWindow = (argv: string[]): void => {
     }
   });
 
-  newWindow.load();
+  void newWindow.load().catch(() => undefined);
 };

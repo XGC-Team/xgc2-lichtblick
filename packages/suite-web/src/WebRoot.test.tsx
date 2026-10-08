@@ -20,8 +20,7 @@ jest.mock("@lichtblick/suite-base", () => {
   return {
     __esModule: true,
     AppSetting: { SHOW_DEBUG_PANELS: "showDebugPanels" },
-    IdbExtensionLoader: Stub,
-    RemoteExtensionLoader: Stub,
+    ManagedExtensionLoader: Stub,
     FoxgloveWebSocketDataSourceFactory: Stub,
     McapLocalDataSourceFactory: Stub,
     RemoteDataSourceFactory: Stub,
@@ -41,9 +40,11 @@ jest.mock("@lichtblick/suite-base/constants/config", () => ({
   APP_CONFIG: { apiUrl: undefined },
 }));
 
-jest.mock("./services/LocalStorageAppConfiguration", () => ({
-  __esModule: true,
-  default: jest.fn(),
+jest.mock("@lichtblick/suite-base/services/persistence/ManagedAppConfiguration", () => ({
+  ManagedAppConfiguration: jest.fn(),
+}));
+jest.mock("@lichtblick/suite-base/services/persistence/ManagedPersistence", () => ({
+  getManagedDocumentStore: jest.fn(),
 }));
 
 describe("WebRoot", () => {

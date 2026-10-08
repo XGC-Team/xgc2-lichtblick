@@ -294,7 +294,7 @@ function overlayParkedCameraState(
   return { ...managed, configById: next };
 }
 
-/** Core layoutUrl JSON is the managed authority. Parked IndexedDB layout may keep cameraState. */
+/** Core layoutUrl JSON is the managed authority. Parked managed layout may keep cameraState. */
 export function mergeManagedLayoutFromUrl(
   managed: unknown,
   parked?: LayoutData,

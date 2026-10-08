@@ -16,5 +16,5 @@ export { default as useWarnImmediateReRender } from "./useWarnImmediateReRender"
 export { useMemoryInfo } from "./useMemoryInfo";
 export * from "./selectWithUnstableIdentityWarning";
 export * from "./useCrash";
-export * from "./useSessionStorageValue";
+export * from "./useMemoryValue";
 export * from "./useSynchronousMountedState";

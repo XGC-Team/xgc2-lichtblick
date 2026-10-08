@@ -10,7 +10,10 @@ import { createRoot } from "react-dom/client";
 
 import Logger from "@lichtblick/log";
 import type { IDataSourceFactory } from "@lichtblick/suite-base";
+import { AppSetting } from "@lichtblick/suite-base/AppSetting";
 import CssBaseline from "@lichtblick/suite-base/components/CssBaseline";
+import { sharedI18nObject } from "@lichtblick/suite-base/i18n";
+import { initializeManagedPersistence } from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
 
 import { CompatibilityBanner } from "./CompatibilityBanner";
 import { canRenderApp } from "./canRenderApp";
@@ -75,7 +78,23 @@ export async function main(getParams: () => Promise<MainParams> = async () => ({
   overwriteFetch();
   // consider moving waitForFonts into App to display an app loading screen
   await waitForFonts();
+  let store;
+  try {
+    store = await initializeManagedPersistence();
+  } catch (error: unknown) {
+    const root = createRoot(rootEl);
+    root.render(
+      <div role="alert">
+        Application state could not be loaded:{" "}
+        {error instanceof Error ? error.message : String(error)}
+      </div>,
+    );
+    return;
+  }
   await initI18n();
+  await sharedI18nObject.changeLanguage(
+    store.get<string>("configuration", AppSetting.LANGUAGE) ?? navigator.language,
+  );
 
   const { WebRoot } = await import("./WebRoot");
   const params = await getParams();

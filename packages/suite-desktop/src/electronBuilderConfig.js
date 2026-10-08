@@ -196,6 +196,9 @@ function makeElectronBuilderConfig(params) {
     },
     deb: {
       depends: [
+        "node-xgc2-xrpc (>= 0.1.0-1~)",
+        "util-linux",
+        "xgc2-storage",
         "libgtk-3-0",
         "libnotify4",
         "libnss3",

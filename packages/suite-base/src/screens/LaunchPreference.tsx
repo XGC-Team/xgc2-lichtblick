@@ -7,7 +7,7 @@
 
 import { PropsWithChildren } from "react";
 
-import { useSessionStorageValue } from "@lichtblick/hooks";
+import { useMemoryValue } from "@lichtblick/hooks";
 import { LaunchPreferenceValue } from "@lichtblick/suite-base/types/LaunchPreferenceValue";
 
 import { LaunchPreferenceScreen } from "./LaunchPreferenceScreen";
@@ -17,7 +17,7 @@ import { useAppConfigurationValue } from "../hooks";
 
 export function LaunchPreference(props: PropsWithChildren): React.JSX.Element {
   const [globalLaunchPreference] = useAppConfigurationValue<string>(AppSetting.LAUNCH_PREFERENCE);
-  const [sessionLaunchPreference] = useSessionStorageValue(AppSetting.LAUNCH_PREFERENCE);
+  const [sessionLaunchPreference] = useMemoryValue(AppSetting.LAUNCH_PREFERENCE);
 
   const url = new URL(window.location.href);
 

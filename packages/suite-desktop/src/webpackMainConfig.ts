@@ -28,13 +28,6 @@ export const webpackMainConfig =
       extensions: [".js", ".ts", ".tsx", ".json"],
     };
 
-    if (!isDev) {
-      // Stub out devtools installation for non-dev builds
-      resolve.alias = {
-        "electron-devtools-installer": false,
-      };
-    }
-
     const common = createCommonWebpackConfig(params, { isDev });
 
     // When running under a development server the renderer entry comes from the server.
@@ -46,9 +39,14 @@ export const webpackMainConfig =
 
     return {
       ...common,
+      name: "main",
       context: params.mainContext,
       entry: params.mainEntrypoint,
       target: "electron-main",
+      // The installed SDK owns its diagnostic worker and private dependencies.
+      externals: {
+        "@xgc2/xrpc": "commonjs /usr/lib/xgc2/node_modules/@xgc2/xrpc",
+      },
       output: {
         publicPath: "",
         path: path.join(params.outputPath, "main"),

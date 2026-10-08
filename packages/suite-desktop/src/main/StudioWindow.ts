@@ -31,7 +31,6 @@ import StudioAppUpdater from "./StudioAppUpdater";
 import getDevModeIcon from "./getDevModeIcon";
 import { simulateUserClick } from "./simulateUserClick";
 import { getTelemetrySettings } from "./telemetry";
-import { encodeRendererArg } from "../common/rendererArgs";
 import { LICHTBLICK_PRODUCT_NAME } from "../common/webpackDefines";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -62,7 +61,7 @@ function getTitleBarOverlayOptions(): TitleBarOverlayOptions {
   return {};
 }
 
-function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void): BrowserWindow {
+function newStudioWindow(reloadMainWindow: () => void): BrowserWindow {
   const { crashReportingEnabled, telemetryEnabled } = getTelemetrySettings();
   const preloadPath = path.join(app.getAppPath(), "main", "preload.js");
 
@@ -86,10 +85,11 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
       sandbox: false, // Allow preload script to access Node builtins
       preload: preloadPath,
       nodeIntegration: false,
+      // User documents live in storage; the browser session is process-local.
+      partition: "lichtblick-runtime",
       additionalArguments: [
         `--allowCrashReporting=${crashReportingEnabled ? "1" : "0"}`,
         `--allowTelemetry=${telemetryEnabled ? "1" : "0"}`,
-        encodeRendererArg("deepLinks", deepLinks),
       ],
       // Disable webSecurity in development so we can make XML-RPC calls, load
       // remote data, etc. In production, the app is served from file:// URLs so
@@ -193,6 +193,11 @@ function newStudioWindow(deepLinks: string[] = [], reloadMainWindow: () => void)
         log.info("reloading main window");
         reloadMainWindow();
         break;
+      case "resetDeepLinks": {
+        const studioWindow = StudioWindow.fromWebContentsId(browserWindow.webContents.id);
+        studioWindow?.resetDeepLinks();
+        break;
+      }
       default:
         break;
     }
@@ -250,7 +255,7 @@ function buildMenu(browserWindow: BrowserWindow): Menu {
       {
         label: t("desktopWindow:newWindow"),
         click: () => {
-          new StudioWindow().load();
+          void new StudioWindow().load().catch(() => undefined);
         },
       },
       { type: "separator" },
@@ -405,17 +410,16 @@ class StudioWindow {
     });
   }
 
-  public load(): void {
+  public async load(): Promise<void> {
     // load after setting windowsById so any ipc handlers with id lookup work
     log.info(`window.loadURL(${rendererPath})`);
-    this.#browserWindow
-      .loadURL(rendererPath)
-      .then(() => {
-        log.info("window URL loaded");
-      })
-      .catch((err: unknown) => {
-        log.error("loadURL error", err);
-      });
+    const loading = this.#browserWindow.loadURL(rendererPath).then(() => {
+      log.info("window URL loaded");
+    });
+    void loading.catch((err: unknown) => {
+      log.error("loadURL error", err);
+    });
+    await loading;
   }
 
   public getBrowserWindow(): BrowserWindow {
@@ -430,6 +434,29 @@ class StudioWindow {
     return StudioWindow.#windowsByContentId.get(id);
   }
 
+  public static isRendererURL(value: string): boolean {
+    try {
+      const candidate = new URL(value);
+      const expected = new URL(rendererPath);
+      return (
+        candidate.protocol === expected.protocol &&
+        candidate.host === expected.host &&
+        candidate.pathname === expected.pathname
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  public getDeepLinks(): string[] {
+    return [...this.#deepLinks];
+  }
+
+  public resetDeepLinks(): void {
+    this.#deepLinks.length = 0;
+    this.#browserWindow.webContents.reload();
+  }
+
   #reloadMainWindow(): void {
     const windowWasMaximized = this.#browserWindow.isMaximized();
     this.#browserWindow.close();
@@ -438,7 +465,7 @@ class StudioWindow {
     const [newWindow, newMenu] = this.#buildBrowserWindow();
     this.#browserWindow = newWindow;
     this.#menu = newMenu;
-    this.load();
+    void this.load().catch(() => undefined);
 
     if (windowWasMaximized) {
       this.#browserWindow.maximize();
@@ -446,7 +473,7 @@ class StudioWindow {
   }
 
   #buildBrowserWindow(): [BrowserWindow, Menu] {
-    const browserWindow = newStudioWindow(this.#deepLinks, () => {
+    const browserWindow = newStudioWindow(() => {
       this.#reloadMainWindow();
     });
     const newMenu = buildMenu(browserWindow);

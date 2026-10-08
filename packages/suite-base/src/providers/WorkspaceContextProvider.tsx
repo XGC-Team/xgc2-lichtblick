@@ -6,16 +6,14 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import * as _ from "lodash-es";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { StoreApi, createStore } from "zustand";
-import { persist } from "zustand/middleware";
 
-import { SESSION_STORAGE_LICHTBLICK_WORKSPACE } from "@lichtblick/suite-base/constants/browserStorageKeys";
 import {
   WorkspaceContext,
   WorkspaceContextStore,
 } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
-import { migrateV0WorkspaceState } from "@lichtblick/suite-base/context/Workspace/migrations";
+import { getManagedDocumentStore } from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
 
 /**
  * Creates the default initial state for the workspace store.
@@ -66,32 +64,12 @@ function createWorkspaceContextStore(
   initialState?: Partial<WorkspaceContextStore>,
   options?: { disablePersistenceForStorybook?: boolean },
 ): StoreApi<WorkspaceContextStore> {
-  const stateCreator = () => {
-    const store: WorkspaceContextStore = {
-      ...makeWorkspaceContextInitialState(),
-      ...initialState,
-    };
-    return store;
-  };
-  if (options?.disablePersistenceForStorybook === true) {
-    return createStore<WorkspaceContextStore>()(stateCreator);
-  }
-  return createStore<WorkspaceContextStore>()(
-    persist(stateCreator, {
-      name: SESSION_STORAGE_LICHTBLICK_WORKSPACE,
-      version: 1,
-      migrate: migrateV0WorkspaceState,
-      partialize: (state) => {
-        // Note that this is an opt-in list of keys from the store that we
-        // include and restore when persisting to and from localStorage.
-        return _.pick(state, ["featureTours", "layoutBrowser", "playbackControls", "sidebars"]);
-      },
-      merge(persistedState, currentState) {
-        // Use a deep merge to ensure that defaults are filled in for nested values if the values
-        // were not present in localStorage.
-        return _.merge(currentState, persistedState);
-      },
-    }),
+  const persisted =
+    options?.disablePersistenceForStorybook === true
+      ? undefined
+      : getManagedDocumentStore().get<Partial<WorkspaceContextStore>>("workspace", "ui");
+  return createStore<WorkspaceContextStore>()(() =>
+    _.merge({}, makeWorkspaceContextInitialState(), persisted, initialState),
   );
 }
 
@@ -111,6 +89,63 @@ export default function WorkspaceContextProvider(props: {
       ? workspaceStoreCreator(initialState, { disablePersistenceForStorybook })
       : createWorkspaceContextStore(initialState, { disablePersistenceForStorybook }),
   );
+
+  useEffect(() => {
+    if (disablePersistenceForStorybook === true) {
+      return;
+    }
+    const documents = getManagedDocumentStore();
+    const persistedKeys = [
+      "featureTours",
+      "layoutBrowser",
+      "playbackControls",
+      "sidebars",
+    ] as const;
+    let previous = _.pick(store.getState(), persistedKeys);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending: Partial<WorkspaceContextStore> | undefined;
+    let running = false;
+    let closed = false;
+    const hasPending = () => pending != undefined;
+    const isClosed = () => closed;
+    const flush = async () => {
+      if (running || closed || !pending) {
+        return;
+      }
+      const value = pending;
+      pending = undefined;
+      running = true;
+      try {
+        await documents.commit([{ family: "workspace", key: "ui", value }]);
+      } catch (error: unknown) {
+        console.error(error);
+      } finally {
+        running = false;
+        if (hasPending() && !isClosed() && !documents.state.error) {
+          void flush();
+        }
+      }
+    };
+    const unsubscribe = store.subscribe((state) => {
+      const next = _.pick(state, persistedKeys);
+      if (_.isEqual(previous, next)) {
+        return;
+      }
+      previous = next;
+      pending = next;
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        void flush();
+      }, 250);
+    });
+    return () => {
+      closed = true;
+      unsubscribe();
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [disablePersistenceForStorybook, store]);
 
   return <WorkspaceContext.Provider value={store}>{children}</WorkspaceContext.Provider>;
 }

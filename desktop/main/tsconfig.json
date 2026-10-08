@@ -1,9 +1,9 @@
 {
-  "extends": "@lichtblick/tsconfig/base",
-  "include": ["./**/*", "../common/*", "../../package.json"],
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "rootDir": "../../",
-    "noEmit": true
-  }
+  "extends": "../../packages/suite-desktop/src/main/tsconfig.json",
+  "include": [
+    "./**/*",
+    "../common/*",
+    "../../package.json",
+    "../../packages/suite-base/src/typings/webpack-defines.d.ts"
+  ]
 }

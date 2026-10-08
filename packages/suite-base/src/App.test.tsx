@@ -28,9 +28,9 @@ import EventsProvider from "@lichtblick/suite-base/providers/EventsProvider";
 import ExtensionCatalogProvider from "@lichtblick/suite-base/providers/ExtensionCatalogProvider/ExtensionCatalogProvider";
 import ExtensionMarketplaceProvider from "@lichtblick/suite-base/providers/ExtensionMarketplaceProvider";
 import LayoutManagerProvider from "@lichtblick/suite-base/providers/LayoutManagerProvider";
+import ManagedUserProfileProvider from "@lichtblick/suite-base/providers/ManagedUserProfileProvider";
 import { StudioLogsSettingsProvider } from "@lichtblick/suite-base/providers/StudioLogsSettingsProvider";
 import TimelineInteractionStateProvider from "@lichtblick/suite-base/providers/TimelineInteractionStateProvider";
-import UserProfileLocalStorageProvider from "@lichtblick/suite-base/providers/UserProfileLocalStorageProvider";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { App, AppProps } from "./App";
@@ -39,6 +39,10 @@ import Workspace from "./Workspace";
 function mockProvider(testId: string) {
   return jest.fn(({ children }) => <div data-testid={testId}>{children}</div>);
 }
+
+jest.mock("./services/persistence/ManagedLayoutStorage", () => ({
+  ManagedLayoutStorage: jest.fn(),
+}));
 
 // Mocking shared providers and components
 jest.mock("./providers/LayoutManagerProvider", () => mockProvider("layout-manager-provider"));
@@ -169,7 +173,7 @@ describe("App Component MultiProvider Tests", () => {
     StudioLogsSettingsProvider,
     AlertsContextProvider,
     CurrentLayoutProvider,
-    UserProfileLocalStorageProvider,
+    ManagedUserProfileProvider,
     LayoutManagerProvider,
     LayoutStorageContext.Provider,
   ];

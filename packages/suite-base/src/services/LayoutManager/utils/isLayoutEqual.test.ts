@@ -12,6 +12,18 @@ import { BasicBuilder } from "@lichtblick/test-builders";
 import { isLayoutEqual } from "./isLayoutEqual";
 
 describe("isLayoutEqual", () => {
+  it("nested unset preferences compare equal after a JSON restore while new camera fields differ", () => {
+    const baseline = LayoutBuilder.data({ configById: { "3D!1": {} } });
+    expect(
+      isLayoutEqual(baseline, { ...baseline, configById: { "3D!1": { followTf: undefined } } }),
+    ).toBe(true);
+    expect(
+      isLayoutEqual(baseline, {
+        ...baseline,
+        configById: { "3D!1": { cameraState: { distance: 7 } } },
+      }),
+    ).toBe(false);
+  });
   describe("when comparing identical layouts", () => {
     it("should return true for exact same layout objects", () => {
       // Given
@@ -95,10 +107,10 @@ describe("isLayoutEqual", () => {
     });
   });
 
-  describe("when current layout has additional entries not present in baseline (additive tolerance)", () => {
+  describe("when current layout adds persisted panel fields", () => {
     const topicA = BasicBuilder.string();
     const topicB = BasicBuilder.string();
-    it("should return true when current layout has a new panel ID not present in baseline", () => {
+    it("should return false when current layout has a new panel ID not present in baseline", () => {
       // Given
       const panelId = BasicBuilder.string();
       const newPanelId = BasicBuilder.string();
@@ -113,10 +125,10 @@ describe("isLayoutEqual", () => {
       const result = isLayoutEqual(layoutBaseline, layoutCurrent);
 
       // Then
-      expect(result).toBe(true);
+      expect(result).toBe(false);
     });
 
-    it("should return true when current layout's panel config has a new key not present in baseline", () => {
+    it("should return false when current layout's panel config has a new key not present in baseline", () => {
       // Given
       const panelId = BasicBuilder.string();
       const base = LayoutBuilder.data({ configById: { [panelId]: { topic: topicA } } });
@@ -130,7 +142,7 @@ describe("isLayoutEqual", () => {
       const result = isLayoutEqual(layoutBaseline, layoutCurrent);
 
       // Then
-      expect(result).toBe(true);
+      expect(result).toBe(false);
     });
   });
 

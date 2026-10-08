@@ -5,6 +5,38 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import type {
+  ManagedRequest,
+  ManagedTransport,
+} from "@lichtblick/suite-base/src/services/persistence/ManagedDocumentStore";
+
+import type { ManagedAsset } from "../../../../xgc2/launcher/managed-storage.cjs";
+
+export type ManagedIPCReply<T> =
+  | { ok: true; value: T }
+  | {
+      ok: false;
+      error: {
+        message: string;
+        code: string;
+        outcome?: string;
+        requestId?: string;
+        status?: number;
+      };
+    };
+
+/** Product operations only. Storage scope, paths and credentials stay in main. */
+export interface PersistenceBridge {
+  domainRequest(
+    request: ManagedRequest,
+  ): Promise<ManagedIPCReply<Awaited<ReturnType<ManagedTransport>>>>;
+  publish(
+    bytes: Uint8Array,
+    info: { id: string; version: string },
+  ): Promise<ManagedIPCReply<ManagedAsset>>;
+  load(asset: ManagedAsset): Promise<ManagedIPCReply<Uint8Array>>;
+}
+
 // Events that are forwarded from the main process
 export type ForwardedMenuEvent =
   | "open"
@@ -16,10 +48,7 @@ export type ForwardedMenuEvent =
   | "open-help-general";
 
 export type ForwardedWindowEvent =
-  | "enter-full-screen"
-  | "leave-full-screen"
-  | "maximize"
-  | "unmaximize";
+  "enter-full-screen" | "leave-full-screen" | "maximize" | "unmaximize";
 
 /** Registering an event listener returns a function that will un-register the listener */
 export type UnregisterFn = () => void;
@@ -39,56 +68,22 @@ interface NativeMenuBridge {
    *
    * https://www.electronjs.org/docs/latest/api/context-bridge#parameter--error--return-type-support
    */
-  addIpcEventListener(eventName: ForwardedMenuEvent, handler: () => void): UnregisterFn;
+  addIpcEventListener(
+    eventName: ForwardedMenuEvent,
+    handler: () => void,
+  ): UnregisterFn;
 }
-
-// Items suitable for storage
-type StorageContent = string | Uint8Array;
-
-interface Storage {
-  // list items in the datastore
-  list(datastore: string): Promise<string[]>;
-  // get all the items in the datastore
-  all(datastore: string): Promise<StorageContent[]>;
-  // get a single item from the datastore
-  get(
-    datastore: string,
-    key: string,
-    options?: { encoding: undefined },
-  ): Promise<Uint8Array | undefined>;
-  get(datastore: string, key: string, options: { encoding: "utf8" }): Promise<string | undefined>;
-  // put a single item into the datastore
-  // This will replace any existing item with the same key
-  put(datastore: string, key: string, value: StorageContent): Promise<void>;
-  // remove an item from the datastore
-  delete(datastore: string, key: string): Promise<void>;
-}
-
-type DesktopExtension = {
-  id: string;
-  packageJson: unknown;
-  directory: string;
-  readme: string;
-  changelog: string;
-};
-
-type DesktopLayout = {
-  layoutJson: unknown;
-  from: string;
-};
 
 export type CLIFlags = Readonly<Record<string, string>>;
-
-export type LoadedExtension = {
-  buffer?: Uint8Array;
-  raw: string;
-};
 
 interface Desktop {
   /** https://www.electronjs.org/docs/tutorial/represented-file */
   setRepresentedFilename(path: string | undefined): Promise<void>;
 
-  addIpcEventListener(eventName: ForwardedWindowEvent, handler: () => void): UnregisterFn;
+  addIpcEventListener(
+    eventName: ForwardedWindowEvent,
+    handler: () => void,
+  ): UnregisterFn;
 
   /**
    * Notify the app that the color scheme setting has changed and the native theme may need to be
@@ -97,26 +92,10 @@ interface Desktop {
   updateNativeColorScheme(): Promise<void>;
 
   // Get an array of deep links provided on app launch
-  getDeepLinks: () => string[];
+  getDeepLinks: () => Promise<string[]>;
 
   // Reset the deep links. After reset, `getDeepLinks` will return an empty array.
   resetDeepLinks: () => void;
-
-  // Get an array of available extensions and parsed package.json files
-  getExtensions: () => Promise<DesktopExtension[]>;
-
-  // Load the source code for an extension
-  loadExtension: (id: string) => Promise<LoadedExtension>;
-
-  // Fetch default layouts from local folder
-  fetchLayouts: () => Promise<DesktopLayout[]>;
-
-  // Install a Lichtblick extension (.foxe file) locally. The extension id is returned
-  installExtension: (foxeFileData: Uint8Array) => Promise<DesktopExtension>;
-
-  // Uninstall an extension. Returns true if the extension was found and uninstalled, or false if it
-  // was not found (i.e. already uninstalled)
-  uninstallExtension: (id: string) => Promise<boolean>;
 
   // Get CLI flags passed when the app was launched
   getCLIFlags: () => Promise<CLIFlags>;
@@ -135,4 +114,4 @@ interface Desktop {
   updateLanguage(): void;
 }
 
-export type { Desktop, DesktopExtension, DesktopLayout, NativeMenuBridge, Storage, StorageContent };
+export type { Desktop, NativeMenuBridge };

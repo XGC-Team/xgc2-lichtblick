@@ -5,12 +5,14 @@
 
 const assert = require("node:assert/strict");
 const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { createTLSFixture } = require("./tls_fixture.cjs");
 
 process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT = "/tmp/unused";
 process.env.XGC2_LICHTBLICK_WEB_ENV_FILE = "/tmp/unused.env";
@@ -60,6 +62,7 @@ test("parses the browser server command line", () => {
       allowedOrigins: ["https://xgc.example", "http://127.0.0.1:5173"],
       frameAncestors: "'self' https://xgc.example",
       assetUrlPrefix: null,
+      bootstrapInput: null,
       showHelp: false,
     },
   );
@@ -174,6 +177,10 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "xgc2-lichtblick-test-"));
   const webRoot = path.join(temporary, "web");
   fs.mkdirSync(webRoot);
+  const assetRoot = path.join(temporary, "managed-extensions");
+  fs.mkdirSync(assetRoot, { mode: 0o700 });
+  const tls = createTLSFixture(temporary);
+  const bootstrapInput = tls.writeInput({ schema_version: 1, storage: { grant: "fixture-documents", reference: { target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "test-storage", profile: "http.v1", endpoint: { kind: "unix", address: path.join(temporary, "storage.sock") } }, scope: { namespace: "lichtblick", user: "test", workspace: "test" }, authorization: "fixture-storage-auth" }, assets: { access: "read-write", grant: "fixture-assets", root: assetRoot } });
   fs.writeFileSync(
     path.join(webRoot, "index.html"),
     "<!doctype html><html><head></head><script>" +
@@ -203,7 +210,11 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
         "HTTP/1.1 101 Switching Protocols\r\n" +
           "Upgrade: websocket\r\n" +
           "Connection: Upgrade\r\n" +
-          "Sec-WebSocket-Accept: integration-test\r\n\r\n",
+          "Sec-WebSocket-Accept: " +
+          crypto.createHash("sha1").update(
+            /sec-websocket-key:\s*([^\r\n]+)/i.exec(request)[1].trim() +
+            "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+          ).digest("base64") + "\r\n\r\n",
       );
     });
   });
@@ -215,6 +226,7 @@ test("serves source-build metadata without an XGC layout and enforces WebSocket 
     process.execPath,
     [
       launcherPath,
+      "--bootstrap-input", bootstrapInput,
       "--host",
       "127.0.0.1",
       "--port",

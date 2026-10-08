@@ -9,20 +9,17 @@ import { Fragment, Suspense, useEffect, useMemo } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 
-import { IdbLayoutStorage } from "@lichtblick/suite-base/IdbLayoutStorage";
-import { LayoutsAPI } from "@lichtblick/suite-base/api/layouts/LayoutsAPI";
-import { APP_CONFIG } from "@lichtblick/suite-base/constants/config";
 import LayoutStorageContext from "@lichtblick/suite-base/context/LayoutStorageContext";
 import NativeAppMenuContext from "@lichtblick/suite-base/context/NativeAppMenuContext";
 import NativeWindowContext from "@lichtblick/suite-base/context/NativeWindowContext";
-import { RemoteLayoutStorageContext } from "@lichtblick/suite-base/context/RemoteLayoutStorageContext";
 import { useSharedRootContext } from "@lichtblick/suite-base/context/SharedRootContext";
 import AlertsContextProvider from "@lichtblick/suite-base/providers/AlertsContextProvider";
 import EventsProvider from "@lichtblick/suite-base/providers/EventsProvider";
 import LayoutManagerProvider from "@lichtblick/suite-base/providers/LayoutManagerProvider";
+import ManagedUserProfileProvider from "@lichtblick/suite-base/providers/ManagedUserProfileProvider";
 import { StudioLogsSettingsProvider } from "@lichtblick/suite-base/providers/StudioLogsSettingsProvider";
 import TimelineInteractionStateProvider from "@lichtblick/suite-base/providers/TimelineInteractionStateProvider";
-import UserProfileLocalStorageProvider from "@lichtblick/suite-base/providers/UserProfileLocalStorageProvider";
+import { ManagedLayoutStorage } from "@lichtblick/suite-base/services/persistence/ManagedLayoutStorage";
 
 import Workspace from "./Workspace";
 import DocumentTitleAdapter from "./components/DocumentTitleAdapter";
@@ -93,27 +90,13 @@ export function StudioApp(): React.JSX.Element {
   // Alerts provider also must come before other, dependent contexts.
   providers.unshift(<AlertsContextProvider />);
   providers.unshift(<CurrentLayoutProvider />);
-  providers.unshift(<UserProfileLocalStorageProvider />);
+  providers.unshift(<ManagedUserProfileProvider />);
   providers.unshift(<LayoutManagerProvider />);
 
-  const layoutStorage = useMemo(() => new IdbLayoutStorage(), []);
+  const layoutStorage = useMemo(() => new ManagedLayoutStorage(), []);
 
   providers.unshift(<LayoutStorageContext.Provider value={layoutStorage} />);
   const MaybeLaunchPreference = enableLaunchPreferenceScreen === true ? LaunchPreference : Fragment;
-
-  const url = new URL(window.location.href);
-  const workspace = url.searchParams.get("workspace");
-
-  const remoteLayoutStorage = useMemo(() => {
-    if (workspace && APP_CONFIG.apiUrl) {
-      return new LayoutsAPI(workspace);
-    }
-    return undefined;
-  }, [workspace]);
-
-  if (remoteLayoutStorage) {
-    providers.unshift(<RemoteLayoutStorageContext.Provider value={remoteLayoutStorage} />);
-  }
 
   useEffect(() => {
     document.addEventListener("contextmenu", contextMenuHandler);

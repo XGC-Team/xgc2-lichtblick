@@ -13,14 +13,14 @@ import {
   StudioLogConfigChannel,
 } from "@lichtblick/suite-base/context/StudioLogsSettingsContext";
 
-import { LocalStorageSaveState } from "./types";
+import { SavedLogSettings } from "./types";
 
 const log = Log.getLogger(__filename);
 
 const defaultGlobalLevel: LogLevel = process.env.NODE_ENV === "development" ? "debug" : "warn";
 
 function createStudioLogsSettingsStore(
-  initialState?: LocalStorageSaveState,
+  initialState?: SavedLogSettings,
 ): StoreApi<IStudioLogsSettings> {
   const globalLevel = toLogLevel(initialState?.globalLevel ?? defaultGlobalLevel);
   const disabledChannels = initialState?.disabledChannels ?? [];

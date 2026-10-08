@@ -34,10 +34,16 @@ larger `TransformTree`.
 
 ## Build and run
 
+Install the formal `node-xgc2-xrpc` build/runtime dependency first. Its installed
+types and Node library live at `/usr/lib/xgc2/node_modules/@xgc2/xrpc`; desktop
+keeps the whole SDK external so its diagnostic worker retains native paths.
+The SDK is supplied by the build image, independently of this repository's
+immutable Yarn dependencies.
+
 ```bash
 corepack yarn install --immutable
 ./xgc2/scripts/build-web.sh
-./xgc2/scripts/run-web.sh --port 8080 \
+./xgc2/scripts/run-web.sh --bootstrap-input /absolute/private/lichtblick-input.json --port 8080 \
   --control-plane-url ws://127.0.0.1:8765
 ```
 
@@ -45,6 +51,17 @@ The source-owned launcher provides the same-origin WebSocket proxy, Origin and
 CSP controls, `/healthz`, and `/version`. Local development uses
 `web/.webpack` and `web/build-info.json` from this working tree. The production
 process definition runs the packaged `/usr/bin/xgc2-lichtblick-web` launcher.
+
+Both web and desktop require an explicit SDK BootstrapInput file from the owning
+deployment. Its Lichtblick application payload declares a live storage reference,
+scope, separate asset grant and access mode, and the operator time zone; see
+[the persistence contract](contracts/persistence-v1.md) and
+[application schema](contracts/bootstrap-application.schema.json).
+The native application owns its HTTPS RPC endpoint and prints the actual
+ServiceRef after startup. A read-write asset root permits one live writer;
+independent read-only grants can load immutable archives. Linux `util-linux`
+provides the bounded startup `flock` helper. Browser caches and former Electron
+datastores are never read as persistent state.
 
 ## Focused checks
 

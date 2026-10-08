@@ -126,6 +126,14 @@ export CI=true
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:?build entry must supply the commit timestamp}"
 export YARN_ENABLE_IMMUTABLE_INSTALLS=true
 
+[[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/index.d.cts ]] || { echo "Installed node-xgc2-xrpc build dependency is required." >&2; exit 1; }
+node - <<'NODE'
+const sdk = require("/usr/lib/xgc2/node_modules/@xgc2/xrpc");
+for (const name of ["Diagnostics", "derivePolicy", "loadBootstrapInput", "HTTPClient", "createBoundHTTPHost"]) {
+  if (typeof sdk[name] !== "function") throw new Error(`Installed Node xRPC SDK lacks ${name}`);
+}
+NODE
+
 resolved_work_dir="$(realpath -m -- "${work_dir}")"
 resolved_source_parent="$(dirname "$(realpath -m -- "${source_dir}")")"
 case "${resolved_work_dir}" in

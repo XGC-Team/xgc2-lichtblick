@@ -127,6 +127,7 @@ describe("useLayoutActions", () => {
         name: `${mockLayout.name} copy`,
         data: mockLayout.working?.data ?? mockLayout.baseline.data,
         permission: "CREATOR_WRITE",
+        activate: true,
       });
       expect(onSelectLayoutMock).toHaveBeenCalledWith(newLayout);
       expect(analyticsMock.logEvent).toHaveBeenCalledWith(AppEvent.LAYOUT_DUPLICATE, {

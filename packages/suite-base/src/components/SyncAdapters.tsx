@@ -7,7 +7,8 @@
 
 import { useMemo } from "react";
 
-import { CurrentLayoutLocalStorageSyncAdapter } from "@lichtblick/suite-base/components/CurrentLayoutLocalStorageSyncAdapter";
+import { CurrentLayoutManagedSyncAdapter } from "@lichtblick/suite-base/components/CurrentLayoutManagedSyncAdapter";
+import { ManagedLanguageSyncAdapter } from "@lichtblick/suite-base/components/ManagedLanguageSyncAdapter";
 import { URLStateSyncAdapter } from "@lichtblick/suite-base/components/URLStateSyncAdapter";
 import { useAppContext } from "@lichtblick/suite-base/context/AppContext";
 
@@ -23,7 +24,8 @@ export function SyncAdapters(): React.JSX.Element {
     return (
       <>
         <URLStateSyncAdapter />
-        <CurrentLayoutLocalStorageSyncAdapter />
+        <ManagedLanguageSyncAdapter />
+        <CurrentLayoutManagedSyncAdapter />
       </>
     );
   }, [syncAdapters]);

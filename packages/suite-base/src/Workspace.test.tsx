@@ -608,7 +608,7 @@ describe("Workspace - fetchLayoutFromUrl", () => {
       expect(mockParseAndInstallLayout).toHaveBeenCalledWith(
         expect.objectContaining({ name: "my-layout.json" }),
         "local",
-        { managedAuthority: true },
+        { managedAuthority: true, replaceIds: [] },
       );
     });
   });
@@ -619,7 +619,7 @@ describe("Workspace - fetchLayoutFromUrl", () => {
     window.history.replaceState(
       {},
       "",
-      `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope))}`,
+      `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope)!)}`,
     );
     const working = {
       metadata: { xgc2LayoutScope: scope },
@@ -660,12 +660,12 @@ describe("Workspace - fetchLayoutFromUrl", () => {
             managedAuthority: true,
             xgc2LayoutScope: scope,
             previousScopedLayout: working,
+            replaceIds: ["same-scope"],
           },
         );
-        expect(mockDeleteLayout).toHaveBeenCalledTimes(1);
       });
       expect(global.fetch).toHaveBeenCalledWith("https://example.com/layout.json");
-      expect(mockDeleteLayout).toHaveBeenCalledWith({ id: "same-scope" });
+      expect(mockDeleteLayout).not.toHaveBeenCalled();
     } finally {
       window.history.replaceState({}, "", originalUrl);
     }
@@ -677,7 +677,7 @@ describe("Workspace - fetchLayoutFromUrl", () => {
     window.history.replaceState(
       {},
       "",
-      `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope))}`,
+      `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope)!)}`,
     );
     const baseline = { metadata: { xgc2LayoutScope: scope }, configById: {} };
     mockGetLayouts.mockResolvedValue([
@@ -701,6 +701,7 @@ describe("Workspace - fetchLayoutFromUrl", () => {
           managedAuthority: true,
           xgc2LayoutScope: scope,
           previousScopedLayout: baseline,
+          replaceIds: ["baseline"],
         });
       });
     } finally {
@@ -708,7 +709,7 @@ describe("Workspace - fetchLayoutFromUrl", () => {
     }
   });
 
-  it("should delete existing layouts with same name after successful install", async () => {
+  it("includes same-name replacements in the atomic install plan", async () => {
     // Given
     mockGetLayouts.mockResolvedValue([{ id: "old-id", name: "my-layout", baseline: { data: {} } }]);
     global.fetch = jest.fn().mockResolvedValue({
@@ -728,11 +729,15 @@ describe("Workspace - fetchLayoutFromUrl", () => {
 
     // Then
     await waitFor(() => {
-      expect(mockDeleteLayout).toHaveBeenCalledWith({ id: "old-id" });
+      expect(mockParseAndInstallLayout).toHaveBeenCalledWith(expect.any(File), "local", {
+        managedAuthority: true,
+        replaceIds: ["old-id"],
+      });
+      expect(mockDeleteLayout).not.toHaveBeenCalled();
     });
   });
 
-  it("preserves Experiment view histories when a legacy unscoped layout with the same display name is imported", async () => {
+  it("preserves Experiment view histories when an unscoped layout with the same display name is imported", async () => {
     mockGetLayouts.mockResolvedValue([
       {
         id: "scoped",
@@ -753,9 +758,12 @@ describe("Workspace - fetchLayoutFromUrl", () => {
       />,
     );
     await waitFor(() => {
-      expect(mockDeleteLayout).toHaveBeenCalledTimes(1);
+      expect(mockParseAndInstallLayout).toHaveBeenCalledWith(expect.any(File), "local", {
+        managedAuthority: true,
+        replaceIds: ["legacy"],
+      });
     });
-    expect(mockDeleteLayout).toHaveBeenCalledWith({ id: "legacy" });
+    expect(mockDeleteLayout).not.toHaveBeenCalled();
   });
 
   it("should not delete existing layouts if parseAndInstallLayout returns undefined", async () => {

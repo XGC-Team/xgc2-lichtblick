@@ -5,6 +5,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import { loadBootstrapInput, derivePolicy, Diagnostics } from "@xgc2/xrpc";
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from "electron";
 
 import Logger from "@lichtblick/log";
@@ -18,13 +19,23 @@ import { isFileToOpen } from "./fileUtils";
 import getDevModeIcon from "./getDevModeIcon";
 import { getFilesToOpen } from "./getFilesToOpen";
 import injectFilesToOpen from "./injectFilesToOpen";
-import installChromeExtensions from "./installChromeExtensions";
+import { registerManagedPersistenceIPC } from "./managedPersistence";
 import { parseCLIFlags } from "./parseCLIFlags";
+import { parseDesktopArguments } from "./parseDesktopArguments";
 import {
   registerRosPackageProtocolHandlers,
   registerRosPackageProtocolSchemes,
 } from "./rosPackageResources";
-import { getAppSetting } from "./settings";
+import { getAppSetting, initializeAppSettings } from "./settings";
+import {
+  createManagedDomainRPC,
+  ManagedDomainRPC,
+} from "../../../../xgc2/launcher/managed-rpc.cjs";
+import {
+  createManagedDomainClientFromBootstrap,
+  createManagedPolicy,
+  ManagedDomainClient,
+} from "../../../../xgc2/launcher/managed-storage.cjs";
 import {
   LICHTBLICK_PRODUCT_HOMEPAGE,
   LICHTBLICK_PRODUCT_NAME,
@@ -33,12 +44,6 @@ import {
 
 const log = Logger.getLogger(__filename);
 
-// This overwrite needs to be done here, before the app is ready, otherwise it will not take effect
-const homeOverride = process.argv.find((arg) => arg.startsWith("--home-dir="));
-if (homeOverride != undefined) {
-  app.setPath("home", homeOverride.split("=")[1]!);
-}
-
 function updateNativeColorScheme() {
   const colorScheme = getAppSetting<string>(AppSetting.COLOR_SCHEME) ?? "system";
   nativeTheme.themeSource =
@@ -46,18 +51,22 @@ function updateNativeColorScheme() {
 }
 
 async function updateLanguage() {
-  const language = getAppSetting<string>(AppSetting.LANGUAGE);
+  const language = getAppSetting<unknown>(AppSetting.LANGUAGE);
+  if (language != undefined && typeof language !== "string") {
+    throw new Error("Managed language setting must be a string");
+  }
   log.info(`Loaded language from settings: ${language}`);
-  await i18n.changeLanguage(language);
+  await i18n.changeLanguage(language ?? undefined);
   log.info(`Set language: ${i18n.language}`);
 }
 
-export async function main(): Promise<void> {
-  await initI18n({ context: "electron-main" });
-  await updateLanguage();
-
+export async function main(options: {
+  bootstrapInput: string;
+  argv?: readonly string[];
+}): Promise<void> {
+  const publicArguments = parseDesktopArguments(options.argv ?? process.argv).argv;
   // Allow integration tests to override the userData directory
-  const userDataOverride = process.argv.find((arg) => arg.startsWith("--user-data-dir="));
+  const userDataOverride = publicArguments.find((arg) => arg.startsWith("--user-data-dir="));
   if (userDataOverride != undefined) {
     app.setPath("userData", userDataOverride.split("=")[1]!);
   }
@@ -93,7 +102,7 @@ export async function main(): Promise<void> {
   }
 
   // Check if --force-multiple-windows` is set
-  const forceMultipleWindows = process.argv.some((arg) => arg === "--force-multiple-windows");
+  const forceMultipleWindows = publicArguments.some((arg) => arg === "--force-multiple-windows");
 
   // If another instance of the app is already open, this call triggers the "second-instance" event
   // in the original instance and returns false.
@@ -112,8 +121,17 @@ export async function main(): Promise<void> {
 
   // Forward urls/files opened in a second instance to our default handlers so it's as if we opened them with this instance.
   // In case of forcing multiple instances, we will open a new window and inject the files and deep links manually.
-  app.on("second-instance", (_ev, argv, _workingDirectory) => {
-    log.debug("Received arguments from second app instance:", argv);
+  let desktopInitialized = false;
+  const pendingSecondInstances: string[][] = [];
+  const handleSecondInstance = (receivedArguments: string[]) => {
+    let argv: string[];
+    try {
+      argv = parseDesktopArguments(receivedArguments).argv;
+    } catch {
+      log.warn("Rejected invalid second-instance bootstrap arguments");
+      return;
+    }
+    log.debug("Received public arguments from second app instance:", argv);
 
     if (forceMultipleWindows) {
       log.debug("second-instance: Forcing a new window to run in this instance.");
@@ -143,8 +161,19 @@ export async function main(): Promise<void> {
     // window.
     if (files.length === 0 && deepLinks.length === 0) {
       log.debug("second-instance: No files or deeplinks. Opening a new window.");
-      new StudioWindow().load();
+      void new StudioWindow().load().catch(() => undefined);
     }
+  };
+  app.on("second-instance", (_ev, argv) => {
+    if (!desktopInitialized) {
+      if (pendingSecondInstances.length < 8) {
+        pendingSecondInstances.push(argv);
+      } else {
+        log.warn("Desktop startup input queue is full");
+      }
+      return;
+    }
+    handleSecondInstance(argv);
   });
 
   if (!app.isDefaultProtocolClient("foxglove")) {
@@ -153,7 +182,7 @@ export async function main(): Promise<void> {
     }
   }
 
-  const filesToOpen = getFilesToOpen(process.argv);
+  const filesToOpen = getFilesToOpen(publicArguments);
 
   // indicates the preloader has setup the file input used to inject which files to open
   let preloaderFileInputIsReady = false;
@@ -172,7 +201,7 @@ export async function main(): Promise<void> {
         await injectFilesToOpen(focusedWindow.webContents.debugger, filesToOpen);
       } else {
         // On MacOS the user may have closed all the windows so we need to open a new window
-        new StudioWindow().load();
+        void new StudioWindow().load().catch(() => undefined);
       }
     }
   });
@@ -207,19 +236,29 @@ export async function main(): Promise<void> {
     if (url.startsWith("lichtblick://signin-complete")) {
       // When completing sign in from Console, the browser can launch this URL to re-focus the app.
       app.focus({ steal: true });
-    } else if (app.isReady()) {
-      new StudioWindow([url]).load();
+    } else if (desktopInitialized) {
+      void new StudioWindow([url]).load().catch(() => undefined);
     } else {
       openUrls.push(url);
     }
   });
 
   // Get the command line flags passed to the app when it was launched
-  const parsedCLIFlags = parseCLIFlags(process.argv);
+  const parsedCLIFlags = parseCLIFlags(publicArguments);
 
-  // support preload lookups for the user data path and home directory
-  ipcMain.handle("getUserDataPath", () => app.getPath("userData"));
-  ipcMain.handle("getHomePath", () => app.getPath("home"));
+  ipcMain.handle("getDeepLinks", (event) => {
+    if (
+      event.senderFrame !== event.sender.mainFrame ||
+      !StudioWindow.isRendererURL(event.senderFrame.url)
+    ) {
+      throw new Error("Deep links are restricted to the desktop renderer");
+    }
+    const studioWindow = StudioWindow.fromWebContentsId(event.sender.id);
+    if (!studioWindow) {
+      throw new Error("Unknown desktop window");
+    }
+    return studioWindow.getDeepLinks();
+  });
 
   ipcMain.handle("getCLIFlags", () => parsedCLIFlags);
 
@@ -237,10 +276,62 @@ export async function main(): Promise<void> {
   // This method will be called when Electron has finished
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
-  app.on("ready", async () => {
+  const domainOptions = loadBootstrapInput(options.bootstrapInput, { role: "server" });
+  const diagnostics = new Diagnostics({
+    sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
+  });
+  const policy = createManagedPolicy(process.env, diagnostics);
+  const runtime: { rpc?: ManagedDomainRPC; client?: ManagedDomainClient } = {};
+  let closing = false;
+  let drained = false;
+  app.on("before-quit", (event) => {
+    if (drained) {
+      return;
+    }
+    event.preventDefault();
+    if (!closing) {
+      closing = true;
+      runtime.client?.beginDrain();
+      void (async () => {
+        await runtime.rpc?.close();
+        await runtime.client?.close();
+        await diagnostics.close({ timeoutMs: Number(policy.fields.SHUTDOWN_TIMEOUT_MS?.value) });
+      })()
+        .then(() => {
+          drained = true;
+          app.quit();
+        })
+        .catch((error: unknown) => {
+          closing = false;
+          log.error("Managed persistence drain incomplete; owner retains resources", error);
+        });
+    }
+  });
+  const managedClient = createManagedDomainClientFromBootstrap(
+    domainOptions,
+    derivePolicy(policy, {
+      role: "lichtblick-storage",
+      ceilings: { MAX_REQUEST_BYTES: 4 * 1024 * 1024, MAX_RESPONSE_BYTES: 4 * 1024 * 1024 },
+    }),
+  );
+  runtime.client = managedClient;
+  registerManagedPersistenceIPC(managedClient);
+  // whenReady also handles readiness reached while loading the managed snapshot.
+  await Promise.all([app.whenReady(), managedClient.ready]);
+  runtime.rpc = createManagedDomainRPC(managedClient, {
+    ...domainOptions,
+    policy: derivePolicy(policy, {
+      role: "lichtblick-private",
+      ceilings: { MAX_REQUEST_BYTES: 8 * 1024 * 1024, MAX_RESPONSE_BYTES: 8 * 1024 * 1024 },
+    }),
+  });
+  const serviceRef = await runtime.rpc.start();
+  await initializeAppSettings(async (request) => await managedClient.request(request));
+  await initI18n({ context: "electron-main" });
+  await updateLanguage();
+  {
     updateNativeColorScheme();
-    const argv = process.argv;
-    const deepLinks = argv.filter((arg) => arg.startsWith("lichtblick://"));
+    const deepLinks = publicArguments.filter((arg) => arg.startsWith("lichtblick://"));
 
     // create the initial window now to display to the user immediately
     // loading the app url happens at the end of ready to ensure we've setup all the handlers, settings, etc
@@ -267,10 +358,6 @@ export async function main(): Promise<void> {
       iconPath: undefined,
     });
 
-    if (!isProduction) {
-      await installChromeExtensions();
-    }
-
     // Content Security Policy
     // See: https://www.electronjs.org/docs/tutorial/security
     const contentSecurityPolicy: Record<string, string> = {
@@ -289,17 +376,19 @@ export async function main(): Promise<void> {
       .join("; ");
 
     // Set default http headers
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      const url = new URL(details.url);
-      const responseHeaders = { ...details.responseHeaders };
+    session
+      .fromPartition("lichtblick-runtime")
+      .webRequest.onHeadersReceived((details, callback) => {
+        const url = new URL(details.url);
+        const responseHeaders = { ...details.responseHeaders };
 
-      // don't set CSP for internal URLs
-      if (!["chrome-extension:", "devtools:", "data:"].includes(url.protocol)) {
-        responseHeaders["Content-Security-Policy"] = [cspHeader];
-      }
+        // don't set CSP for internal URLs
+        if (!["chrome-extension:", "devtools:", "data:"].includes(url.protocol)) {
+          responseHeaders["Content-Security-Policy"] = [cspHeader];
+        }
 
-      callback({ responseHeaders });
-    });
+        callback({ responseHeaders });
+      });
 
     // When we change the focused window we switch the app menu so actions go to the correct window
     app.on("browser-window-focus", (_ev, browserWindow) => {
@@ -315,13 +404,19 @@ export async function main(): Promise<void> {
       // On macOS it's common to re-create a window in the app when the
       // dock icon is clicked and there are no other windows open.
       if (BrowserWindow.getAllWindows().length === 0) {
-        new StudioWindow().load();
+        void new StudioWindow().load().catch(() => undefined);
       }
     });
 
-    initialWindow.load();
+    desktopInitialized = true;
+    await initialWindow.load();
+    for (const pendingArguments of pendingSecondInstances) {
+      handleSecondInstance(pendingArguments);
+    }
+    pendingSecondInstances.length = 0;
     Menu.setApplicationMenu(initialWindow.getMenu()); // When the app is launching for the first time we don't receive the browser-window-focus event.
-  });
+  }
+  process.stdout.write(`${JSON.stringify({ type: "service_ref", service_ref: serviceRef })}\n`);
 
   // Quit when all windows are closed, except on macOS. There, it's common
   // for applications and their menu bar to stay active until the user quits

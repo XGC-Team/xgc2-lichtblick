@@ -8,11 +8,13 @@ import { useMountedState } from "react-use";
 
 import {
   LayoutData,
+  LayoutID,
   useCurrentLayoutActions,
 } from "@lichtblick/suite-base/context/CurrentLayoutContext";
 import useCallbackWithToast from "@lichtblick/suite-base/hooks/useCallbackWithToast";
 import { useLayoutNavigation } from "@lichtblick/suite-base/hooks/useLayoutNavigation";
 import { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
+import { validateManagedLayoutData } from "@lichtblick/suite-base/services/persistence/validateManagedLayout";
 import { Namespace } from "@lichtblick/suite-base/types";
 import { downloadTextFile } from "@lichtblick/suite-base/util/download";
 import showOpenFilePicker from "@lichtblick/suite-base/util/showOpenFilePicker";
@@ -30,6 +32,7 @@ export type ParseAndInstallLayoutOptions = {
   managedAuthority?: boolean;
   xgc2LayoutScope?: Xgc2LayoutScope;
   previousScopedLayout?: LayoutData;
+  replaceIds?: readonly LayoutID[];
 };
 
 type UseLayoutTransfer = {
@@ -73,6 +76,7 @@ export function useLayoutTransfer(): UseLayoutTransfer {
         return;
       }
 
+      validateManagedLayoutData(parsedState);
       const parked = options?.xgc2LayoutScope
         ? options.previousScopedLayout
         : getCurrentLayoutState().selectedLayout?.data;
@@ -85,6 +89,8 @@ export function useLayoutTransfer(): UseLayoutTransfer {
         name: layoutName,
         data,
         permission: namespace === "org" ? "ORG_WRITE" : "CREATOR_WRITE",
+        activate: true,
+        replaceIds: options?.replaceIds,
       });
 
       void onSelectLayout(newLayout);
@@ -112,19 +118,36 @@ export function useLayoutTransfer(): UseLayoutTransfer {
       return;
     }
 
-    await Promise.all(
-      fileHandles.map(async (fileHandle) => {
-        const file = await fileHandle.getFile();
-        return await parseAndInstallLayout(file);
-      }),
-    );
+    if (fileHandles.length > 255) {
+      throw new Error("Import requires at most 255 layouts");
+    }
+    const entries = [];
+    const parked = getCurrentLayoutState().selectedLayout?.data;
+    for (const fileHandle of fileHandles) {
+      const file = await fileHandle.getFile();
+      if (file.size > 2 * 1024 * 1024) {
+        throw new Error("Layout file exceeds 2 MiB");
+      }
+      const parsed: unknown = JSON.parse(await file.text());
+      validateManagedLayoutData(parsed);
+      entries.push({
+        name: path.basename(file.name, path.extname(file.name)),
+        data: sanitizeImportedLayoutData(parsed, parked) as LayoutData,
+      });
+    }
 
     if (!isMounted()) {
       return;
     }
 
+    const saved = await layoutManager.importLayoutFiles(entries);
+    const selected = saved.at(-1);
+    if (selected) {
+      await onSelectLayout(selected);
+    }
+
     void analytics.logEvent(AppEvent.LAYOUT_IMPORT, { numLayouts: fileHandles.length });
-  }, [analytics, isMounted, parseAndInstallLayout]);
+  }, [analytics, getCurrentLayoutState, isMounted, layoutManager, onSelectLayout]);
 
   const exportLayout = useCallbackWithToast(async () => {
     const item = getCurrentLayoutState().selectedLayout?.data;

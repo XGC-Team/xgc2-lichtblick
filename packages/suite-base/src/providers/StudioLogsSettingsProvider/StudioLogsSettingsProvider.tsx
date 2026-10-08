@@ -6,28 +6,24 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { PropsWithChildren, useEffect, useRef, useState } from "react";
-import { useLocalStorage } from "react-use";
 
 import Log from "@lichtblick/log";
-import { SESSION_STORAGE_LOGS_SETTINGS } from "@lichtblick/suite-base/constants/browserStorageKeys";
 import { StudioLogsSettingsContext } from "@lichtblick/suite-base/context/StudioLogsSettingsContext";
+import { getManagedDocumentStore } from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
 
 import { createStudioLogsSettingsStore } from "./store";
-import { LocalStorageSaveState } from "./types";
+import { SavedLogSettings } from "./types";
 
 function StudioLogsSettingsProvider(props: PropsWithChildren): React.JSX.Element {
-  const [studioLogsSettingsSavedState, setStudioLogsSettingsSavedState] =
-    useLocalStorage<LocalStorageSaveState>(SESSION_STORAGE_LOGS_SETTINGS, {});
+  const documents = getManagedDocumentStore();
+  const studioLogsSettingsSavedState = documents.get<SavedLogSettings>("workspace", "log-settings");
 
   const [studioLogsSettingsStore, setStudioLogsSettingsStore] = useState(() =>
     createStudioLogsSettingsStore(studioLogsSettingsSavedState),
   );
 
-  // To avoid resetting effect below when the localstorage state changes we use a ref for the localstorage state
-  const savedStateRef = useRef<LocalStorageSaveState | undefined>(studioLogsSettingsSavedState);
-  useEffect(() => {
-    savedStateRef.current = studioLogsSettingsSavedState;
-  });
+  // To avoid resetting effect below when the loaded state changes we use a ref for the loaded state
+  const savedStateRef = useRef<SavedLogSettings | undefined>(studioLogsSettingsSavedState);
 
   // Setup an interval to check for changes to the total number of logging channels
   //
@@ -44,7 +40,7 @@ function StudioLogsSettingsProvider(props: PropsWithChildren): React.JSX.Element
     return () => {
       clearInterval(intervalHandle);
     };
-  }, [studioLogsSettingsStore, studioLogsSettingsSavedState]);
+  }, [studioLogsSettingsStore]);
 
   useEffect(() => {
     return studioLogsSettingsStore.subscribe((value) => {
@@ -55,9 +51,15 @@ function StudioLogsSettingsProvider(props: PropsWithChildren): React.JSX.Element
           disabledChannels.push(channel.name);
         }
       }
-      setStudioLogsSettingsSavedState({ globalLevel: value.globalLevel, disabledChannels });
+      const settings = { globalLevel: value.globalLevel, disabledChannels };
+      savedStateRef.current = settings;
+      void documents
+        .commit([{ family: "workspace", key: "log-settings", value: settings }])
+        .catch((error: unknown) => {
+          console.error(error);
+        });
     });
-  }, [studioLogsSettingsStore, setStudioLogsSettingsSavedState]);
+  }, [studioLogsSettingsStore, documents]);
 
   return (
     <StudioLogsSettingsContext.Provider value={studioLogsSettingsStore}>

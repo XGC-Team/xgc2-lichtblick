@@ -1,63 +1,53 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at http://mozilla.org/MPL/2.0/
-
-import Logger from "@lichtblick/log";
 import { LayoutID } from "@lichtblick/suite-base/context/CurrentLayoutContext";
-import { ILayoutStorage, Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
+import {
+  ILayoutStorage,
+  Layout,
+  LayoutPutOptions,
+} from "@lichtblick/suite-base/services/ILayoutStorage";
 
-const log = Logger.getLogger(__filename);
-
-/**
- * A wrapper around ILayoutStorage for a particular namespace.
- */
 export class NamespacedLayoutStorage {
-  #migration: Promise<void>;
+  #import: Promise<void>;
   public constructor(
     private storage: ILayoutStorage,
     private namespace: string,
-    {
-      migrateUnnamespacedLayouts,
-      importFromNamespace,
-    }: { migrateUnnamespacedLayouts: boolean; importFromNamespace: string | undefined },
+    { importFromNamespace }: { importFromNamespace: string | undefined },
   ) {
-    this.#migration = (async function () {
-      if (migrateUnnamespacedLayouts) {
-        await storage.migrateUnnamespacedLayouts?.(namespace).catch((error: unknown) => {
-          log.error("Migration failed:", error);
-        });
-      }
-
-      if (importFromNamespace != undefined) {
-        await storage
-          .importLayouts({
-            fromNamespace: importFromNamespace,
-            toNamespace: namespace,
-          })
-          .catch((error: unknown) => {
-            log.error("Import failed:", error);
-          });
-      }
-    })();
+    this.#import =
+      importFromNamespace == undefined
+        ? Promise.resolve()
+        : storage.importLayouts({ fromNamespace: importFromNamespace, toNamespace: namespace });
   }
-
   public async list(): Promise<readonly Layout[]> {
-    await this.#migration;
+    await this.#import;
     return await this.storage.list(this.namespace);
   }
   public async get(id: LayoutID): Promise<Layout | undefined> {
-    await this.#migration;
+    await this.#import;
     return await this.storage.get(this.namespace, id);
   }
-  public async put(layout: Layout): Promise<Layout> {
-    await this.#migration;
-    return await this.storage.put(this.namespace, layout);
+  public async put(layout: Layout, options?: LayoutPutOptions): Promise<Layout> {
+    await this.#import;
+    return await this.storage.put(
+      this.namespace,
+      layout,
+      ...(options == undefined ? [] : [options]),
+    );
   }
   public async delete(id: LayoutID): Promise<void> {
-    await this.#migration;
+    await this.#import;
     await this.storage.delete(this.namespace, id);
+  }
+  public async putLayouts(
+    layouts: readonly Layout[],
+    options?: LayoutPutOptions,
+  ): Promise<readonly Layout[]> {
+    await this.#import;
+    if (!this.storage.putLayouts) {
+      throw new Error("Atomic layout import is not available");
+    }
+    return await this.storage.putLayouts(this.namespace, layouts, options);
   }
 }

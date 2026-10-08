@@ -16,6 +16,9 @@ apt:
   - xgc2-lichtblick
   depends:
   - ca-certificates
+  - util-linux
+  - node-xgc2-xrpc (>= 0.1.0-1~)
+  - xgc2-storage
   - libc6
   - libgcc-s1
   - libstdc++6

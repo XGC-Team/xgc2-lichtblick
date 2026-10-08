@@ -9,7 +9,6 @@ import { Fragment, Suspense, useEffect, useMemo } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 
-import { IdbLayoutStorage } from "@lichtblick/suite-base/IdbLayoutStorage";
 import GlobalCss from "@lichtblick/suite-base/components/GlobalCss";
 import { AppParametersInput } from "@lichtblick/suite-base/context/AppParametersContext";
 import LayoutStorageContext from "@lichtblick/suite-base/context/LayoutStorageContext";
@@ -18,10 +17,11 @@ import AlertsContextProvider from "@lichtblick/suite-base/providers/AlertsContex
 import AppParametersProvider from "@lichtblick/suite-base/providers/AppParametersProvider";
 import EventsProvider from "@lichtblick/suite-base/providers/EventsProvider";
 import LayoutManagerProvider from "@lichtblick/suite-base/providers/LayoutManagerProvider";
+import ManagedUserProfileProvider from "@lichtblick/suite-base/providers/ManagedUserProfileProvider";
 import { StudioLogsSettingsProvider } from "@lichtblick/suite-base/providers/StudioLogsSettingsProvider";
 import TimelineInteractionStateProvider from "@lichtblick/suite-base/providers/TimelineInteractionStateProvider";
-import UserProfileLocalStorageProvider from "@lichtblick/suite-base/providers/UserProfileLocalStorageProvider";
 import { LayoutLoader } from "@lichtblick/suite-base/services/ILayoutLoader";
+import { ManagedLayoutStorage } from "@lichtblick/suite-base/services/persistence/ManagedLayoutStorage";
 
 import Workspace from "./Workspace";
 import { CustomWindowControlsProps } from "./components/AppBar/CustomWindowControls";
@@ -111,10 +111,10 @@ export function App(props: AppProps): React.JSX.Element {
   // Alerts provider also must come before other, dependent contexts.
   providers.unshift(<AlertsContextProvider />);
   providers.unshift(<CurrentLayoutProvider loaders={layoutLoaders} />);
-  providers.unshift(<UserProfileLocalStorageProvider />);
+  providers.unshift(<ManagedUserProfileProvider />);
   providers.unshift(<LayoutManagerProvider />);
 
-  const layoutStorage = useMemo(() => new IdbLayoutStorage(), []);
+  const layoutStorage = useMemo(() => new ManagedLayoutStorage(), []);
   providers.unshift(<LayoutStorageContext.Provider value={layoutStorage} />);
 
   // The toast and logs provider comes first so they are available to all downstream providers

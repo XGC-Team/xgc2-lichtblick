@@ -35,9 +35,8 @@ import computeLayoutSyncOperations, {
 import { isLayoutEqual } from "@lichtblick/suite-base/services/LayoutManager/utils/isLayoutEqual";
 import { updateOrFetchLayout } from "@lichtblick/suite-base/services/LayoutManager/utils/updateOrFetchLayouts";
 
-import { migratePanelsState } from "../migrateLayout";
 import { NamespacedLayoutStorage } from "./NamespacedLayoutStorage";
-import WriteThroughLayoutCache from "./WriteThroughLayoutCache";
+import { validateManagedLayoutData } from "../persistence/validateManagedLayout";
 import { emitBusyStatus } from "./utils/emitBusyStatus.decorator";
 
 const log = Logger.getLogger(__filename);
@@ -47,6 +46,8 @@ export type SaveNewLayout = {
   data: LayoutData;
   permission: LayoutPermission;
   from?: string;
+  activate?: boolean;
+  replaceIds?: readonly LayoutID[];
 };
 
 export default class LayoutManager implements ILayoutManager {
@@ -77,13 +78,11 @@ export default class LayoutManager implements ILayoutManager {
   }) {
     this.local = new MutexLocked(
       new NamespacedLayoutStorage(
-        new WriteThroughLayoutCache(local),
+        local,
         remote
           ? LayoutManager.REMOTE_STORAGE_NAMESPACE_PREFIX + remote.workspace
           : LayoutManager.LOCAL_STORAGE_NAMESPACE,
         {
-          migrateUnnamespacedLayouts: true,
-
           // Convert existing local layouts into cloud personal layouts
           importFromNamespace: remote ? LayoutManager.LOCAL_STORAGE_NAMESPACE : undefined,
         },
@@ -178,13 +177,43 @@ export default class LayoutManager implements ILayoutManager {
   }
 
   @emitBusyStatus
+  public async importLayoutFiles(
+    entries: readonly { name: string; data: LayoutData }[],
+  ): Promise<readonly Layout[]> {
+    if (entries.length === 0 || entries.length > 255) {
+      throw new Error("Import requires 1–255 layouts");
+    }
+    for (const entry of entries) {
+      validateManagedLayoutData(entry.data);
+    }
+    const layouts: Layout[] = entries.map(({ name, data }) => ({
+      id: uuidv4() as LayoutID,
+      name,
+      permission: "CREATOR_WRITE",
+      baseline: { data, savedAt: new Date().toISOString() as ISO8601Timestamp },
+      working: undefined,
+      syncInfo: undefined,
+    }));
+    const saved = await this.local.runExclusive(
+      async (local) => await local.putLayouts(layouts, { activate: true }),
+    );
+    for (const layout of saved) {
+      this.notifyChangeListeners({ type: "change", updatedLayout: layout });
+    }
+    return saved;
+  }
+
+  @emitBusyStatus
   public async saveNewLayout({
     name,
     data: unmigratedData,
     permission,
     from,
+    activate,
+    replaceIds,
   }: SaveNewLayout): Promise<Layout> {
-    const data = migratePanelsState(unmigratedData);
+    validateManagedLayoutData(unmigratedData);
+    const data = unmigratedData;
     if (layoutPermissionIsShared(permission)) {
       if (!this.remote) {
         throw new Error("Shared layouts are not supported without remote layout storage");
@@ -217,15 +246,18 @@ export default class LayoutManager implements ILayoutManager {
 
     const newLayout = await this.local.runExclusive(
       async (local) =>
-        await local.put({
-          id: uuidv4() as LayoutID,
-          name,
-          from,
-          permission,
-          baseline: { data, savedAt: new Date().toISOString() as ISO8601Timestamp },
-          working: undefined,
-          syncInfo: undefined, // Personal layouts should NEVER have syncInfo
-        }),
+        await local.put(
+          {
+            id: uuidv4() as LayoutID,
+            name,
+            from,
+            permission,
+            baseline: { data, savedAt: new Date().toISOString() as ISO8601Timestamp },
+            working: undefined,
+            syncInfo: undefined, // Personal layouts should NEVER have syncInfo
+          },
+          activate == undefined && replaceIds == undefined ? undefined : { activate, replaceIds },
+        ),
     );
     this.notifyChangeListeners({ type: "change", updatedLayout: newLayout });
     return newLayout;

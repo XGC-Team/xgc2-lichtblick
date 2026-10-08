@@ -12,7 +12,7 @@ import { OverrideComponentReturn } from "../types";
 export const MuiDataGrid: OverrideComponentReturn<"MuiDataGrid"> = {
   defaultProps: {
     slots: {
-      baseSwitch: Checkbox,
+      baseCheckbox: Checkbox,
     },
     slotProps: {
       panel: {
@@ -25,7 +25,7 @@ export const MuiDataGrid: OverrideComponentReturn<"MuiDataGrid"> = {
         size: "small",
         label: undefined,
       },
-      baseSwitch: {
+      baseCheckbox: {
         size: "medium",
         sx: {
           padding: 0.5,
@@ -42,7 +42,7 @@ export const MuiDataGrid: OverrideComponentReturn<"MuiDataGrid"> = {
         outline: "none",
       },
     },
-    columnsPanel: {
+    columnsManagement: {
       padding: 0,
     },
     columnHeader: {

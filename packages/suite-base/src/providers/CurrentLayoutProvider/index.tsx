@@ -52,6 +52,7 @@ import panelsReducer from "@lichtblick/suite-base/providers/CurrentLayoutProvide
 import { AppEvent } from "@lichtblick/suite-base/services/IAnalytics";
 import { LayoutLoader } from "@lichtblick/suite-base/services/ILayoutLoader";
 import { LayoutManagerEventTypes } from "@lichtblick/suite-base/services/ILayoutManager";
+import { isLayoutEqual } from "@lichtblick/suite-base/services/LayoutManager/utils/isLayoutEqual";
 import { PanelConfig, PlaybackConfig, UserScripts } from "@lichtblick/suite-base/types/panels";
 import { windowAppURLState } from "@lichtblick/suite-base/util/appURLState";
 import { getPanelTypeFromId } from "@lichtblick/suite-base/util/layout";
@@ -134,59 +135,80 @@ export default function CurrentLayoutProvider({
     [],
   );
 
+  const selectionTail = useRef<Promise<void>>(Promise.resolve());
   const [, setSelectedLayoutId] = useAsyncFn(
     async (
       id: LayoutID | undefined,
       { saveToProfile = true }: { saveToProfile?: boolean } = {},
     ) => {
-      if (id == undefined) {
-        setLayoutState({ selectedLayout: undefined });
-        return;
-      }
-      try {
-        setLayoutState({ selectedLayout: { id, loading: true, data: undefined } });
-        const layout = await layoutManager.getLayout(id);
-        const layoutVersion = layout?.baseline.data.version;
-        if (layoutVersion != undefined && layoutVersion > MAX_SUPPORTED_LAYOUT_VERSION) {
-          setIncompatibleLayoutVersionError(true);
-          setLayoutState({ selectedLayout: undefined });
-          return;
-        }
+      const selected = selectionTail.current.then(async () => {
         if (!isMounted()) {
           return;
         }
-        setIncompatibleLayoutVersionError(false);
-        if (layout == undefined) {
-          setLayoutState({ selectedLayout: undefined });
-        } else {
-          setLayoutState({
-            selectedLayout: {
-              loading: false,
-              id: layout.id,
-              data: layout.working?.data ?? layout.baseline.data,
-              name: layout.name,
-            },
-          });
-          if (saveToProfile) {
-            setUserProfile({ currentLayoutId: id }).catch((error: unknown) => {
-              console.error(error);
-              enqueueSnackbar(
-                `The current layout could not be saved. ${(error as Error).toString()}`,
-                {
-                  variant: "error",
-                },
-              );
+        const previous = layoutStateRef.current;
+        try {
+          const active = previous.selectedLayout;
+          if (active?.data && active.id !== id) {
+            setLayoutState({ selectedLayout: { ...active, loading: true } });
+            const saved = await layoutManager.getLayout(active.id);
+            if (!isMounted()) {
+              return;
+            }
+            if (saved && !isLayoutEqual(saved.working?.data ?? saved.baseline.data, active.data)) {
+              await layoutManager.updateLayout({ id: active.id, data: active.data });
+            }
+          }
+          if (!isMounted()) {
+            return;
+          }
+          if (id == undefined) {
+            if (saveToProfile) {
+              await setUserProfile({ currentLayoutId: undefined });
+            }
+            setLayoutState({ selectedLayout: undefined });
+            return;
+          }
+          setLayoutState({ selectedLayout: { id, loading: true, data: undefined } });
+          const layout = await layoutManager.getLayout(id);
+          const layoutVersion = layout?.baseline.data.version;
+          if (layoutVersion != undefined && layoutVersion > MAX_SUPPORTED_LAYOUT_VERSION) {
+            setIncompatibleLayoutVersionError(true);
+            setLayoutState({ selectedLayout: undefined });
+            return;
+          }
+          if (!isMounted()) {
+            return;
+          }
+          setIncompatibleLayoutVersionError(false);
+          if (layout == undefined) {
+            setLayoutState({ selectedLayout: undefined });
+          } else {
+            if (saveToProfile) {
+              await setUserProfile({ currentLayoutId: id });
+            }
+            if (!isMounted()) {
+              return;
+            }
+            setLayoutState({
+              selectedLayout: {
+                loading: false,
+                id: layout.id,
+                data: layout.working?.data ?? layout.baseline.data,
+                name: layout.name,
+              },
             });
           }
+        } catch (error) {
+          console.error(error);
+          enqueueSnackbar(`The layout could not be loaded. ${error.toString()}`, {
+            variant: "error",
+          });
+          setIncompatibleLayoutVersionError(false);
+          setLayoutState(previous);
         }
-      } catch (error) {
-        console.error(error);
-        enqueueSnackbar(`The layout could not be loaded. ${error.toString()}`, {
-          variant: "error",
-        });
-        setIncompatibleLayoutVersionError(false);
-        setLayoutState({ selectedLayout: undefined });
-      }
+      });
+      selectionTail.current = selected.catch(() => undefined);
+      await selected;
     },
     [enqueueSnackbar, isMounted, layoutManager, setLayoutState, setUserProfile],
   );
@@ -350,7 +372,7 @@ export default function CurrentLayoutProvider({
       return;
     }
 
-    const defaultLayout = await layoutManager.saveNewLayout(DEFAULT_LAYOUT);
+    const defaultLayout = await layoutManager.saveNewLayout({ ...DEFAULT_LAYOUT, activate: true });
     await setSelectedLayoutId(defaultLayout.id);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps

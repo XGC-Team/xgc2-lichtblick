@@ -8,19 +8,20 @@
 import { Link, Typography } from "@mui/material";
 import { ReactElement, useEffect } from "react";
 
-import { useSessionStorageValue } from "@lichtblick/hooks";
+import { useMemoryValue } from "@lichtblick/hooks";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
 import Stack from "@lichtblick/suite-base/components/Stack";
 import { LaunchPreferenceValue } from "@lichtblick/suite-base/types/LaunchPreferenceValue";
 
 export function LaunchingInDesktopScreen(): ReactElement {
-  const [, setLaunchPreference] = useSessionStorageValue(AppSetting.LAUNCH_PREFERENCE);
+  const [, setLaunchPreference] = useMemoryValue(AppSetting.LAUNCH_PREFERENCE);
 
   const cleanWebURL = new URL(window.location.href);
   cleanWebURL.searchParams.delete("openIn");
 
   function openWeb() {
     setLaunchPreference(LaunchPreferenceValue.WEB);
+    cleanWebURL.searchParams.set("openIn", LaunchPreferenceValue.WEB);
     window.location.href = cleanWebURL.href;
   }
 

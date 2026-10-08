@@ -13,7 +13,7 @@ import {
   FoxgloveWebSocketDataSourceFactory,
   IAppConfiguration,
   IDataSourceFactory,
-  IdbExtensionLoader,
+  LayoutLoader,
   McapLocalDataSourceFactory,
   OsContext,
   RemoteDataSourceFactory,
@@ -25,29 +25,27 @@ import {
   UlogLocalDataSourceFactory,
   VelodyneDataSourceFactory,
 } from "@lichtblick/suite-base";
+import { ManagedExtensionLoader } from "@lichtblick/suite-base/src/services/persistence/ManagedExtensionLoader";
 
-import { DesktopExtensionLoader } from "./services/DesktopExtensionLoader";
-import { DesktopLayoutLoader } from "./services/DesktopLayoutLoader";
 import { NativeAppMenu } from "./services/NativeAppMenu";
 import { NativeWindow } from "./services/NativeWindow";
-import { CLIFlags, Desktop, NativeMenuBridge, Storage } from "../common/types";
+import { CLIFlags, Desktop, NativeMenuBridge } from "../common/types";
 
-const desktopBridge = (global as unknown as { desktopBridge: Desktop }).desktopBridge;
-const storageBridge = (global as unknown as { storageBridge?: Storage }).storageBridge;
+const desktopBridge = (global as unknown as { desktopBridge: Desktop })
+  .desktopBridge;
 const menuBridge = (global as { menuBridge?: NativeMenuBridge }).menuBridge;
 const ctxbridge = (global as { ctxbridge?: OsContext }).ctxbridge;
+const layoutLoaders: LayoutLoader[] = [];
 
 type RootProps = {
   appParameters: CLIFlags;
+  startupDeepLinks: string[];
   appConfiguration: IAppConfiguration;
   extraProviders: React.JSX.Element[] | undefined;
   dataSources: IDataSourceFactory[] | undefined;
 };
 
 export default function Root(props: RootProps): React.JSX.Element {
-  if (!storageBridge) {
-    throw new Error("storageBridge is missing");
-  }
   const { appConfiguration, appParameters, extraProviders } = props;
 
   useEffect(() => {
@@ -72,11 +70,9 @@ export default function Root(props: RootProps): React.JSX.Element {
   }, [appConfiguration]);
 
   const [extensionLoaders] = useState(() => [
-    new IdbExtensionLoader("org"),
-    new DesktopExtensionLoader(desktopBridge),
+    new ManagedExtensionLoader("org"),
+    new ManagedExtensionLoader("local"),
   ]);
-
-  const [layoutLoaders] = useState(() => [new DesktopLayoutLoader(desktopBridge)]);
 
   const nativeAppMenu = useMemo(() => new NativeAppMenu(menuBridge), []);
   const nativeWindow = useMemo(() => new NativeWindow(desktopBridge), []);
@@ -109,8 +105,9 @@ export default function Root(props: RootProps): React.JSX.Element {
     // We treat presence of the `ds` or `layoutId` params as indicative of active state.
     const windowUrl = new URL(window.location.href);
     const hasActiveURLState =
-      windowUrl.searchParams.has("ds") || windowUrl.searchParams.has("layoutId");
-    return hasActiveURLState ? [window.location.href] : desktopBridge.getDeepLinks();
+      windowUrl.searchParams.has("ds") ||
+      windowUrl.searchParams.has("layoutId");
+    return hasActiveURLState ? [window.location.href] : props.startupDeepLinks;
   });
 
   const [isFullScreen, setFullScreen] = useState(false);
@@ -130,18 +127,27 @@ export default function Root(props: RootProps): React.JSX.Element {
   }, [nativeWindow]);
 
   useEffect(() => {
-    const unregisterFull = desktopBridge.addIpcEventListener("enter-full-screen", () => {
-      setFullScreen(true);
-    });
-    const unregisterLeave = desktopBridge.addIpcEventListener("leave-full-screen", () => {
-      setFullScreen(false);
-    });
+    const unregisterFull = desktopBridge.addIpcEventListener(
+      "enter-full-screen",
+      () => {
+        setFullScreen(true);
+      },
+    );
+    const unregisterLeave = desktopBridge.addIpcEventListener(
+      "leave-full-screen",
+      () => {
+        setFullScreen(false);
+      },
+    );
     const unregisterMax = desktopBridge.addIpcEventListener("maximize", () => {
       setMaximized(true);
     });
-    const unregisterUnMax = desktopBridge.addIpcEventListener("unmaximize", () => {
-      setMaximized(false);
-    });
+    const unregisterUnMax = desktopBridge.addIpcEventListener(
+      "unmaximize",
+      () => {
+        setMaximized(false);
+      },
+    );
     return () => {
       unregisterFull();
       unregisterLeave();
@@ -161,7 +167,9 @@ export default function Root(props: RootProps): React.JSX.Element {
       nativeAppMenu={nativeAppMenu}
       nativeWindow={nativeWindow}
       enableGlobalCss
-      appBarLeftInset={ctxbridge?.platform === "darwin" && !isFullScreen ? 72 : undefined}
+      appBarLeftInset={
+        ctxbridge?.platform === "darwin" && !isFullScreen ? 72 : undefined
+      }
       onAppBarDoubleClick={() => {
         nativeWindow.handleTitleBarDoubleClick();
       }}

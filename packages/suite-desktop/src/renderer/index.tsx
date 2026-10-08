@@ -20,12 +20,15 @@ import {
   initI18n,
   IDataSourceFactory,
   IAppConfiguration,
+  AppSetting,
 } from "@lichtblick/suite-base";
+import { sharedI18nObject } from "@lichtblick/suite-base/src/i18n";
 
 import Root from "./Root";
 import { Desktop } from "../common/types";
 
-const desktopBridge = (global as unknown as { desktopBridge: Desktop }).desktopBridge;
+const desktopBridge = (global as unknown as { desktopBridge: Desktop })
+  .desktopBridge;
 
 const log = Logger.getLogger(__filename);
 
@@ -63,14 +66,21 @@ export async function main(params: MainParams): Promise<void> {
   // consider moving waitForFonts into App to display an app loading screen
   await waitForFonts();
   await initI18n();
+  const language = params.appConfiguration.get(AppSetting.LANGUAGE);
+  if (language != undefined && typeof language !== "string") {
+    throw new Error("Managed language setting must be a string");
+  }
+  await sharedI18nObject.changeLanguage(language);
 
   const cliFlags = await desktopBridge.getCLIFlags();
+  const startupDeepLinks = await desktopBridge.getDeepLinks();
 
   const root = createRoot(rootEl);
   root.render(
     <LogAfterRender>
       <Root
         appParameters={cliFlags}
+        startupDeepLinks={startupDeepLinks}
         appConfiguration={params.appConfiguration}
         extraProviders={params.extraProviders}
         dataSources={params.dataSources}

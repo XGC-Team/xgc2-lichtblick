@@ -148,14 +148,14 @@ export function useInstallingExtensionsState({
         let remoteFailures = 0;
         allResults.forEach(({ loaderResults }) => {
           if (loaderResults) {
-            const hasIdbFailure = loaderResults.some(
+            const hasManagedFailure = loaderResults.some(
               (loaderResult) => loaderResult.loaderType === "browser" && !loaderResult.success,
             );
             const hasRemoteFailure = loaderResults.some(
               (loaderResult) => loaderResult.loaderType === "server" && !loaderResult.success,
             );
 
-            if (hasIdbFailure) {
+            if (hasManagedFailure) {
               cacheFailures++;
             }
             if (hasRemoteFailure) {

@@ -6,9 +6,8 @@
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
-import { IdbLayoutStorage } from "@lichtblick/suite-base/IdbLayoutStorage";
-import { LayoutsAPI } from "@lichtblick/suite-base/api/layouts/LayoutsAPI";
 import { SharedRootContext } from "@lichtblick/suite-base/context/SharedRootContext";
+import { ManagedLayoutStorage } from "@lichtblick/suite-base/services/persistence/ManagedLayoutStorage";
 
 import { StudioApp } from "./StudioApp";
 
@@ -63,15 +62,9 @@ jest.mock("./screens/LaunchPreference", () => ({
   LaunchPreference: ({ children }: any) => <div data-testid="launch-preference">{children}</div>,
 }));
 
-jest.mock("@lichtblick/suite-base/IdbLayoutStorage", () => ({
-  IdbLayoutStorage: jest.fn().mockImplementation(() => ({
+jest.mock("@lichtblick/suite-base/services/persistence/ManagedLayoutStorage", () => ({
+  ManagedLayoutStorage: jest.fn().mockImplementation(() => ({
     mockLayoutStorage: true,
-  })),
-}));
-
-jest.mock("@lichtblick/suite-base/api/layouts/LayoutsAPI", () => ({
-  LayoutsAPI: jest.fn().mockImplementation(() => ({
-    mockRemoteLayoutStorage: true,
   })),
 }));
 
@@ -279,44 +272,10 @@ describe("StudioApp", () => {
     expect(addEventListenerSpy).toHaveBeenCalledWith("contextmenu", expect.any(Function));
   });
 
-  it("should create remote layout storage when workspace is provided", () => {
-    // Mock URL with workspace parameter
-    global.URL = jest.fn().mockImplementation(() => ({
-      searchParams: {
-        get: jest.fn().mockImplementation((key) => {
-          if (key === "workspace") {
-            return "test-workspace";
-          }
-          return undefined;
-        }),
-      },
-    })) as any;
-
+  it("should create ManagedLayoutStorage", () => {
     renderWithContext();
 
-    expect(jest.mocked(LayoutsAPI)).toHaveBeenCalledWith("test-workspace");
-  });
-
-  it("should not create remote layout storage when no workspace is provided", () => {
-    // Clear previous calls
-    jest.mocked(LayoutsAPI).mockClear();
-
-    // Mock URL without workspace parameter
-    global.URL = jest.fn().mockImplementation(() => ({
-      searchParams: {
-        get: jest.fn().mockReturnValue(undefined),
-      },
-    })) as any;
-
-    renderWithContext();
-
-    expect(jest.mocked(LayoutsAPI)).not.toHaveBeenCalled();
-  });
-
-  it("should create IdbLayoutStorage", () => {
-    renderWithContext();
-
-    expect(jest.mocked(IdbLayoutStorage)).toHaveBeenCalled();
+    expect(jest.mocked(ManagedLayoutStorage)).toHaveBeenCalled();
   });
 
   describe("context menu handler", () => {

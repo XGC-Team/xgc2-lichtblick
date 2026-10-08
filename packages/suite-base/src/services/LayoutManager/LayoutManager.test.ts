@@ -21,11 +21,14 @@ describe("LayoutManager", () => {
 
     mockLocalStorage = {
       list: jest.fn().mockResolvedValue([]),
-      get: jest.fn().mockResolvedValue(undefined),
+      get: jest
+        .fn()
+        .mockImplementation(async (namespace: string, id: LayoutID) =>
+          (await mockLocalStorage.list(namespace)).find((layout) => layout.id === id),
+        ),
       put: jest.fn().mockImplementation(async (_namespace: string, layout) => layout),
       delete: jest.fn().mockResolvedValue(undefined),
       importLayouts: jest.fn().mockResolvedValue(undefined),
-      migrateUnnamespacedLayouts: jest.fn().mockResolvedValue(undefined),
     };
 
     mockRemoteStorage = {

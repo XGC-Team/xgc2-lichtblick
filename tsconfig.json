@@ -12,6 +12,7 @@
     "./package.json"
   ],
   "compilerOptions": {
+    "rootDir": ".",
     "jsx": "react-jsx",
     "module": "commonjs",
     "types": ["node"],

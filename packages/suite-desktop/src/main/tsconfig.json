@@ -1,10 +1,23 @@
 {
   "extends": "@lichtblick/tsconfig/base",
-  "include": ["./**/*", "../common/*", "../../package.json"],
+  "include": [
+    "./**/*",
+    "../common/*",
+    "../../package.json",
+    "../../../suite-base/src/typings/webpack-defines.d.ts"
+  ],
   "compilerOptions": {
-    "rootDir": "../../",
+    "rootDir": "../../../..",
     "jsx": "react-jsx",
     "noEmit": true,
-    "types": ["node", "jest"]
+    "types": ["node", "jest"],
+    "lib": ["dom", "es2022", "esnext.disposable"],
+    "paths": {
+      "@xgc2/xrpc": ["/usr/lib/xgc2/node_modules/@xgc2/xrpc/index.d.cts"],
+      "@lichtblick/suite-base/*": [
+        "../../../suite-base/src/*",
+        "../../../suite-base/*"
+      ]
+    }
   }
 }

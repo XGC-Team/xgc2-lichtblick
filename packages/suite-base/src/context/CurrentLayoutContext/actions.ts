@@ -36,8 +36,6 @@ export type LayoutData = {
   globalVariables: GlobalVariables;
   playbackConfig: PlaybackConfig;
   userNodes: UserScripts;
-  /** @deprecated renamed to configById */
-  savedProps?: SavedProps;
   /**
    * Optional version number. Set this to prevent older incompatible versions of
    * studio trying to load and possibly corrupt the layout.

@@ -220,6 +220,7 @@ export default function LayoutBrowser({
       name,
       data: layoutData,
       permission: "CREATOR_WRITE",
+      activate: true,
     });
     await onSelectLayout(newLayout);
     setPersonalSectionExpanded(true);

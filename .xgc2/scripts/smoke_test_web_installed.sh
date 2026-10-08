@@ -4,6 +4,8 @@ set -euo pipefail
 package_name="xgc2-lichtblick-web"
 launcher="/usr/bin/xgc2-lichtblick-web"
 node="/usr/lib/xgc2/lichtblick-web/node/bin/node"
+fixture="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../xgc2/tests" && pwd)/installed_fixture.cjs"
+unset NODE_PATH
 
 [[ "$(dpkg-query -W -f='${db:Status-Abbrev}' "${package_name}")" == ii* ]]
 [[ -x "${launcher}" ]]
@@ -11,32 +13,39 @@ node="/usr/lib/xgc2/lichtblick-web/node/bin/node"
 [[ -f /usr/lib/xgc2/lichtblick-web/web/index.html ]]
 [[ -f /usr/lib/xgc2/lichtblick-web/build-info.json ]]
 [[ -f /etc/xgc2/lichtblick-web.env ]]
+[[ -x /usr/bin/xgc2-storage ]] || { echo "Installed /usr/bin/xgc2-storage is required." >&2; exit 1; }
+[[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/package.json ]] || { echo "Installed Node xRPC SDK is required." >&2; exit 1; }
+for prerequisite in openssl curl; do
+  command -v "${prerequisite}" >/dev/null || { echo "Installed smoke requires ${prerequisite}." >&2; exit 1; }
+done
 
 smoke_dir="$(mktemp -d)"
 server_pid=""
 cleanup() {
   if [[ -n "${server_pid}" ]]; then
-    kill "${server_pid}" 2>/dev/null || true
+    kill -TERM "${server_pid}" 2>/dev/null || true
+    for _ in $(seq 1 100); do
+      kill -0 "${server_pid}" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -KILL "${server_pid}" 2>/dev/null || true
     wait "${server_pid}" 2>/dev/null || true
   fi
+  "${node}" "${fixture}" stop "${smoke_dir}" || true
   rm -rf "${smoke_dir}"
 }
 trap cleanup EXIT
 
-"${launcher}" --host 127.0.0.1 --port 0 >"${smoke_dir}/server.log" 2>&1 &
+"${node}" "${fixture}" prepare "${smoke_dir}"
+"${launcher}" --bootstrap-input "${smoke_dir}/bootstrap.json" \
+  --host 127.0.0.1 --port 0 --control-plane-url ws://127.0.0.1:9 \
+  >"${smoke_dir}/server.log" 2>&1 &
 server_pid=$!
-
-port=""
-for _ in $(seq 1 100); do
-  port="$(sed -nE 's|.*http://127\.0\.0\.1:([0-9]+)/.*|\1|p' "${smoke_dir}/server.log" | tail -n1)"
-  [[ -n "${port}" ]] && break
-  kill -0 "${server_pid}" 2>/dev/null || {
-    cat "${smoke_dir}/server.log" >&2
-    exit 1
-  }
-  sleep 0.1
-done
-[[ -n "${port}" ]] || { cat "${smoke_dir}/server.log" >&2; exit 1; }
+"${node}" "${fixture}" verify-web "${smoke_dir}" "${smoke_dir}/server.log"
+origin="$(cat "${smoke_dir}/origin")"
+port="${origin##*:}"
+cat "${smoke_dir}/actual-service-ref.json"
+printf '\n'
 
 curl --fail --silent --show-error "http://127.0.0.1:${port}/healthz" \
   | grep -Fq '"status":"ok"'
@@ -57,4 +66,18 @@ if grep -Fiq 'x-frame-options:' "${smoke_dir}/headers"; then
   exit 1
 fi
 
-echo "xgc2-lichtblick-web installed HTTP smoke test passed on port ${port}."
+kill -TERM "${server_pid}"
+for _ in $(seq 1 100); do
+  kill -0 "${server_pid}" 2>/dev/null || break
+  sleep 0.1
+done
+if kill -0 "${server_pid}" 2>/dev/null; then
+  echo "Installed web launcher did not drain after SIGTERM." >&2
+  exit 1
+fi
+wait "${server_pid}"
+server_pid=""
+"${node}" "${fixture}" verify-closed "${smoke_dir}"
+"${node}" "${fixture}" stop "${smoke_dir}"
+
+echo "xgc2-lichtblick-web installed Bootstrap, mTLS, gateway FULL/restart and shutdown smoke passed on port ${port}."

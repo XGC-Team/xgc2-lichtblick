@@ -18,7 +18,7 @@ import {
 import { ReactElement, useState } from "react";
 import { makeStyles } from "tss-react/mui";
 
-import { useSessionStorageValue } from "@lichtblick/hooks";
+import { useMemoryValue } from "@lichtblick/hooks";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
 import Stack from "@lichtblick/suite-base/components/Stack";
 import { useAppConfigurationValue } from "@lichtblick/suite-base/hooks";
@@ -48,7 +48,7 @@ export function LaunchPreferenceScreen(): ReactElement {
   const [globalPreference, setGlobalPreference] = useAppConfigurationValue<string | undefined>(
     AppSetting.LAUNCH_PREFERENCE,
   );
-  const [, setSessionPreference] = useSessionStorageValue(AppSetting.LAUNCH_PREFERENCE);
+  const [, setSessionPreference] = useMemoryValue(AppSetting.LAUNCH_PREFERENCE);
   const [rememberPreference, setRememberPreference] = useState(globalPreference != undefined);
 
   async function launchInWeb() {
