@@ -11,12 +11,9 @@ import {
 import { useLayoutManager } from "@lichtblick/suite-base/context/LayoutManagerContext";
 import type { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
 import { isLayoutEqual } from "@lichtblick/suite-base/services/LayoutManager/utils/isLayoutEqual";
-import {
-  getManagedDocumentStore,
-  reloadManagedApplication,
-} from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
+import { getManagedDocumentStore } from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
 
-export function CurrentLayoutManagedSyncAdapter(): React.JSX.Element {
+export function CurrentLayoutManagedSyncAdapter(): null {
   const current = useCurrentLayoutSelector((state) => state.selectedLayout);
   const [debounced] = useDebounce(current, 250, { maxWait: 500 });
   const { getCurrentLayoutState } = useCurrentLayoutActions();
@@ -104,30 +101,5 @@ export function CurrentLayoutManagedSyncAdapter(): React.JSX.Element {
       window.removeEventListener("beforeunload", guard);
     };
   }, [dirty, unsubmitted, state.pending, state.error]);
-  const recover = async () => {
-    if (state.uncertainRequestId) {
-      await store.resolveReceipt();
-    } else {
-      reloadManagedApplication();
-      return;
-    }
-    manager.setError(undefined);
-  };
-  return state.error ? (
-    <div role="alert">
-      Changes could not be saved: {state.error.message}
-      <button
-        disabled={state.pending > 0}
-        onClick={() => {
-          void recover().catch((error: unknown) => {
-            console.error(error);
-          });
-        }}
-      >
-        {state.uncertainRequestId ? "Check save result" : "Reload saved state"}
-      </button>
-    </div>
-  ) : (
-    <></>
-  );
+  return null;
 }
