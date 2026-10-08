@@ -1552,12 +1552,15 @@ describe("3D Renderer", () => {
         scene: { transforms: { enablePreloading: false } },
       },
     });
-    const sample = (time: bigint, position: THREE.Vector3, yaw: number) => {
+    const initialCamera = renderer.cameraHandler.getActiveCamera();
+    initialCamera.updateWorldMatrix(true, false);
+    const initialOrientation = initialCamera.getWorldQuaternion(new THREE.Quaternion());
+    const sample = (time: bigint, position: THREE.Vector3, yaw: number, frameId = "robot") => {
       const robotOrientation = new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 0, 1),
         yaw,
       );
-      const event = createTFMessageEvent("world", "robot", time, [time]);
+      const event = createTFMessageEvent("world", frameId, time, [time]);
       const transform = event.message.transforms[0]!.transform;
       transform.translation = { x: position.x, y: position.y, z: position.z };
       transform.rotation = {
@@ -1583,11 +1586,17 @@ describe("3D Renderer", () => {
     };
     const first = sample(1n, new THREE.Vector3(1, 2, 0), 0.2);
     const second = sample(2n, new THREE.Vector3(4, 6, 0), 1.4);
+    expect(Math.abs(first.orientation.dot(initialOrientation))).toBeCloseTo(1, 10);
     expect(Math.abs(first.orientation.dot(second.orientation))).toBeCloseTo(1, 10);
     const delta = second.position.clone().sub(first.position);
     expect(delta.x).toBeCloseTo(3, 10);
     expect(delta.y).toBeCloseTo(4, 10);
     expect(delta.z).toBeCloseTo(0, 10);
+    renderer.updateConfig((draft) => {
+      draft.followTf = "robot2";
+    });
+    const otherRobot = sample(3n, new THREE.Vector3(10, -5, 2), -1.1, "robot2");
+    expect(Math.abs(otherRobot.orientation.dot(initialOrientation))).toBeCloseTo(1, 10);
     renderer.dispose();
   });
 

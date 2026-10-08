@@ -248,6 +248,29 @@ describe("CameraStateSettings", () => {
     });
   });
 
+  it("centers position follow without resetting the selected projection or viewing angle", () => {
+    renderer.updateConfig((draft) => {
+      draft.followMode = "follow-none";
+      draft.cameraState = {
+        ...draft.cameraState,
+        perspective: false,
+        thetaOffset: 37,
+        phi: 55,
+        targetOffset: [4, 5, 0],
+      };
+    });
+    renderer.settings.handleAction({
+      action: "update",
+      payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
+    });
+    expect(renderer.config.cameraState).toMatchObject({
+      perspective: false,
+      thetaOffset: 37,
+      phi: 55,
+      targetOffset: [0, 0, 0],
+    });
+  });
+
   describe("dispose", () => {
     it("disposes OrbitControls and removes its canvas keyboard listeners", () => {
       // Given

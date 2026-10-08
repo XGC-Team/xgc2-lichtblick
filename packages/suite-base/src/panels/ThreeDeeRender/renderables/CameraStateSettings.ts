@@ -333,8 +333,8 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
           // stationary -> any follow clear offset (center on frame)
           if (draft.followMode === "follow-none") {
             draft.cameraState.targetOffset = [...DEFAULT_CAMERA_STATE.targetOffset];
-            draft.cameraState.thetaOffset = DEFAULT_CAMERA_STATE.thetaOffset;
-          } else if (followMode === "follow-pose") {
+          }
+          if (followMode === "follow-pose") {
             draft.cameraState.thetaOffset = DEFAULT_CAMERA_STATE.thetaOffset;
           }
           draft.followMode = followMode;
@@ -530,6 +530,13 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
         fixed: fixedFrameId,
         render: renderFrameId,
       };
+    }
+    // Position follow uses fixed-frame axes, including when changing robots or
+    // leaving a stationary view. Never inherit the selected robot's heading.
+    if (this.unfollowPoseSnapshot && this.renderer.config.followMode === "follow-position") {
+      const orientation = this.unfollowPoseSnapshot.orientation;
+      orientation.x = orientation.y = orientation.z = 0;
+      orientation.w = 1;
     }
     return this.unfollowPoseSnapshot;
   }

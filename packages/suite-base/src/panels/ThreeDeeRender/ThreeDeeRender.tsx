@@ -961,7 +961,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
       setPublishActive(true);
     };
     const onSubmit = (event: PublishClickEventMap["foxglove.publish-submit"]) => {
-      const frameId = renderer?.followFrameId;
+      const frameId = event.frameId;
       if (frameId == undefined) {
         log.warn("Unable to publish, renderFrameId is not set");
         return;
@@ -1030,7 +1030,6 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     latestPublishConfig,
     logError,
     publishTopics,
-    renderer?.followFrameId,
     renderer?.publishClickTool,
   ]);
 
@@ -1045,7 +1044,6 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
 
   const onFollowRobot = useCallback(
     (frameId: string, followMode: "follow-position" | "follow-pose" = "follow-position") => {
-      renderer?.publishClickTool.stop();
       actionHandler({
         action: "update",
         payload: { input: "select", path: ["general", "followTf"], value: frameId },
@@ -1055,14 +1053,17 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         payload: { input: "select", path: ["general", "followMode"], value: followMode },
       });
     },
-    [actionHandler, renderer],
+    [actionHandler],
   );
 
   const onOverview = useCallback(() => {
     if (!renderer) {
       return;
     }
-    renderer.publishClickTool.stop();
+    const overview = {
+      ...overviewCameraState,
+      perspective: renderer.getCameraState()?.perspective ?? config.cameraState.perspective,
+    };
     actionHandler({
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
@@ -1075,11 +1076,11 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         value: renderer.fixedFrameId,
       },
     });
-    renderer.setCameraState(overviewCameraState);
+    renderer.setCameraState(overview);
     renderer.updateConfig((draft) => {
-      draft.cameraState = _.cloneDeep(overviewCameraState);
+      draft.cameraState = _.cloneDeep(overview);
     });
-  }, [actionHandler, overviewCameraState, renderer]);
+  }, [actionHandler, config.cameraState.perspective, overviewCameraState, renderer]);
 
   const onGoal = useCallback(() => {
     if (!renderer) {
@@ -1089,12 +1090,11 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
       renderer.publishClickTool.stop();
       return;
     }
-    // Publish in the configured overview/world frame, never a followed robot's frame.
-    onOverview();
     renderer.measurementTool.stopMeasuring();
     renderer.publishClickTool.setPublishClickType("pose");
-    renderer.publishClickTool.start();
-  }, [onOverview, publishActive, renderer]);
+    // Goal coordinates belong to the world; selecting them must not move the camera.
+    renderer.publishClickTool.start(renderer.fixedFrameId);
+  }, [publishActive, renderer]);
 
   const onTogglePerspective = useCallback(() => {
     const currentState = renderer?.getCameraState()?.perspective ?? config.cameraState.perspective;

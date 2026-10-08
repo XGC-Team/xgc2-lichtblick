@@ -9,8 +9,10 @@
 
 import "@testing-library/jest-dom";
 import { act, render, waitFor } from "@testing-library/react";
+import { produce } from "immer";
+import * as _ from "lodash-es";
 
-import { Topic } from "@lichtblick/suite";
+import { SettingsTreeAction, Topic } from "@lichtblick/suite";
 import { EMBEDDED_NAVIGATION_EVENT } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
@@ -26,6 +28,7 @@ import type { MessageEvent } from "@lichtblick/suite-base/players/types";
 import MessageEventBuilder from "@lichtblick/suite-base/testing/builders/MessageEventBuilder";
 import RenderStateBuilder from "@lichtblick/suite-base/testing/builders/RenderStateBuilder";
 
+import type { RendererConfig } from "./IRenderer";
 import { Renderer } from "./Renderer";
 import type { RendererOverlay } from "./RendererOverlay";
 import { ThreeDeeRender } from "./ThreeDeeRender";
@@ -186,7 +189,7 @@ function buildTfMessages({
   schemaName?: string;
   sizeInBytes?: number;
 }): MessageEvent[] {
-  return Array.from({ length: count }, (_, i) =>
+  return Array.from({ length: count }, (_value, i) =>
     MessageEventBuilder.messageEvent({
       topic,
       message: { transforms: [] },
@@ -288,13 +291,14 @@ describe("ThreeDeeRender", () => {
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
     });
+    renderer.settings.handleAction.mockClear();
+    renderer.setCameraState.mockClear();
     act(() => {
       mockOverlayProps.onGoal();
     });
-    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
-      action: "update",
-      payload: { input: "select", path: ["general", "followTf"], value: "world" },
-    });
+    expect(renderer.settings.handleAction).not.toHaveBeenCalled();
+    expect(renderer.setCameraState).not.toHaveBeenCalled();
+    expect(renderer.publishClickTool.start).toHaveBeenCalledWith("world");
     expect(renderer.publishClickTool.setPublishClickType).toHaveBeenCalledWith("pose");
     expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
     expect(jest.spyOn(props.context, "publish")).not.toHaveBeenCalled();
@@ -357,11 +361,10 @@ describe("ThreeDeeRender", () => {
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-position" },
     });
+    renderer.settings.handleAction.mockClear();
     navigate("goal");
-    expect(renderer.settings.handleAction).toHaveBeenCalledWith({
-      action: "update",
-      payload: { input: "select", path: ["general", "followTf"], value: "world" },
-    });
+    expect(renderer.settings.handleAction).not.toHaveBeenCalled();
+    expect(renderer.publishClickTool.start).toHaveBeenCalledWith("world");
     expect(renderer.publishClickTool.setPublishClickType).toHaveBeenCalledWith("pose");
     expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
     expect(jest.spyOn(props.context, "publish")).not.toHaveBeenCalled();
@@ -385,6 +388,90 @@ describe("ThreeDeeRender", () => {
       "transformTreeUpdated",
       expect.any(Function),
     );
+  });
+
+  it("keeps projection, viewpoint and Goal independent through a mixed navigation sequence", () => {
+    mockedRenderer.mockImplementationOnce(({ config }) => {
+      const renderer = createMockRenderer({ config });
+      renderer.getCameraState.mockImplementation(() => renderer.config.cameraState);
+      renderer.updateConfig.mockImplementation((update: (draft: RendererConfig) => void) => {
+        renderer.config = produce(renderer.config, update);
+        renderer.emit("configChange", renderer);
+      });
+      renderer.settings.handleAction.mockImplementation((action: SettingsTreeAction) => {
+        if (action.action !== "update") {
+          return;
+        }
+        const path = action.payload.path;
+        renderer.updateConfig((draft: RendererConfig) => {
+          _.set(draft, path[0] === "general" ? path.slice(1) : path, action.payload.value);
+        });
+      });
+      const emitTool = (event: string) => {
+        renderer.publishClickTool.addEventListener.mock.calls
+          .filter(([type]) => type === event)
+          .forEach(([, listener]) => listener());
+      };
+      renderer.publishClickTool.setPublishClickType.mockImplementation((type) => {
+        renderer.publishClickTool.publishClickType = type;
+      });
+      renderer.publishClickTool.start.mockImplementation(() => {
+        emitTool("foxglove.publish-start");
+      });
+      renderer.publishClickTool.stop.mockImplementation(() => {
+        emitTool("foxglove.publish-end");
+      });
+      return renderer as unknown as Renderer;
+    });
+    const cameraState = { ...DEFAULT_CAMERA_STATE, thetaOffset: 37, distance: 18 };
+    const props = setup({}, { initialState: { cameraState, followMode: "follow-none" } });
+    render(<ThreeDeeRender {...props} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    act(() => {
+      mockOverlayProps.onFollowRobot("robot1");
+    });
+    act(() => {
+      mockOverlayProps.onTogglePerspective();
+    });
+    const selected = renderer.config;
+    expect(selected).toMatchObject({
+      followMode: "follow-position",
+      followTf: "robot1",
+      cameraState: { ...cameraState, perspective: false },
+    });
+    act(() => {
+      mockOverlayProps.onGoal();
+    });
+    expect(renderer.config).toBe(selected);
+    expect(mockOverlayProps.publishActive).toBe(true);
+    act(() => {
+      mockOverlayProps.onFollowRobot("robot2");
+    });
+    expect(renderer.config.cameraState).toEqual(selected.cameraState);
+    expect(mockOverlayProps.publishActive).toBe(true);
+    act(() => {
+      mockOverlayProps.onOverview();
+    });
+    expect(renderer.config).toMatchObject({
+      followMode: "follow-none",
+      followTf: "world",
+      cameraState: { ...cameraState, perspective: false },
+    });
+    expect(mockOverlayProps.publishActive).toBe(true);
+    act(() => {
+      mockOverlayProps.onTogglePerspective();
+    });
+    expect(renderer.config.followMode).toBe("follow-none");
+    expect(renderer.config.cameraState.perspective).toBe(true);
+    const beforeCancel = renderer.config;
+    act(() => {
+      mockOverlayProps.onGoal();
+    });
+    expect(mockOverlayProps.publishActive).toBe(false);
+    expect(renderer.config).toBe(beforeCancel);
+    expect(renderer.publishClickTool.start).toHaveBeenCalledTimes(1);
+    expect(renderer.publishClickTool.start).toHaveBeenCalledWith("world");
+    expect(jest.spyOn(props.context, "publish")).not.toHaveBeenCalled();
   });
 
   it("does not withdraw a connected replacement native panel when the old root retires late", () => {
@@ -452,17 +539,17 @@ describe("ThreeDeeRender", () => {
     ) => void;
     const pose = { position: { x: 1, y: 2, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
     act(() => {
-      onSubmit({ publishClickType: "pose", pose });
+      onSubmit({ publishClickType: "pose", pose, frameId: "world" });
     });
     expect(jest.spyOn(props.context, "publish")).toHaveBeenCalledTimes(1);
     expect(jest.spyOn(props.context, "publish")).toHaveBeenCalledWith(
       "/chosen/goal",
       expect.objectContaining({
-        header: expect.objectContaining({ frame_id: "base_link" }),
+        header: expect.objectContaining({ frame_id: "world" }),
         pose,
       }),
     );
-    const message = "Failed to publish pose to /chosen/goal in base_link: No advertised channel";
+    const message = "Failed to publish pose to /chosen/goal in world: No advertised channel";
     expect(enqueueSnackbarFromParent).toHaveBeenCalledWith(message, "error");
     expect(logError).toHaveBeenCalledWith(message, failure);
     consoleError.mockRestore();
@@ -542,7 +629,7 @@ describe("ThreeDeeRender", () => {
     ) => void;
     const point = { x: 1, y: 2, z: 0 };
     act(() => {
-      onSubmit({ publishClickType: "point", point });
+      onSubmit({ publishClickType: "point", point, frameId: "base_link" });
     });
     expect(jest.spyOn(props.context, "publish")).toHaveBeenLastCalledWith(
       "/chosen/point",
@@ -556,7 +643,7 @@ describe("ThreeDeeRender", () => {
     });
     const pose = { position: { x: 3, y: 4, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
     act(() => {
-      onSubmit({ publishClickType: "pose", pose });
+      onSubmit({ publishClickType: "pose", pose, frameId: "world" });
     });
     expect(jest.spyOn(props.context, "publish")).toHaveBeenLastCalledWith(
       "/chosen/goal",

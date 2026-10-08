@@ -11,12 +11,18 @@ import type { IRenderer } from "../IRenderer";
 import { Renderable } from "../Renderable";
 import { SceneExtension } from "../SceneExtension";
 import { Marker, MarkerAction, MarkerType, TIME_ZERO } from "../ros";
+import { AnyFrameId } from "../transforms";
 import { RenderableArrow } from "./markers/RenderableArrow";
 import { RenderableSphere } from "./markers/RenderableSphere";
 import { makePose, Point, Pose } from "../transforms/geometry";
 
 const UNIT_X = new THREE.Vector3(1, 0, 0);
+const XY_PLANE = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const identityPose = makePose();
+const tempPose = makePose();
+const tempVec2 = new THREE.Vector2();
 const tempVec3 = new THREE.Vector3();
+const tempMatrix4 = new THREE.Matrix4();
 export type PublishClickType = "pose_estimate" | "pose" | "point";
 
 export type PublishClickState = "idle" | "place-first-point" | "place-second-point";
@@ -66,8 +72,12 @@ export interface PublishClickEventMap extends THREE.Object3DEventMap {
   "foxglove.publish-end": object;
   "foxglove.publish-type-change": object;
   "foxglove.publish-submit":
-    | { publishClickType: "point"; point: Point }
-    | { publishClickType: "pose" | "pose_estimate"; pose: Pose };
+    | { publishClickType: "point"; frameId: string | undefined; point: Point }
+    | {
+        publishClickType: "pose" | "pose_estimate";
+        frameId: string | undefined;
+        pose: Pose;
+      };
 }
 
 export class PublishClickTool extends SceneExtension<Renderable, PublishClickEventMap> {
@@ -79,6 +89,8 @@ export class PublishClickTool extends SceneExtension<Renderable, PublishClickEve
 
   #point1?: THREE.Vector3;
   #point2?: THREE.Vector3;
+  #frameId: string | undefined;
+  #raycaster = new THREE.Raycaster();
 
   public constructor(renderer: IRenderer) {
     super("foxglove.PublishClickTool", renderer);
@@ -114,7 +126,15 @@ export class PublishClickTool extends SceneExtension<Renderable, PublishClickEve
     this.dispatchEvent({ type: "foxglove.publish-type-change" });
   }
 
-  public start(): void {
+  public start(frameId = this.renderer.followFrameId): void {
+    if (this.state !== "idle") {
+      this.stop();
+    }
+    this.#frameId = frameId;
+    this.position.set(0, 0, 0);
+    this.quaternion.identity();
+    // Wait for startFrame to resolve the target frame before accepting clicks.
+    this.visible = frameId == undefined;
     this.#setState("place-first-point");
   }
 
@@ -122,11 +142,65 @@ export class PublishClickTool extends SceneExtension<Renderable, PublishClickEve
     this.#setState("idle");
   }
 
+  public override startFrame(
+    currentTime: bigint,
+    renderFrameId: AnyFrameId,
+    fixedFrameId: AnyFrameId,
+  ): void {
+    if (this.state === "idle") {
+      return;
+    }
+    if (this.#frameId == undefined || this.#frameId === renderFrameId) {
+      this.position.set(0, 0, 0);
+      this.quaternion.identity();
+      this.visible = true;
+      return;
+    }
+
+    // Points remain in their selected frame while this group follows the same
+    // target-to-render transform as the rest of the scene.
+    const pose = this.renderer.transformTree.apply(
+      tempPose,
+      identityPose,
+      renderFrameId,
+      fixedFrameId,
+      this.#frameId,
+      currentTime,
+      currentTime,
+    );
+    this.visible = pose != undefined;
+    if (pose) {
+      const p = pose.position;
+      const q = pose.orientation;
+      this.position.set(p.x, p.y, p.z);
+      this.quaternion.set(q.x, q.y, q.z, q.w);
+    }
+  }
+
+  #pickPoint(cursorCoords: THREE.Vector2): THREE.Vector3 | undefined {
+    const { width, height } = this.renderer.input.canvasSize;
+    if (!this.visible || width <= 0 || height <= 0) {
+      return undefined;
+    }
+    this.#raycaster.setFromCamera(
+      tempVec2.set((cursorCoords.x / width) * 2 - 1, 1 - (cursorCoords.y / height) * 2),
+      this.renderer.cameraHandler.getActiveCamera(),
+    );
+    // Intersect the selected frame's ground, not the render frame's XY plane.
+    // Reuse the displayed group transform so picking and preview agree even
+    // when the followed robot is translated, elevated or rotated.
+    this.updateMatrix();
+    this.#raycaster.ray.applyMatrix4(tempMatrix4.copy(this.matrix).invert());
+    return this.#raycaster.ray.intersectPlane(XY_PLANE, tempVec3) ?? undefined;
+  }
+
   #setState(state: PublishClickState): void {
     this.state = state;
     switch (state) {
       case "idle":
         this.#point1 = this.#point2 = undefined;
+        this.#frameId = undefined;
+        this.visible = false;
         this.renderer.input.removeListener("click", this.#handleClick);
         this.renderer.input.removeListener("mousemove", this.#handleMouseMove);
         this.dispatchEvent({ type: "foxglove.publish-end" });
@@ -143,10 +217,11 @@ export class PublishClickTool extends SceneExtension<Renderable, PublishClickEve
   }
 
   #handleMouseMove = (
-    _cursorCoords: THREE.Vector2,
-    worldSpaceCursorCoords: THREE.Vector3 | undefined,
+    cursorCoords: THREE.Vector2,
+    _worldSpaceCursorCoords: THREE.Vector3 | undefined,
     _event: MouseEvent,
   ) => {
+    const worldSpaceCursorCoords = this.#pickPoint(cursorCoords);
     if (!worldSpaceCursorCoords) {
       return;
     }
@@ -164,10 +239,11 @@ export class PublishClickTool extends SceneExtension<Renderable, PublishClickEve
   };
 
   #handleClick = (
-    _cursorCoords: THREE.Vector2,
-    worldSpaceCursorCoords: THREE.Vector3 | undefined,
+    cursorCoords: THREE.Vector2,
+    _worldSpaceCursorCoords: THREE.Vector3 | undefined,
     _event: MouseEvent,
   ) => {
+    const worldSpaceCursorCoords = this.#pickPoint(cursorCoords);
     if (!worldSpaceCursorCoords) {
       return;
     }
@@ -181,6 +257,7 @@ export class PublishClickTool extends SceneExtension<Renderable, PublishClickEve
           this.dispatchEvent({
             type: "foxglove.publish-submit",
             publishClickType: this.publishClickType,
+            frameId: this.#frameId,
             point: { x: this.#point1.x, y: this.#point1.y, z: this.#point1.z },
           });
           this.#setState("idle");
@@ -199,6 +276,7 @@ export class PublishClickTool extends SceneExtension<Renderable, PublishClickEve
           this.dispatchEvent({
             type: "foxglove.publish-submit",
             publishClickType: this.publishClickType,
+            frameId: this.#frameId,
             pose: {
               position: { x: p.x, y: p.y, z: p.z },
               orientation: { x: q.x, y: q.y, z: q.z, w: q.w },
