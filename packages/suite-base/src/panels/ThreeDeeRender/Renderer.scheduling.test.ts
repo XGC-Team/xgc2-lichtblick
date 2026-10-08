@@ -230,6 +230,43 @@ describe("renderer resize scheduling and recovery", () => {
     expect(render).toHaveBeenCalledTimes(1);
   });
 
+  it("re-caps passive repaints when the max frame rate changes", () => {
+    const fireFrame = () => {
+      const [callback] = [...frames.values()];
+      callback?.(0);
+    };
+    // The constructor paints an initial frame; step past the default window.
+    jest.advanceTimersByTime(20);
+    renderer.queueThrottledAnimationFrame();
+    expect(frames.size).toBe(1);
+    fireFrame();
+    expect(render).toHaveBeenCalledTimes(1);
+
+    // Inside the default 60fps window the next request is deferred.
+    renderer.queueThrottledAnimationFrame();
+    expect(frames.size).toBe(0);
+    jest.advanceTimersByTime(17);
+    expect(frames.size).toBe(1);
+    fireFrame();
+    expect(render).toHaveBeenCalledTimes(2);
+
+    // Uncapped: passive requests schedule immediately.
+    renderer.setMaxFrameRate(0);
+    renderer.queueThrottledAnimationFrame();
+    expect(frames.size).toBe(1);
+    fireFrame();
+    expect(render).toHaveBeenCalledTimes(3);
+
+    // Undefined restores the default cap.
+    renderer.setMaxFrameRate(undefined);
+    renderer.queueThrottledAnimationFrame();
+    expect(frames.size).toBe(0);
+    jest.advanceTimersByTime(17);
+    expect(frames.size).toBe(1);
+    fireFrame();
+    expect(render).toHaveBeenCalledTimes(4);
+  });
+
   it("cancels a pending paint and ignores late callbacks after disposal", () => {
     resize(200, 150);
     const [id, callback] = [...frames.entries()][0]!;

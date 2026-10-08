@@ -48,6 +48,7 @@ import { LabelMaterial, LabelPool } from "@lichtblick/three-text";
 
 import {
   CanvasVisibility,
+  DEFAULT_MAX_FRAME_RATE,
   IRenderer,
   InstancedLineMaterial,
   RendererConfig,
@@ -250,14 +251,15 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   #prevResolution = new THREE.Vector2();
   #pickingEnabled = false;
-  // Passive renders are capped at 30fps: high-rate topic streams otherwise
-  // re-render on every animation frame with no visible gain. flush() (picking,
-  // camera drags, capture) stays immediate.
+  // Passive renders are capped by the configurable frame rate (default
+  // DEFAULT_MAX_FRAME_RATE): high-rate topic streams otherwise re-render on
+  // every animation frame with no visible gain. flush() (picking, capture)
+  // stays immediate.
   #renderScheduler = new RenderScheduler(
     () => {
       this.#frameHandler(this.currentTime);
     },
-    { minFrameIntervalMs: 1000 / 30 },
+    { minFrameIntervalMs: 1000 / DEFAULT_MAX_FRAME_RATE },
   );
   // Assumed on screen until the owner reports otherwise (the offline renderer never does).
   #canvasVisibility: CanvasVisibility = "visible";
@@ -306,6 +308,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     const interfaceMode = (this.interfaceMode = args.interfaceMode);
     const canvas = (this.#canvas = args.canvas);
     const config = (this.config = args.config);
+    this.setMaxFrameRate(config.scene.maxFrameRate);
     this.#fetchAsset = args.fetchAsset;
     this.testOptions = args.testOptions;
     this.debugPicking = args.testOptions.debugPicking ?? false;
@@ -1347,6 +1350,15 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   /** Message-driven repaints: coalesced and capped at the scheduler's frame interval. */
   public queueThrottledAnimationFrame(): void {
     this.#renderScheduler.queueThrottled();
+  }
+
+  public setMaxFrameRate(frameRate: number | undefined): void {
+    if (frameRate == undefined) {
+      this.#renderScheduler.setMinFrameIntervalMs(1000 / DEFAULT_MAX_FRAME_RATE);
+    } else {
+      // 0 uncaps: passive invalidations paint on the next animation frame.
+      this.#renderScheduler.setMinFrameIntervalMs(frameRate > 0 ? 1000 / frameRate : 0);
+    }
   }
 
   public canvasVisibility(): CanvasVisibility {

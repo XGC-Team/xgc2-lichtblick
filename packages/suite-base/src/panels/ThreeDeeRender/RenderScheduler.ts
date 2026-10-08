@@ -41,6 +41,11 @@ export class RenderScheduler {
       });
   }
 
+  /** Update the frame-interval cap; applies to subsequent throttled requests. */
+  public setMinFrameIntervalMs(value: number): void {
+    this.#minFrameIntervalMs = Math.max(0, value);
+  }
+
   public queue(): void {
     if (this.#disposed || this.#pendingFrame != undefined) {
       return;

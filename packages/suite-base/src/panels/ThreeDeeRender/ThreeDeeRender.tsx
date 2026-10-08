@@ -777,6 +777,11 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     }
   }, [backgroundColor, effectiveColorScheme, renderer]);
 
+  // Keep the passive repaint cap in sync with the config (layout load, scene reset)
+  useEffect(() => {
+    renderer?.setMaxFrameRate(config.scene.maxFrameRate);
+  }, [config.scene.maxFrameRate, renderer]);
+
   // Handle preloaded messages and render a frame if new messages are available
   // Should be called before `messages` is handled
   useEffect(() => {
@@ -844,8 +849,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   ]);
 
   // Render a new frame if requested. Message-driven invalidations take the
-  // throttled queue so bursts coalesce and respect the 30fps cap; resize,
-  // picking and other interactions flush immediately through their own paths.
+  // throttled queue so bursts coalesce and respect the configured frame-rate
+  // cap; resize, picking and other interactions flush immediately through
+  // their own paths.
   useEffect(() => {
     if (renderer && renderRef.current.needsRender) {
       renderer.queueThrottledAnimationFrame();

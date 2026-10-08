@@ -10,7 +10,7 @@ import * as _ from "lodash-es";
 
 import { SettingsTreeAction, SettingsTreeFields } from "@lichtblick/suite";
 
-import type { IRenderer } from "../IRenderer";
+import { DEFAULT_MAX_FRAME_RATE, IRenderer } from "../IRenderer";
 import { DEFAULT_MESH_UP_AXIS } from "../ModelCache";
 import { SceneExtension } from "../SceneExtension";
 import { SettingsTreeEntry } from "../SettingsManager";
@@ -59,6 +59,18 @@ export class SceneSettings extends SceneExtension {
         precision: 2,
         value: config.scene.labelScaleFactor,
         placeholder: String(DEFAULT_LABEL_SCALE_FACTOR),
+      },
+      maxFrameRate: {
+        label: t("threeDee:maxFrameRate"),
+        help: t("threeDee:maxFrameRateHelp"),
+        input: "select",
+        value: String(config.scene.maxFrameRate ?? DEFAULT_MAX_FRAME_RATE),
+        options: [
+          { label: "60 fps", value: "60" },
+          { label: "30 fps", value: "30" },
+          { label: "15 fps", value: "15" },
+          { label: t("threeDee:uncapped"), value: "0" },
+        ],
       },
       ignoreColladaUpAxis: {
         label: t("threeDee:ignoreColladaUpAxis"),
@@ -124,6 +136,16 @@ export class SceneSettings extends SceneExtension {
     if (category === "scene") {
       if (path[1] === "debugPicking") {
         this.renderer.debugPicking = (value as boolean | undefined) ?? false;
+        this.updateSettingsTree();
+        return;
+      }
+      if (path[1] === "maxFrameRate") {
+        const parsed = Number(value);
+        const maxFrameRate = Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+        this.renderer.updateConfig((draft) => {
+          draft.scene.maxFrameRate = maxFrameRate;
+        });
+        this.renderer.setMaxFrameRate(maxFrameRate);
         this.updateSettingsTree();
         return;
       }

@@ -121,6 +121,9 @@ export type ImageModeConfig = Partial<ColorModeSettings> & {
   maxValue?: number;
 };
 
+/** Default cap in fps for passive repaints when `RendererConfig.scene.maxFrameRate` is unset. */
+export const DEFAULT_MAX_FRAME_RATE = 60;
+
 export type RendererConfig = {
   /** Camera settings for the currently rendering scene */
   cameraState: CameraState;
@@ -137,6 +140,11 @@ export type RendererConfig = {
     };
     /** Show rendering metrics in a DOM overlay */
     enableStats?: boolean;
+    /**
+     * Cap in frames per second for passive (message- and settings-driven)
+     * repaints. `0` removes the cap; `undefined` applies the renderer default.
+     */
+    maxFrameRate?: number;
     /** Background color override for the scene, sent to `glClearColor()` */
     backgroundColor?: string;
     /* Scale factor to apply to all labels */
@@ -411,6 +419,12 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
   animationFrame: () => void;
   queueAnimationFrame: () => void;
   queueThrottledAnimationFrame: () => void;
+
+  /**
+   * Cap for passive (message- and settings-driven) repaints. `undefined`
+   * restores the default rate; `0` removes the cap.
+   */
+  setMaxFrameRate(frameRate: number | undefined): void;
 
   /**
    * Whether the canvas is on screen. While it is not (a parked embed with `content-visibility:

@@ -50,6 +50,7 @@ const createMockRenderer = () => {
     setCanvasVisibility: jest.fn(),
     animationFrame: jest.fn(),
     queueThrottledAnimationFrame: jest.fn(),
+    setMaxFrameRate: jest.fn(),
     addListener: jest.fn((event: string, listener: (...args: any[]) => void) => {
       if (!listeners.has(event)) {
         listeners.set(event, new Set());

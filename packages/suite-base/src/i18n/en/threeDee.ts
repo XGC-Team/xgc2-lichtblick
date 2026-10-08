@@ -63,9 +63,13 @@ export const threeDee = {
   meshUpAxis: "Mesh up axis",
   meshUpAxisHelp:
     "The direction to use as “up” when loading meshes without orientation info (STL and OBJ)",
+  maxFrameRate: "Max frame rate",
+  maxFrameRateHelp:
+    "Cap for data-driven repaints. Uncapped paints every invalidation on the next animation frame.",
   renderStats: "Render stats",
   scene: "Scene",
   takeEffectAfterReboot: "This setting requires a restart to take effect",
+  uncapped: "Uncapped",
   YUp: "Y-up",
   ZUp: "Z-up",
 

@@ -93,4 +93,25 @@ describe("RenderScheduler frame cap", () => {
     jest.advanceTimersByTime(100);
     expect(scheduled).toHaveLength(0);
   });
+
+  it("applies a changed frame interval to subsequent throttled requests", () => {
+    scheduler.queueThrottled();
+    runFrames();
+    expect(renders).toBe(1);
+
+    // Halve the interval: the next invalidation waits half as long.
+    scheduler.setMinFrameIntervalMs(1000 / 60);
+    scheduler.queueThrottled();
+    jest.advanceTimersByTime(17);
+    expect(scheduled).toHaveLength(1);
+    runFrames();
+    expect(renders).toBe(2);
+
+    // Zero disables the cap entirely.
+    scheduler.setMinFrameIntervalMs(0);
+    scheduler.queueThrottled();
+    expect(scheduled).toHaveLength(1);
+    runFrames();
+    expect(renders).toBe(3);
+  });
 });
