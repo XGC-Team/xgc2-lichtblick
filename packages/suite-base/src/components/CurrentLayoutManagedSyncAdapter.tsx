@@ -127,10 +127,6 @@ export function CurrentLayoutManagedSyncAdapter(): React.JSX.Element {
         {state.uncertainRequestId ? "Check save result" : "Reload saved state"}
       </button>
     </div>
-  ) : state.pending > 0 || unsubmitted ? (
-    <div role="status">Saving changes…</div>
-  ) : dirty ? (
-    <div role="status">Changes are not saved</div>
   ) : (
     <></>
   );
