@@ -71,6 +71,9 @@ release:
   ref: xgc2
   workflow: apt-release.yml
   ci_workflow: apt-ci.yml
+  dependency_policy:
+    xgc2-storage: verify
+    xgc2-xrpc: rebuild
   apt_versions:
     focal: 1.27.0-29~focal
     jammy: 1.27.0-29~jammy
