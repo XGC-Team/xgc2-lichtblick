@@ -307,6 +307,10 @@ export async function main(options: {
         });
     }
   });
+  // Supervisors stop the process with a signal, so use the same persistence
+  // drain as the desktop's Quit action before releasing the native owner.
+  process.once("SIGTERM", () => app.quit());
+  process.once("SIGINT", () => app.quit());
   const managedClient = createManagedDomainClientFromBootstrap(
     domainOptions,
     derivePolicy(policy, {
