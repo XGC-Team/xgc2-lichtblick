@@ -25,7 +25,7 @@ import {
   UlogLocalDataSourceFactory,
   VelodyneDataSourceFactory,
 } from "@lichtblick/suite-base";
-import { ManagedExtensionLoader } from "@lichtblick/suite-base/src/services/persistence/ManagedExtensionLoader";
+import { ManagedExtensionLoader } from "../../../suite-base/src/services/persistence/ManagedExtensionLoader";
 
 import { NativeAppMenu } from "./services/NativeAppMenu";
 import { NativeWindow } from "./services/NativeWindow";

@@ -6,8 +6,8 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { AppSetting } from "@lichtblick/suite-base";
-import { ManagedAppConfiguration } from "@lichtblick/suite-base/src/services/persistence/ManagedAppConfiguration";
-import { initializeManagedPersistence } from "@lichtblick/suite-base/src/services/persistence/ManagedPersistence";
+import { ManagedAppConfiguration } from "../../packages/suite-base/src/services/persistence/ManagedAppConfiguration";
+import { initializeManagedPersistence } from "../../packages/suite-base/src/services/persistence/ManagedPersistence";
 
 import { unwrapManagedIPC } from "../../packages/suite-desktop/src/common/managedIPC";
 import { PersistenceBridge } from "../../packages/suite-desktop/src/common/types";

@@ -8,7 +8,7 @@
 import type {
   ManagedRequest,
   ManagedTransport,
-} from "@lichtblick/suite-base/src/services/persistence/ManagedDocumentStore";
+} from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
 import type { ManagedAsset } from "../../../../xgc2/launcher/managed-storage.cjs";
 

@@ -22,7 +22,7 @@ import {
   IAppConfiguration,
   AppSetting,
 } from "@lichtblick/suite-base";
-import { sharedI18nObject } from "@lichtblick/suite-base/src/i18n";
+import { sharedI18nObject } from "../../../suite-base/src/i18n";
 
 import Root from "./Root";
 import { Desktop } from "../common/types";

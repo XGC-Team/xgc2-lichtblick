@@ -56,7 +56,7 @@ jest.mock("@lichtblick/log", () => ({
     }),
   },
 }));
-jest.mock("@lichtblick/suite-base/src/i18n", () => ({
+jest.mock("../../../suite-base/src/i18n", () => ({
   initI18n: jest.fn(async () => undefined),
   sharedI18nObject: { changeLanguage: jest.fn(async () => undefined) },
 }));

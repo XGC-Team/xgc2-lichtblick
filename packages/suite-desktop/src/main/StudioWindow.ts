@@ -22,9 +22,9 @@ import {
 import path from "path";
 
 import Logger from "@lichtblick/log";
-import { APP_BAR_HEIGHT } from "@lichtblick/suite-base/src/components/AppBar/constants";
-import { NativeAppMenuEvent } from "@lichtblick/suite-base/src/context/NativeAppMenuContext";
-import { sharedI18nObject as i18n } from "@lichtblick/suite-base/src/i18n";
+import { APP_BAR_HEIGHT } from "../../../suite-base/src/components/AppBar/constants";
+import { NativeAppMenuEvent } from "../../../suite-base/src/context/NativeAppMenuContext";
+import { sharedI18nObject as i18n } from "../../../suite-base/src/i18n";
 import { palette } from "@lichtblick/theme";
 
 import StudioAppUpdater from "./StudioAppUpdater";

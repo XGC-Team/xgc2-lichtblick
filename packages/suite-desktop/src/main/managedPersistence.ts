@@ -7,8 +7,8 @@
 
 import { ipcMain } from "electron";
 
-import type { ManagedRequest } from "@lichtblick/suite-base/src/services/persistence/ManagedDocumentStore";
-import { ManagedRequestError } from "@lichtblick/suite-base/src/services/persistence/ManagedDocumentStore";
+import type { ManagedRequest } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
+import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
 import StudioWindow from "./StudioWindow";
 import { observeCommittedSettings } from "./settings";

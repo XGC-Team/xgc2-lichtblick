@@ -13,7 +13,7 @@ import Logger from "@lichtblick/log";
 import {
   NetworkInterface,
   OsContext,
-} from "@lichtblick/suite-base/src/OsContext";
+} from "../../../suite-base/src/OsContext";
 
 import { createPersistenceBridge } from "./persistence";
 import {

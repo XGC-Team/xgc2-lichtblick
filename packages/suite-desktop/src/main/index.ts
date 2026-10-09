@@ -9,8 +9,8 @@ import { loadBootstrapInput, derivePolicy, Diagnostics } from "@xgc2/xrpc";
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from "electron";
 
 import Logger from "@lichtblick/log";
-import { AppSetting } from "@lichtblick/suite-base/src/AppSetting";
-import { initI18n, sharedI18nObject as i18n } from "@lichtblick/suite-base/src/i18n";
+import { AppSetting } from "../../../suite-base/src/AppSetting";
+import { initI18n, sharedI18nObject as i18n } from "../../../suite-base/src/i18n";
 
 import StudioAppUpdater from "./StudioAppUpdater";
 import StudioWindow from "./StudioWindow";

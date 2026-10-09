@@ -5,12 +5,12 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { AppSetting } from "@lichtblick/suite-base/src/AppSetting";
+import { AppSetting } from "../../../suite-base/src/AppSetting";
 import {
   ManagedDocumentStore,
   ManagedRequest,
   ManagedTransport,
-} from "@lichtblick/suite-base/src/services/persistence/ManagedDocumentStore";
+} from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
 let configuration:
   | Map<string, { value?: unknown; version: string; deleted?: boolean }>

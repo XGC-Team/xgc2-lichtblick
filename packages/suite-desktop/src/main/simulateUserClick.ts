@@ -7,7 +7,7 @@
 
 import { BrowserWindow } from "electron";
 
-import delay from "@lichtblick/suite-base/src/util/delay";
+import delay from "../../../suite-base/src/util/delay";
 
 // <input> elements can only be opened on user interaction
 // This fakes a uesr interaction which allows us to invoke input.click() in renderer threads

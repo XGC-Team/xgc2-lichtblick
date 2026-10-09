@@ -13,7 +13,7 @@ import { pathToFileURL } from "url";
 import UTIF from "utif";
 
 import Logger from "@lichtblick/log";
-import { AppSetting } from "@lichtblick/suite-base/src/AppSetting";
+import { AppSetting } from "../../../suite-base/src/AppSetting";
 
 import { getAppSetting } from "./settings";
 

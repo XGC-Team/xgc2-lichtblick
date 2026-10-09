@@ -10,7 +10,7 @@ import { autoUpdater, UpdateInfo } from "electron-updater";
 import { EventEmitter } from "eventemitter3";
 
 import Logger from "@lichtblick/log";
-import { AppSetting } from "@lichtblick/suite-base/src/AppSetting";
+import { AppSetting } from "../../../suite-base/src/AppSetting";
 
 import { getAppSetting } from "./settings";
 
