@@ -213,6 +213,7 @@ docker run "${docker_run_args[@]}" \
       "path-include=/usr/share/doc/xgc2-lichtblick-web/*" \
       > /etc/dpkg/dpkg.cfg.d/zz-xgc2-lichtblick-smoke-docs
     apt-get install -y --no-install-recommends "${desktop_deb}" "${web_deb}"
+    NODE_PATH=/usr/lib/xgc2/node_modules node --test /workspace/source/xgc2/tests/test_lichtblick_web.js
     /workspace/source/.xgc2/scripts/smoke_test_installed.sh
     /workspace/source/.xgc2/scripts/smoke_test_web_installed.sh
     apt-get purge -y xgc2-lichtblick xgc2-lichtblick-web

@@ -135,7 +135,7 @@ if git ls-files | grep -E '(^|/)(\.work|\.ci|debs|node_modules)(/|$)|\.deb$' >/d
   echo "Generated build or upstream source artifacts are tracked." >&2
   exit 1
 fi
-if rg -n 'apt@example\.com|StrictHostKeyChecking=(no|accept-new)' .xgc2 .github/workflows/apt-*.yml xgc2/launcher --glob '!check_package_compliance.sh'; then
+if grep -REn --exclude=check_package_compliance.sh 'apt@example\.com|StrictHostKeyChecking=(no|accept-new)' .xgc2 .github/workflows/apt-*.yml xgc2/launcher; then
   echo "Placeholder maintainer or insecure SSH host-key policy found." >&2
   exit 1
 fi
@@ -227,5 +227,5 @@ fi
 
 git diff --check
 python3 -m unittest discover -s xgc2/tests -p 'test_*.py' -v
-node --test xgc2/tests/test_lichtblick_web.js xgc2/tests/test_prepared_layout.cjs
+node --test xgc2/tests/test_prepared_layout.cjs
 echo "xgc2-lichtblick package compliance checks passed."
