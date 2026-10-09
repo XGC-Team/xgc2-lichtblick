@@ -36,14 +36,14 @@ class BuildEntryTests(unittest.TestCase):
 import json, os, pathlib, sys
 args = sys.argv[1:]
 entry = {"args": args}
-if args[0] == "run" and "--user" in args:
+if args[0] == "run" and any(arg.startswith("XGC2_BUILD_UID=") for arg in args):
     mounts = [args[i + 1] for i, arg in enumerate(args) if arg == "-v"]
     source = pathlib.Path(next(m[:-len(":/workspace/source")] for m in mounts if m.endswith(":/workspace/source")))
     entry["source"] = (source / "source.txt").read_text()
     entry["untracked"] = (source / "untracked.txt").exists()
 with open(os.environ["DOCKER_CALLS"], "a") as log:
     log.write(json.dumps(entry) + "\\n")
-if args[0] == "run" and "--user" in args and os.environ.get("FAIL_BUILD"):
+if args[0] == "run" and any(arg.startswith("XGC2_BUILD_UID=") for arg in args) and os.environ.get("FAIL_BUILD"):
     sys.exit(17)
 ''')
         docker.chmod(0o755)
@@ -69,7 +69,8 @@ if args[0] == "run" and "--user" in args and os.environ.get("FAIL_BUILD"):
         self.assertEqual(build["source"], "committed\n")
         self.assertFalse(build["untracked"])
         self.assertIn(f"XGC2_SOURCE_SHA={self.sha}", build["args"])
-        self.assertIn(f"{os.getuid()}:{os.getgid()}", build["args"])
+        self.assertIn(f"XGC2_BUILD_UID={os.getuid()}", build["args"])
+        self.assertIn(f"XGC2_BUILD_GID={os.getgid()}", build["args"])
         self.assertNotIn("--user", smoke["args"])
         mounts = [smoke["args"][i + 1] for i, arg in enumerate(smoke["args"]) if arg == "-v"]
         self.assertTrue(all(m.endswith(":ro") for m in mounts))

@@ -102,7 +102,7 @@ fi
 # `bash -c`; its continuations are interpreted inside the container.
 # shellcheck disable=SC1004
 docker run "${docker_run_args[@]}" \
-  --user "$(id -u):$(id -g)" -e HOME=/tmp -w /workspace/source \
+  -e XGC2_BUILD_UID="$(id -u)" -e XGC2_BUILD_GID="$(id -g)" -e HOME=/tmp -w /workspace/source \
   -e XGC2_SOURCE_SHA="${source_sha}" -e SOURCE_DATE_EPOCH="${source_epoch}" \
   -e XGC2_APT_OVERLAY_URL="${XGC2_APT_OVERLAY_URL:-}" \
   -e DEBIAN_FRONTEND=noninteractive \
@@ -117,7 +117,11 @@ docker run "${docker_run_args[@]}" \
   "${docker_image}" \
   bash -c '
     set -euo pipefail
+    /workspace/source/.xgc2/scripts/configure_product_apt.sh
+    apt-get install -y --no-install-recommends node-xgc2-xrpc
 
+    build_as_owner() {
+    set -euo pipefail
     # shellcheck disable=SC1091
     source /workspace/source/xgc2/upstream.lock
     for command in bsdtar corepack curl dpkg-deb fakeroot file git node python3 \
@@ -181,7 +185,9 @@ docker run "${docker_run_args[@]}" \
 
     /workspace/source/.xgc2/scripts/build_deb.sh
     /workspace/source/.xgc2/scripts/build_web_deb.sh
-
+    }
+    export -f build_as_owner
+    exec setpriv --reuid="${XGC2_BUILD_UID}" --regid="${XGC2_BUILD_GID}" --clear-groups bash -c build_as_owner
   '
 
 # Installation needs root only inside this disposable container. All host
@@ -189,10 +195,12 @@ docker run "${docker_run_args[@]}" \
 docker run "${docker_run_args[@]}" \
   -e DEBIAN_FRONTEND=noninteractive \
   -e PACKAGE_DISTRIBUTION="${distribution}" -e TARGET_ARCH="${architecture}" \
+  -e XGC2_APT_OVERLAY_URL="${XGC2_APT_OVERLAY_URL:-}" \
   -v "${build_root}/source:/workspace/source:ro" \
   -v "${output_dir}:/workspace/out:ro" \
   "${docker_image}" bash -c '
     set -euo pipefail
+    /workspace/source/.xgc2/scripts/configure_product_apt.sh
     product_version="$(sed -n "s/^version:[[:space:]]*//p" /workspace/source/.xgc2/product.yml | head -n 1)"
     desktop_deb="/workspace/out/xgc2-lichtblick_${product_version}~${PACKAGE_DISTRIBUTION}_${TARGET_ARCH}.deb"
     web_deb="/workspace/out/xgc2-lichtblick-web_${product_version}~${PACKAGE_DISTRIBUTION}_${TARGET_ARCH}.deb"
