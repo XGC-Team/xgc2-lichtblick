@@ -76,6 +76,8 @@ install -m 0644 "${repo_root}/xgc2/launcher/managed-storage.cjs" \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/managed-storage.cjs"
 install -m 0644 "${repo_root}/xgc2/launcher/managed-rpc.cjs" \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/managed-rpc.cjs"
+install -m 0644 "${repo_root}/xgc2/launcher/prepare-layout.cjs" \
+  "${pkg_root}/usr/lib/xgc2/lichtblick-web/prepare-layout.cjs"
 python3 - \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/build-info.json" \
   "${package_version}" \

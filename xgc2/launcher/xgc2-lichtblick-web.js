@@ -17,11 +17,24 @@
 "use strict";
 
 const fs = require("node:fs");
-const { createHTTPHost, proxyWebSocket, loadBootstrapInput, derivePolicy, Diagnostics } = require("@xgc2/xrpc");
+const {
+  createHTTPHost,
+  proxyWebSocket,
+  loadBootstrapInput,
+  derivePolicy,
+  Diagnostics,
+} = require("@xgc2/xrpc");
 const path = require("node:path");
 const url = require("node:url");
-const { MAX_WIRE_BYTES, MAX_ASSET_BYTES, PersistenceError, createManagedPolicy, createManagedDomainClientFromBootstrap } = require("./managed-storage.cjs");
+const {
+  MAX_WIRE_BYTES,
+  MAX_ASSET_BYTES,
+  PersistenceError,
+  createManagedPolicy,
+  createManagedDomainClientFromBootstrap,
+} = require("./managed-storage.cjs");
 const { createManagedDomainRPC } = require("./managed-rpc.cjs");
+const { readJSONInput } = require("./prepare-layout.cjs");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8080;
@@ -34,12 +47,18 @@ const DEFAULT_PUBLIC_URL_PREFIX = "/";
 const DEFAULT_FRAME_ANCESTORS =
   "'self' http://127.0.0.1:5173 http://localhost:5173 http://127.0.0.1:5174 http://localhost:5174 http://127.0.0.1:8787 http://localhost:8787 http://127.0.0.1:8788 http://localhost:8788";
 const ENV_FILE =
-  process.env.XGC2_LICHTBLICK_WEB_ENV_FILE ?? path.join(__dirname, "lichtblick-web.env");
+  process.env.XGC2_LICHTBLICK_WEB_ENV_FILE ??
+  path.join(__dirname, "lichtblick-web.env");
 const DEFAULT_STATIC_ROOT = path.resolve(__dirname, "../../web/.webpack");
-const DEFAULT_BUILD_INFO_FILE = path.resolve(__dirname, "../../web/build-info.json");
+const DEFAULT_BUILD_INFO_FILE = path.resolve(
+  __dirname,
+  "../../web/build-info.json",
+);
 // Both paths remain overridable for tests and process-supervisor staging.
-const STATIC_ROOT = process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT ?? DEFAULT_STATIC_ROOT;
-const BUILD_INFO_FILE = process.env.XGC2_LICHTBLICK_WEB_BUILD_INFO ?? DEFAULT_BUILD_INFO_FILE;
+const STATIC_ROOT =
+  process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT ?? DEFAULT_STATIC_ROOT;
+const BUILD_INFO_FILE =
+  process.env.XGC2_LICHTBLICK_WEB_BUILD_INFO ?? DEFAULT_BUILD_INFO_FILE;
 const LOG_PREFIX = "xgc2-lichtblick-web";
 
 function logLine(level, message) {
@@ -70,11 +89,17 @@ function parseArgs(argv) {
     assetUrlPrefix: null,
     bootstrapInput: null,
     showHelp: false,
+    layoutStdin: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     switch (arg) {
+      case "--layout-stdin":
+        if (opts.layoutStdin)
+          throw new Error("--layout-stdin occurs more than once");
+        opts.layoutStdin = true;
+        break;
       case "-h":
       case "--help":
         opts.showHelp = true;
@@ -84,7 +109,11 @@ function parseArgs(argv) {
         break;
       case "--port":
         opts.port = Number.parseInt(argv[++i], 10);
-        if (!Number.isInteger(opts.port) || opts.port < 0 || opts.port > 65535) {
+        if (
+          !Number.isInteger(opts.port) ||
+          opts.port < 0 ||
+          opts.port > 65535
+        ) {
           throw new Error(`invalid --port value: ${argv[i]}`);
         }
         break;
@@ -104,7 +133,12 @@ function parseArgs(argv) {
         opts.assetUrlPrefix = argv[++i];
         break;
       case "--bootstrap-input":
-        if (opts.bootstrapInput != null || !argv[i + 1] || argv[i + 1].startsWith("--")) throw new Error("one explicit --bootstrap-input file is required");
+        if (
+          opts.bootstrapInput != null ||
+          !argv[i + 1] ||
+          argv[i + 1].startsWith("--")
+        )
+          throw new Error("one explicit --bootstrap-input file is required");
         opts.bootstrapInput = argv[++i];
         break;
       default:
@@ -142,6 +176,7 @@ function printHelp() {
       `                                   Default: ${DEFAULT_FRAME_ANCESTORS}`,
       "  --asset-url-prefix <path>      Stable same-origin hashed-asset path. Env: ASSET_URL_PREFIX.",
       "  --bootstrap-input <file>       Required private application input granted by the process owner.",
+      "  --layout-stdin                 Read the prepared initial LayoutData from stdin.",
       "  -h, --help                     Show this help and exit.",
       "",
       "Environment variables override compiled-in defaults but are themselves",
@@ -198,12 +233,18 @@ function loadEnvFile(envPath) {
 function parseWsUrl(rawUrl) {
   const parsed = new url.URL(rawUrl);
   if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
-    throw new Error(`control-plane URL must use ws:// or wss://, got ${parsed.protocol}`);
+    throw new Error(
+      `control-plane URL must use ws:// or wss://, got ${parsed.protocol}`,
+    );
   }
   return {
     protocol: parsed.protocol,
     hostname: parsed.hostname,
-    port: parsed.port ? Number.parseInt(parsed.port, 10) : parsed.protocol === "wss:" ? 443 : 80,
+    port: parsed.port
+      ? Number.parseInt(parsed.port, 10)
+      : parsed.protocol === "wss:"
+        ? 443
+        : 80,
     path: `${parsed.pathname || "/"}${parsed.search || ""}`,
   };
 }
@@ -215,7 +256,9 @@ function normalizeOrigin(rawOrigin) {
   }
   const parsed = new url.URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`origin must use http:// or https://, got ${parsed.protocol}`);
+    throw new Error(
+      `origin must use http:// or https://, got ${parsed.protocol}`,
+    );
   }
   if (parsed.hostname.includes("*")) {
     throw new Error(`origin must not contain a wildcard hostname: ${value}`);
@@ -227,7 +270,9 @@ function normalizeOrigin(rawOrigin) {
     parsed.search !== "" ||
     parsed.hash !== ""
   ) {
-    throw new Error(`origin must not include credentials, path, query, or fragment: ${value}`);
+    throw new Error(
+      `origin must not include credentials, path, query, or fragment: ${value}`,
+    );
   }
   return parsed.origin;
 }
@@ -258,7 +303,9 @@ function validateFrameAncestors(rawValue) {
   }
   const sources = value.split(/\s+/);
   if (sources.includes("'none'") && sources.length !== 1) {
-    throw new Error("frame-ancestors 'none' cannot be combined with other sources");
+    throw new Error(
+      "frame-ancestors 'none' cannot be combined with other sources",
+    );
   }
   const normalized = sources.map((source) => {
     if (source === "'self'" || source === "'none'") {
@@ -325,7 +372,10 @@ function safeJoin(root, requested) {
   const full = path.join(root, normalized);
   const resolvedRoot = path.resolve(root);
   const resolvedFull = path.resolve(full);
-  if (resolvedFull !== resolvedRoot && !resolvedFull.startsWith(resolvedRoot + path.sep)) {
+  if (
+    resolvedFull !== resolvedRoot &&
+    !resolvedFull.startsWith(resolvedRoot + path.sep)
+  ) {
     return null;
   }
   return resolvedFull;
@@ -350,7 +400,9 @@ function transformIndexHtml(source, prefix, assetUrlPrefix = null) {
     throw new Error("Lichtblick index.html has no closing head element");
   }
   const connected = source.replace("</head>", `${autoConnect}</head>`);
-  return assetUrlPrefix == null ? connected : rewriteHashedScripts(connected, assetUrlPrefix);
+  return assetUrlPrefix == null
+    ? connected
+    : rewriteHashedScripts(connected, assetUrlPrefix);
 }
 
 /**
@@ -397,12 +449,18 @@ function rewriteHashedScripts(source, assetUrlPrefix) {
     return `${head}${quote}${assetPrefix}${relative}${quote}`;
   });
   if (rewritten === 0) {
-    throw new Error("asset URL prefix is set but index.html loads no content-hashed script");
+    throw new Error(
+      "asset URL prefix is set but index.html loads no content-hashed script",
+    );
   }
   return result;
 }
 
-function createIndexLoader(prefix, staticRoot = STATIC_ROOT, assetUrlPrefix = null) {
+function createIndexLoader(
+  prefix,
+  staticRoot = STATIC_ROOT,
+  assetUrlPrefix = null,
+) {
   const indexPath = path.join(staticRoot, "index.html");
   let mtimeNs = -1n;
   let body = "";
@@ -410,7 +468,11 @@ function createIndexLoader(prefix, staticRoot = STATIC_ROOT, assetUrlPrefix = nu
     const st = fs.statSync(indexPath);
     const nextMtime = st.mtimeNs ?? BigInt(Math.round(st.mtimeMs * 1e6));
     if (nextMtime !== mtimeNs) {
-      body = transformIndexHtml(fs.readFileSync(indexPath, "utf8"), prefix, assetUrlPrefix);
+      body = transformIndexHtml(
+        fs.readFileSync(indexPath, "utf8"),
+        prefix,
+        assetUrlPrefix,
+      );
       mtimeNs = nextMtime;
     }
     return body;
@@ -418,7 +480,9 @@ function createIndexLoader(prefix, staticRoot = STATIC_ROOT, assetUrlPrefix = nu
 }
 
 function resolveTransformedIndex(transformedIndex) {
-  return typeof transformedIndex === "function" ? transformedIndex() : transformedIndex;
+  return typeof transformedIndex === "function"
+    ? transformedIndex()
+    : transformedIndex;
 }
 
 function loadBuildInfo() {
@@ -431,7 +495,9 @@ function loadBuildInfo() {
     typeof parsed.version !== "string" ||
     typeof parsed.upstreamSha !== "string"
   ) {
-    throw new Error(`${BUILD_INFO_FILE} is not valid XGC2 Lichtblick build metadata`);
+    throw new Error(
+      `${BUILD_INFO_FILE} is not valid XGC2 Lichtblick build metadata`,
+    );
   }
   return parsed;
 }
@@ -477,7 +543,10 @@ const CONTENT_HASHED_NAME = /(?:^|\.)[0-9a-f]{16,}(?:\.|$)/;
 
 function staticCacheControl(filePath) {
   const name = path.basename(filePath);
-  if (path.extname(name).toLowerCase() !== ".html" && CONTENT_HASHED_NAME.test(name)) {
+  if (
+    path.extname(name).toLowerCase() !== ".html" &&
+    CONTENT_HASHED_NAME.test(name)
+  ) {
     return "public, max-age=31536000, immutable";
   }
   return "no-cache";
@@ -489,10 +558,18 @@ function notModifiedSince(ifModifiedSince, mtime) {
   }
   const since = Date.parse(ifModifiedSince);
   // HTTP dates have whole-second precision.
-  return Number.isFinite(since) && Math.floor(mtime.getTime() / 1000) * 1000 <= since;
+  return (
+    Number.isFinite(since) && Math.floor(mtime.getTime() / 1000) * 1000 <= since
+  );
 }
 
-function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders) {
+function serveStatic(
+  req,
+  res,
+  prefix,
+  transformedIndex,
+  responseSecurityHeaders,
+) {
   const urlPath = req.url.split("?", 1)[0];
   let stripped = urlPath;
   if (prefix !== "/" && urlPath.startsWith(prefix)) {
@@ -566,7 +643,9 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
 // ---- HTTP server wiring ----------------------------------------------------
 
 function isWebSocketUpgrade(req) {
-  return req.headers.upgrade && req.headers.upgrade.toLowerCase() === "websocket";
+  return (
+    req.headers.upgrade && req.headers.upgrade.toLowerCase() === "websocket"
+  );
 }
 
 function isWebSocketPath(reqUrl) {
@@ -601,45 +680,142 @@ function buildRequestListener(
   responseSecurityHeaders,
   persistence,
   originAllowed = () => false,
+  initialLayout,
 ) {
   return async function requestListener(req, res) {
     const requestUrl = new URL(req.url, "http://localhost");
     const base = publicPrefix === "/" ? "" : publicPrefix;
+    if (requestUrl.pathname === `${base}/layout.json`) {
+      writeJson(
+        res,
+        initialLayout && req.method === "GET" ? 200 : 404,
+        initialLayout ?? {},
+        responseSecurityHeaders,
+      );
+      return;
+    }
     const documentRoute = requestUrl.pathname === `${base}/xgc2/storage`;
     const assetRoute = requestUrl.pathname === `${base}/xgc2/extensions/assets`;
-    const assetRead = requestUrl.pathname.startsWith(`${base}/xgc2/extensions/assets/`);
+    const assetRead = requestUrl.pathname.startsWith(
+      `${base}/xgc2/extensions/assets/`,
+    );
     if (documentRoute || assetRoute || assetRead) {
       let input;
       try {
         // Require a declared browser Origin on every persistence route. The
         // desktop bridge calls the domain client inside the main process.
-        const browserOrigin = req.headers.origin ?? (assetRead && req.headers["sec-fetch-site"] === "same-origin" && req.headers.referer ? new URL(req.headers.referer).origin : undefined);
-        if (!originAllowed(browserOrigin)) throw new PersistenceError("permission_denied", "persistence origin is not allowed", 403);
-        if (!persistence) throw new PersistenceError("unavailable", "managed persistence is not configured", 503);
+        const browserOrigin =
+          req.headers.origin ??
+          (assetRead &&
+          req.headers["sec-fetch-site"] === "same-origin" &&
+          req.headers.referer
+            ? new URL(req.headers.referer).origin
+            : undefined);
+        if (!originAllowed(browserOrigin))
+          throw new PersistenceError(
+            "permission_denied",
+            "persistence origin is not allowed",
+            403,
+          );
+        if (!persistence)
+          throw new PersistenceError(
+            "unavailable",
+            "managed persistence is not configured",
+            503,
+          );
         if (documentRoute) {
-          if (req.method !== "POST" || req.headers["content-type"]?.split(";")[0] !== "application/json") throw new PersistenceError("invalid_argument", "JSON POST required", 400);
-          input = JSON.parse((await readBoundedBody(req, MAX_WIRE_BYTES)).toString("utf8"));
-          writeJson(res, 200, await persistence.request(input), responseSecurityHeaders);
+          if (
+            req.method !== "POST" ||
+            req.headers["content-type"]?.split(";")[0] !== "application/json"
+          )
+            throw new PersistenceError(
+              "invalid_argument",
+              "JSON POST required",
+              400,
+            );
+          input = JSON.parse(
+            (await readBoundedBody(req, MAX_WIRE_BYTES)).toString("utf8"),
+          );
+          writeJson(
+            res,
+            200,
+            await persistence.request(input),
+            responseSecurityHeaders,
+          );
         } else if (assetRoute) {
-          if (req.method !== "POST" || req.headers["content-type"] !== "application/octet-stream") throw new PersistenceError("invalid_argument", "binary archive POST required", 400);
+          if (
+            req.method !== "POST" ||
+            req.headers["content-type"] !== "application/octet-stream"
+          )
+            throw new PersistenceError(
+              "invalid_argument",
+              "binary archive POST required",
+              400,
+            );
           const bytes = await readBoundedBody(req, MAX_ASSET_BYTES);
-          const asset = await persistence.publish(bytes, { id: requestUrl.searchParams.get("name"), version: requestUrl.searchParams.get("version") });
+          const asset = await persistence.publish(bytes, {
+            id: requestUrl.searchParams.get("name"),
+            version: requestUrl.searchParams.get("version"),
+          });
           writeJson(res, 200, asset, responseSecurityHeaders);
         } else {
-          if (req.method !== "GET") throw new PersistenceError("invalid_argument", "archive GET required", 400);
+          if (req.method !== "GET")
+            throw new PersistenceError(
+              "invalid_argument",
+              "archive GET required",
+              400,
+            );
           const rawBytes = requestUrl.searchParams.get("bytes");
-          if (!/^[1-9][0-9]{0,7}$/.test(rawBytes ?? "")) throw new PersistenceError("invalid_argument", "canonical archive length required", 400);
-          const bytes = await persistence.load({ owner: "lichtblick", asset_id: decodeURIComponent(requestUrl.pathname.slice(`${base}/xgc2/extensions/assets/`.length)), sha256: requestUrl.searchParams.get("sha256"), bytes: Number(rawBytes) });
-          res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": bytes.byteLength, "Cache-Control": "no-store", ...responseSecurityHeaders });
+          if (!/^[1-9][0-9]{0,7}$/.test(rawBytes ?? ""))
+            throw new PersistenceError(
+              "invalid_argument",
+              "canonical archive length required",
+              400,
+            );
+          const bytes = await persistence.load({
+            owner: "lichtblick",
+            asset_id: decodeURIComponent(
+              requestUrl.pathname.slice(
+                `${base}/xgc2/extensions/assets/`.length,
+              ),
+            ),
+            sha256: requestUrl.searchParams.get("sha256"),
+            bytes: Number(rawBytes),
+          });
+          res.writeHead(200, {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": bytes.byteLength,
+            "Cache-Control": "no-store",
+            ...responseSecurityHeaders,
+          });
           res.end(bytes);
         }
       } catch (error) {
-        if (!res.destroyed && !res.headersSent) writeJson(res, error.status ?? (error instanceof SyntaxError || error instanceof URIError ? 400 : 503), {
-          code: error.code ?? (error instanceof SyntaxError ? "invalid_argument" : "unavailable"),
-          message: error instanceof PersistenceError || error instanceof SyntaxError ? error.message : "managed persistence operation failed",
-          ...(error.outcome ? { outcome: error.outcome } : {}),
-          ...(error.requestId || input?.requestId ? { requestId: error.requestId ?? input.requestId } : {}),
-        }, responseSecurityHeaders);
+        if (!res.destroyed && !res.headersSent)
+          writeJson(
+            res,
+            error.status ??
+              (error instanceof SyntaxError || error instanceof URIError
+                ? 400
+                : 503),
+            {
+              code:
+                error.code ??
+                (error instanceof SyntaxError
+                  ? "invalid_argument"
+                  : "unavailable"),
+              message:
+                error instanceof PersistenceError ||
+                error instanceof SyntaxError
+                  ? error.message
+                  : "managed persistence operation failed",
+              ...(error.outcome ? { outcome: error.outcome } : {}),
+              ...(error.requestId || input?.requestId
+                ? { requestId: error.requestId ?? input.requestId }
+                : {}),
+            },
+            responseSecurityHeaders,
+          );
       }
       return;
     }
@@ -670,7 +846,13 @@ function buildRequestListener(
       writeJson(res, 200, buildInfo, responseSecurityHeaders);
       return;
     }
-    serveStatic(req, res, publicPrefix, transformedIndex, responseSecurityHeaders);
+    serveStatic(
+      req,
+      res,
+      publicPrefix,
+      transformedIndex,
+      responseSecurityHeaders,
+    );
   };
 }
 
@@ -678,11 +860,25 @@ function buildRequestListener(
 
 async function readBoundedBody(request, limit) {
   const length = request.headers["content-length"];
-  if (length !== undefined && (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) > limit)) throw new PersistenceError("resource_exhausted", "request body exceeds product limit", 413);
-  const chunks = []; let size = 0;
+  if (
+    length !== undefined &&
+    (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) > limit)
+  )
+    throw new PersistenceError(
+      "resource_exhausted",
+      "request body exceeds product limit",
+      413,
+    );
+  const chunks = [];
+  let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > limit) throw new PersistenceError("resource_exhausted", "request body exceeds product limit", 413);
+    if (size > limit)
+      throw new PersistenceError(
+        "resource_exhausted",
+        "request body exceeds product limit",
+        413,
+      );
     chunks.push(chunk);
   }
   return Buffer.concat(chunks, size);
@@ -705,14 +901,24 @@ async function main() {
   }
 
   const host = opts.host ?? process.env.HOST ?? DEFAULT_HOST;
-  const port = opts.port ?? (Number.parseInt(process.env.PORT ?? "", 10) || DEFAULT_PORT);
+  const port =
+    opts.port ?? (Number.parseInt(process.env.PORT ?? "", 10) || DEFAULT_PORT);
   const controlPlaneUrl =
-    opts.controlPlaneUrl ?? process.env.CONTROL_PLANE_URL ?? DEFAULT_CONTROL_PLANE_URL;
+    opts.controlPlaneUrl ??
+    process.env.CONTROL_PLANE_URL ??
+    DEFAULT_CONTROL_PLANE_URL;
   const publicUrlPrefix =
-    opts.publicUrlPrefix ?? process.env.PUBLIC_URL_PREFIX ?? DEFAULT_PUBLIC_URL_PREFIX;
-  const configuredOriginValues = [process.env.ALLOWED_ORIGINS ?? "", ...opts.allowedOrigins];
+    opts.publicUrlPrefix ??
+    process.env.PUBLIC_URL_PREFIX ??
+    DEFAULT_PUBLIC_URL_PREFIX;
+  const configuredOriginValues = [
+    process.env.ALLOWED_ORIGINS ?? "",
+    ...opts.allowedOrigins,
+  ];
   const frameAncestorsValue =
-    opts.frameAncestors ?? process.env.FRAME_ANCESTORS ?? DEFAULT_FRAME_ANCESTORS;
+    opts.frameAncestors ??
+    process.env.FRAME_ANCESTORS ??
+    DEFAULT_FRAME_ANCESTORS;
   let targetWs;
   try {
     targetWs = parseWsUrl(controlPlaneUrl);
@@ -735,18 +941,42 @@ async function main() {
   let buildInfo;
   let validatedFrameAncestors;
   let configuredOrigins;
+  let initialLayout;
   try {
     loadIndex = createIndexLoader(
       prefix,
       STATIC_ROOT,
       opts.assetUrlPrefix ?? process.env.ASSET_URL_PREFIX ?? null,
     );
+    if (opts.layoutStdin) {
+      initialLayout = readJSONInput();
+      if (
+        !initialLayout ||
+        typeof initialLayout !== "object" ||
+        Array.isArray(initialLayout) ||
+        !initialLayout.configById ||
+        !initialLayout.layout
+      )
+        throw new Error("prepared LayoutData required");
+      const sourceIndex = loadIndex;
+      const json = JSON.stringify(initialLayout).replace(
+        /[<>&\u2028\u2029]/g,
+        (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      );
+      loadIndex = () =>
+        sourceIndex().replace(
+          "/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/",
+          json,
+        );
+    }
     loadIndex();
     buildInfo = loadBuildInfo();
     validatedFrameAncestors = validateFrameAncestors(frameAncestorsValue);
     configuredOrigins = parseConfiguredOrigins(configuredOriginValues);
   } catch (err) {
-    process.stderr.write(`${LOG_PREFIX}: cannot prepare web entrypoint: ${err.message}\n`);
+    process.stderr.write(
+      `${LOG_PREFIX}: cannot prepare web entrypoint: ${err.message}\n`,
+    );
     process.exit(1);
   }
 
@@ -763,35 +993,87 @@ async function main() {
     if (!closing) {
       persistence?.beginDrain();
       closing = (async () => {
-        const results = await Promise.allSettled([hostRuntime?.close(), productRPC?.close()]);
+        const results = await Promise.allSettled([
+          hostRuntime?.close(),
+          productRPC?.close(),
+        ]);
         const failure = results.find((result) => result.status === "rejected");
         if (failure) throw failure.reason;
         await persistence?.close();
-        await diagnostics?.close({ timeoutMs: policy?.fields.SHUTDOWN_TIMEOUT_MS.value ?? 16000 });
-      })().catch((error) => { closing = undefined; throw error; });
+        await diagnostics?.close({
+          timeoutMs: policy?.fields.SHUTDOWN_TIMEOUT_MS.value ?? 16000,
+        });
+      })().catch((error) => {
+        closing = undefined;
+        throw error;
+      });
     }
     return closing;
   };
   const shutdown = (signal) => {
     logInfo(`received ${signal}, shutting down`);
-    void close().then(() => process.exit(0), (error) => {
-      logError(`shutdown incomplete; owner retains resources: ${error.message}`);
-      process.exitCode = 1;
-    });
+    void close().then(
+      () => process.exit(0),
+      (error) => {
+        logError(
+          `shutdown incomplete; owner retains resources: ${error.message}`,
+        );
+        process.exitCode = 1;
+      },
+    );
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   try {
-    const bootstrap = loadBootstrapInput(opts.bootstrapInput, { role: "server" });
-    diagnostics = new Diagnostics({ sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" } });
+    const bootstrap = loadBootstrapInput(opts.bootstrapInput, {
+      role: "server",
+    });
+    diagnostics = new Diagnostics({
+      sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
+    });
     policy = createManagedPolicy(process.env, diagnostics);
-    persistence = createManagedDomainClientFromBootstrap(bootstrap, derivePolicy(policy, { role: "lichtblick-storage", ceilings: { MAX_REQUEST_BYTES: MAX_WIRE_BYTES, MAX_RESPONSE_BYTES: MAX_WIRE_BYTES } }));
+    persistence = createManagedDomainClientFromBootstrap(
+      bootstrap,
+      derivePolicy(policy, {
+        role: "lichtblick-storage",
+        ceilings: {
+          MAX_REQUEST_BYTES: MAX_WIRE_BYTES,
+          MAX_RESPONSE_BYTES: MAX_WIRE_BYTES,
+        },
+      }),
+    );
     await persistence.ready;
-    productRPC = createManagedDomainRPC(persistence, { ...bootstrap, policy: derivePolicy(policy, { role: "lichtblick-private", ceilings: { MAX_REQUEST_BYTES: MAX_ASSET_BYTES, MAX_RESPONSE_BYTES: MAX_ASSET_BYTES } }) });
+    productRPC = createManagedDomainRPC(persistence, {
+      ...bootstrap,
+      policy: derivePolicy(policy, {
+        role: "lichtblick-private",
+        ceilings: {
+          MAX_REQUEST_BYTES: MAX_ASSET_BYTES,
+          MAX_RESPONSE_BYTES: MAX_ASSET_BYTES,
+        },
+      }),
+    });
     serviceRef = await productRPC.start();
     hostRuntime = createHTTPHost(
-      buildRequestListener(targetWs, prefix, loadIndex, buildInfo, responseSecurityHeaders, persistence, (origin) => websocketOriginAllowed(origin, allowedOrigins)),
-      { policy: derivePolicy(policy, { role: "lichtblick-public", ceilings: { MAX_REQUEST_BYTES: MAX_ASSET_BYTES, MAX_RESPONSE_BYTES: 64 * 1024 * 1024 } }) },
+      buildRequestListener(
+        targetWs,
+        prefix,
+        loadIndex,
+        buildInfo,
+        responseSecurityHeaders,
+        persistence,
+        (origin) => websocketOriginAllowed(origin, allowedOrigins),
+        initialLayout,
+      ),
+      {
+        policy: derivePolicy(policy, {
+          role: "lichtblick-public",
+          ceilings: {
+            MAX_REQUEST_BYTES: MAX_ASSET_BYTES,
+            MAX_RESPONSE_BYTES: 64 * 1024 * 1024,
+          },
+        }),
+      },
     );
   } catch (error) {
     logError(`managed persistence startup failed: ${error.message}`);
@@ -808,27 +1090,44 @@ async function main() {
     }
     if (!isWebSocketPath(req.url)) {
       clientSocket.write(
-        "HTTP/1.1 404 Not Found\r\n" + "Connection: close\r\n" + "Content-Length: 0\r\n" + "\r\n",
+        "HTTP/1.1 404 Not Found\r\n" +
+          "Connection: close\r\n" +
+          "Content-Length: 0\r\n" +
+          "\r\n",
       );
       clientSocket.destroy();
       return;
     }
     if (!websocketOriginAllowed(req.headers.origin, allowedOrigins)) {
-      logWarn(`rejecting WebSocket origin: ${String(req.headers.origin ?? "<missing>")}`);
+      logWarn(
+        `rejecting WebSocket origin: ${String(req.headers.origin ?? "<missing>")}`,
+      );
       clientSocket.write(
-        "HTTP/1.1 403 Forbidden\r\n" + "Connection: close\r\n" + "Content-Length: 0\r\n" + "\r\n",
+        "HTTP/1.1 403 Forbidden\r\n" +
+          "Connection: close\r\n" +
+          "Content-Length: 0\r\n" +
+          "\r\n",
       );
       clientSocket.destroy();
       return;
     }
-    proxyWebSocket(req, clientSocket, head, `${targetWs.protocol}//${targetWs.hostname}:${targetWs.port}${targetWs.path}`);
+    proxyWebSocket(
+      req,
+      clientSocket,
+      head,
+      `${targetWs.protocol}//${targetWs.hostname}:${targetWs.port}${targetWs.path}`,
+    );
   });
 
   server.on("listening", () => {
     const addr = server.address();
-    const bound = typeof addr === "object" && addr ? `${addr.address}:${addr.port}` : "?";
+    const bound =
+      typeof addr === "object" && addr ? `${addr.address}:${addr.port}` : "?";
     const actualPort = typeof addr === "object" && addr ? addr.port : port;
-    allowedOrigins = new Set([...defaultListenerOrigins(actualPort), ...configuredOrigins]);
+    allowedOrigins = new Set([
+      ...defaultListenerOrigins(actualPort),
+      ...configuredOrigins,
+    ]);
     const displayPath = prefix === "/" ? "/" : `${prefix}/`;
     logInfo(`serving Lichtblick web bundle on http://${bound}${displayPath}`);
     logInfo(
@@ -846,13 +1145,22 @@ async function main() {
         resolve();
       });
     });
-    process.stdout.write(`${JSON.stringify({ type: "service_ref", service_ref: serviceRef })}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ type: "service_ref", service_ref: serviceRef })}\n`,
+    );
     server.on("error", (error) => {
       logError(`server error: ${error.message}`);
-      void close().then(() => { process.exitCode = 1; }, (drainError) => {
-        logError(`shutdown incomplete; owner retains resources: ${drainError.message}`);
-        process.exitCode = 1;
-      });
+      void close().then(
+        () => {
+          process.exitCode = 1;
+        },
+        (drainError) => {
+          logError(
+            `shutdown incomplete; owner retains resources: ${drainError.message}`,
+          );
+          process.exitCode = 1;
+        },
+      );
     });
   } catch (error) {
     logError(`public listener startup failed: ${error.message}`);
@@ -862,7 +1170,10 @@ async function main() {
 }
 
 if (require.main === module) {
-  void main().catch((error) => { logError(`startup failed: ${error.message}`); process.exitCode = 1; });
+  void main().catch((error) => {
+    logError(`startup failed: ${error.message}`);
+    process.exitCode = 1;
+  });
 }
 
 module.exports = {

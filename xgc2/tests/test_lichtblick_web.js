@@ -64,13 +64,13 @@ test("parses the browser server command line", () => {
       assetUrlPrefix: null,
       bootstrapInput: null,
       showHelp: false,
+      layoutStdin: false,
     },
   );
 });
 
 test("rejects the retired XGC layout flags", () => {
-  // Layout lives in the Core-generated layout, not in this generic browser server. No process
-  // definition passes these any more; the current catalog is re-provisioned, not recovered.
+  // Layout is prepared once by the owning product and passed as a single document.
   for (const flag of [
     "--initial-view",
     "--ar-visible",
@@ -85,10 +85,22 @@ test("rejects the retired XGC layout flags", () => {
 });
 
 test("normalizes exact HTTP origins and rejects ambiguous sources", () => {
-  assert.equal(normalizeOrigin("https://xgc.example:443"), "https://xgc.example");
-  assert.equal(normalizeOrigin("http://127.0.0.1:8080"), "http://127.0.0.1:8080");
-  assert.throws(() => normalizeOrigin("ws://xgc.example"), /must use http:[/][/]/);
-  assert.throws(() => normalizeOrigin("https://xgc.example/path"), /must not include/);
+  assert.equal(
+    normalizeOrigin("https://xgc.example:443"),
+    "https://xgc.example",
+  );
+  assert.equal(
+    normalizeOrigin("http://127.0.0.1:8080"),
+    "http://127.0.0.1:8080",
+  );
+  assert.throws(
+    () => normalizeOrigin("ws://xgc.example"),
+    /must use http:[/][/]/,
+  );
+  assert.throws(
+    () => normalizeOrigin("https://xgc.example/path"),
+    /must not include/,
+  );
   assert.throws(() => normalizeOrigin("https://*.example"), /wildcard/);
 });
 
@@ -109,12 +121,20 @@ test("builds the WebSocket browser Origin allowlist", () => {
 
 test("validates an iframe-compatible frame-ancestors policy", () => {
   assert.equal(
-    validateFrameAncestors("'self' https://xgc.example:443 http://127.0.0.1:5173"),
+    validateFrameAncestors(
+      "'self' https://xgc.example:443 http://127.0.0.1:5173",
+    ),
     "'self' https://xgc.example http://127.0.0.1:5173",
   );
   assert.equal(validateFrameAncestors("'none'"), "'none'");
-  assert.throws(() => validateFrameAncestors("'none' https://xgc.example"), /cannot be combined/);
-  assert.throws(() => validateFrameAncestors("'self'; default-src *"), /invalid separator/);
+  assert.throws(
+    () => validateFrameAncestors("'none' https://xgc.example"),
+    /cannot be combined/,
+  );
+  assert.throws(
+    () => validateFrameAncestors("'self'; default-src *"),
+    /invalid separator/,
+  );
   assert.equal(
     securityHeaders("'self' https://xgc.example")["Content-Security-Policy"],
     "frame-ancestors 'self' https://xgc.example; base-uri 'self'; object-src 'none'",
@@ -123,8 +143,14 @@ test("validates an iframe-compatible frame-ancestors policy", () => {
 
 test("matches root and public-prefix runtime endpoints", () => {
   assert.equal(endpointMatches("/version", "/lichtblick", "version"), true);
-  assert.equal(endpointMatches("/lichtblick/version?full=1", "/lichtblick", "version"), true);
-  assert.equal(endpointMatches("/other/version", "/lichtblick", "version"), false);
+  assert.equal(
+    endpointMatches("/lichtblick/version?full=1", "/lichtblick", "version"),
+    true,
+  );
+  assert.equal(
+    endpointMatches("/other/version", "/lichtblick", "version"),
+    false,
+  );
 });
 
 test("validates websocket upstream URLs", () => {
@@ -134,11 +160,17 @@ test("validates websocket upstream URLs", () => {
     port: 443,
     path: "/bridge?token=1",
   });
-  assert.throws(() => parseWsUrl("http://robot.example"), /must use ws:\/\/ or wss:\/\//);
+  assert.throws(
+    () => parseWsUrl("http://robot.example"),
+    /must use ws:\/\/ or wss:\/\//,
+  );
 });
 
 test("keeps static paths inside the web root", () => {
-  assert.equal(safeJoin("/srv/web", "/assets/app.js"), "/srv/web/assets/app.js");
+  assert.equal(
+    safeJoin("/srv/web", "/assets/app.js"),
+    "/srv/web/assets/app.js",
+  );
   assert.equal(safeJoin("/srv/web", "/../etc/passwd"), null);
   assert.equal(safeJoin("/srv/web", "/%2e%2e/etc/passwd"), null);
 });
@@ -161,175 +193,263 @@ test("does not replace an explicit data source", () => {
 });
 
 test("reloads index.html after the webpack hash changes", () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "xgc2-lichtblick-index-"));
+  const temporary = fs.mkdtempSync(
+    path.join(os.tmpdir(), "xgc2-lichtblick-index-"),
+  );
   const indexPath = path.join(temporary, "index.html");
-  fs.writeFileSync(indexPath, '<html><head></head><script src="main.old.js"></script></html>');
+  fs.writeFileSync(
+    indexPath,
+    '<html><head></head><script src="main.old.js"></script></html>',
+  );
   const loadIndex = createIndexLoader("/", temporary);
   assert.match(loadIndex(), /main\.old\.js/);
   const later = new Date(Date.now() + 2000);
-  fs.writeFileSync(indexPath, '<html><head></head><script src="main.new.js"></script></html>');
+  fs.writeFileSync(
+    indexPath,
+    '<html><head></head><script src="main.new.js"></script></html>',
+  );
   fs.utimesSync(indexPath, later, later);
   assert.match(loadIndex(), /main\.new\.js/);
   fs.rmSync(temporary, { recursive: true, force: true });
 });
 
-test("serves source-build metadata without an XGC layout and enforces WebSocket Origin", async (t) => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "xgc2-lichtblick-test-"));
-  const webRoot = path.join(temporary, "web");
-  fs.mkdirSync(webRoot);
-  const assetRoot = path.join(temporary, "managed-extensions");
-  fs.mkdirSync(assetRoot, { mode: 0o700 });
-  const tls = createTLSFixture(temporary);
-  const bootstrapInput = tls.writeInput({ schema_version: 1, storage: { grant: "fixture-documents", reference: { target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "test-storage", profile: "http.v1", endpoint: { kind: "unix", address: path.join(temporary, "storage.sock") } }, scope: { namespace: "lichtblick", user: "test", workspace: "test" }, authorization: "fixture-storage-auth" }, assets: { access: "read-write", grant: "fixture-assets", root: assetRoot } });
-  fs.writeFileSync(
-    path.join(webRoot, "index.html"),
-    "<!doctype html><html><head></head><script>" +
-      "globalThis.LICHTBLICK_SUITE_DEFAULT_LAYOUT = " +
-      "[/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/][0];" +
-      "</script><body></body></html>",
-  );
-  fs.writeFileSync(path.join(webRoot, "main.3f1c2a9b8d7e6f5a4b3c.js"), "// bundle");
-  fs.writeFileSync(path.join(webRoot, "favicon.ico"), "icon");
-  const buildInfoFile = path.join(temporary, "build-info.json");
-  const buildInfo = {
-    schema: "xgc2.lichtblick-web.build.v1",
-    package: "xgc2-lichtblick-web",
-    version: "1.27.0-1~test",
-    upstreamSha: "1".repeat(40),
-  };
-  fs.writeFileSync(buildInfoFile, JSON.stringify(buildInfo));
-
-  const upstream = net.createServer((socket) => {
-    let request = "";
-    socket.on("data", (chunk) => {
-      request += chunk.toString("latin1");
-      if (!request.includes("\r\n\r\n")) {
-        return;
-      }
-      socket.write(
-        "HTTP/1.1 101 Switching Protocols\r\n" +
-          "Upgrade: websocket\r\n" +
-          "Connection: Upgrade\r\n" +
-          "Sec-WebSocket-Accept: " +
-          crypto.createHash("sha1").update(
-            /sec-websocket-key:\s*([^\r\n]+)/i.exec(request)[1].trim() +
-            "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
-          ).digest("base64") + "\r\n\r\n",
-      );
-    });
-  });
-  await listen(upstream);
-  const upstreamPort = upstream.address().port;
-
-  const launcherPath = path.resolve(__dirname, "../launcher/xgc2-lichtblick-web.js");
-  const child = childProcess.spawn(
-    process.execPath,
-    [
-      launcherPath,
-      "--bootstrap-input", bootstrapInput,
-      "--host",
-      "127.0.0.1",
-      "--port",
-      "0",
-      "--control-plane-url",
-      `ws://127.0.0.1:${upstreamPort}`,
-      "--allowed-origin",
-      "http://127.0.0.1:5173",
-      "--frame-ancestors",
-      "'self' http://127.0.0.1:5173",
-    ],
-    {
-      env: {
-        ...process.env,
-        XGC2_LICHTBLICK_WEB_STATIC_ROOT: webRoot,
-        XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfoFile,
-        XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(temporary, "missing.env"),
-        ALLOWED_ORIGINS: "",
-        FRAME_ANCESTORS: "",
+for (const withLayout of [false, true]) {
+  test(`serves source metadata and prepared layout=${withLayout} with WebSocket Origin`, async (t) => {
+    const temporary = fs.mkdtempSync(
+      path.join(os.tmpdir(), "xgc2-lichtblick-test-"),
+    );
+    const webRoot = path.join(temporary, "web");
+    fs.mkdirSync(webRoot);
+    const assetRoot = path.join(temporary, "managed-extensions");
+    fs.mkdirSync(assetRoot, { mode: 0o700 });
+    const tls = createTLSFixture(temporary);
+    const bootstrapInput = tls.writeInput({
+      schema_version: 1,
+      storage: {
+        grant: "fixture-documents",
+        reference: {
+          target_id: "fixture",
+          service: "xgc2.storage.v1.Storage",
+          api_version: "1",
+          instance_id: "test-storage",
+          profile: "http.v1",
+          endpoint: {
+            kind: "unix",
+            address: path.join(temporary, "storage.sock"),
+          },
+        },
+        scope: { namespace: "lichtblick", user: "test", workspace: "test" },
+        authorization: "fixture-storage-auth",
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  let stderr = "";
-  child.stderr.on("data", (chunk) => {
-    stderr += chunk.toString();
-  });
-
-  t.after(async () => {
-    if (child.exitCode == null) {
-      child.kill("SIGTERM");
-    }
-    await waitForExit(child);
-    await closeServer(upstream);
-    fs.rmSync(temporary, { recursive: true, force: true });
-  });
-
-  const port = await waitForListeningPort(child, () => stderr);
-  const version = await getJson(port, "/version");
-  assert.deepEqual(version.body, buildInfo);
-  assert.equal(
-    version.headers["content-security-policy"],
-    "frame-ancestors 'self' http://127.0.0.1:5173; base-uri 'self'; object-src 'none'",
-  );
-  assert.equal(version.headers["x-frame-options"], undefined);
-
-  const legacyLayout = await getText(port, "/xgc2-layout.json");
-  assert.equal(legacyLayout.statusCode, 404);
-  const index = await getText(port, "/");
-  assert.match(index.body, /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/);
-  assert.match(index.body, /foxglove-websocket/);
-
-  const bundle = await getText(port, "/main.3f1c2a9b8d7e6f5a4b3c.js");
-  assert.equal(bundle.statusCode, 200);
-  assert.equal(bundle.headers["cache-control"], "public, max-age=31536000, immutable");
-  const favicon = await getText(port, "/favicon.ico");
-  assert.equal(favicon.headers["cache-control"], "no-cache");
-  const revalidated = await getText(port, "/favicon.ico", {
-    "If-Modified-Since": favicon.headers["last-modified"],
-  });
-  assert.equal(revalidated.statusCode, 304);
-  assert.equal(revalidated.body, "");
-
-  await t.test("retries a missing or partial index without serving stale HTML", async () => {
-    const indexPath = path.join(webRoot, "index.html");
-    const original = fs.readFileSync(indexPath, "utf8");
-    let revision = Date.now();
-    const replaceIndex = (html) => {
-      fs.writeFileSync(indexPath, html);
-      const modified = new Date((revision += 2000));
-      fs.utimesSync(indexPath, modified, modified);
+      assets: {
+        access: "read-write",
+        grant: "fixture-assets",
+        root: assetRoot,
+      },
+    });
+    fs.writeFileSync(
+      path.join(webRoot, "index.html"),
+      "<!doctype html><html><head></head><script>" +
+        "globalThis.LICHTBLICK_SUITE_DEFAULT_LAYOUT = " +
+        "[/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/][0];" +
+        "</script><body></body></html>",
+    );
+    fs.writeFileSync(
+      path.join(webRoot, "main.3f1c2a9b8d7e6f5a4b3c.js"),
+      "// bundle",
+    );
+    fs.writeFileSync(path.join(webRoot, "favicon.ico"), "icon");
+    const buildInfoFile = path.join(temporary, "build-info.json");
+    const buildInfo = {
+      schema: "xgc2.lichtblick-web.build.v1",
+      package: "xgc2-lichtblick-web",
+      version: "1.27.0-1~test",
+      upstreamSha: "1".repeat(40),
     };
+    fs.writeFileSync(buildInfoFile, JSON.stringify(buildInfo));
 
-    for (const state of ["missing", "partial"]) {
-      if (state === "missing") {
-        fs.unlinkSync(indexPath);
-      } else {
-        replaceIndex("<!doctype html><html><head>");
-      }
-      for (const requestPath of ["/", "/index.html", "/workspace"]) {
-        const unavailable = await getText(port, requestPath);
-        assert.equal(unavailable.statusCode, 503);
-        assert.equal(unavailable.headers["cache-control"], "no-store");
-        assert.equal(unavailable.headers["retry-after"], "1");
-        assert.equal(
-          unavailable.headers["content-security-policy"],
-          index.headers["content-security-policy"],
+    const upstream = net.createServer((socket) => {
+      let request = "";
+      socket.on("data", (chunk) => {
+        request += chunk.toString("latin1");
+        if (!request.includes("\r\n\r\n")) {
+          return;
+        }
+        socket.write(
+          "HTTP/1.1 101 Switching Protocols\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Accept: " +
+            crypto
+              .createHash("sha1")
+              .update(
+                /sec-websocket-key:\s*([^\r\n]+)/i.exec(request)[1].trim() +
+                  "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+              )
+              .digest("base64") +
+            "\r\n\r\n",
         );
-        assert.doesNotMatch(unavailable.body, /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/);
+      });
+    });
+    await listen(upstream);
+    const upstreamPort = upstream.address().port;
+
+    const layout = {
+      configById: { scene: { title: "</script><>&\u2028\u2029" } },
+      layout: "scene",
+    };
+    const launcherPath = path.resolve(
+      __dirname,
+      "../launcher/xgc2-lichtblick-web.js",
+    );
+    const child = childProcess.spawn(
+      process.execPath,
+      [
+        launcherPath,
+        ...(withLayout ? ["--layout-stdin"] : []),
+        "--bootstrap-input",
+        bootstrapInput,
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "0",
+        "--control-plane-url",
+        `ws://127.0.0.1:${upstreamPort}`,
+        "--allowed-origin",
+        "http://127.0.0.1:5173",
+        "--frame-ancestors",
+        "'self' http://127.0.0.1:5173",
+      ],
+      {
+        env: {
+          ...process.env,
+          XGC2_LICHTBLICK_WEB_STATIC_ROOT: webRoot,
+          XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfoFile,
+          XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(temporary, "missing.env"),
+          ALLOWED_ORIGINS: "",
+          FRAME_ANCESTORS: "",
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    child.stdin.end(withLayout ? JSON.stringify(layout) : undefined);
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    t.after(async () => {
+      if (child.exitCode == null) {
+        child.kill("SIGTERM");
       }
+      await waitForExit(child);
+      await closeServer(upstream);
+      fs.rmSync(temporary, { recursive: true, force: true });
+    });
 
-      replaceIndex(original.replace("</body>", `<p>${state} recovered</p></body>`));
-      const recovered = await getText(port, "/");
-      assert.equal(recovered.statusCode, 200);
-      assert.match(recovered.body, new RegExp(`${state} recovered`));
-      assert.match(recovered.body, /foxglove-websocket/);
+    const port = await waitForListeningPort(child, () => stderr);
+    const version = await getJson(port, "/version");
+    assert.deepEqual(version.body, buildInfo);
+    assert.equal(
+      version.headers["content-security-policy"],
+      "frame-ancestors 'self' http://127.0.0.1:5173; base-uri 'self'; object-src 'none'",
+    );
+    assert.equal(version.headers["x-frame-options"], undefined);
+
+    const legacyLayout = await getText(port, "/xgc2-layout.json");
+    assert.equal(legacyLayout.statusCode, 404);
+    const index = await getText(port, "/");
+    if (withLayout) {
+      assert.doesNotMatch(
+        index.body,
+        /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/,
+      );
+      assert.match(index.body, /\\u003c\\u002f?script|\\u003c/);
+      assert.ok(!index.body.includes(layout.configById.scene.title));
+      const injected =
+        /globalThis\.LICHTBLICK_SUITE_DEFAULT_LAYOUT = \[(.*?)\]\[0\];/s.exec(
+          index.body,
+        )[1];
+      assert.deepEqual(JSON.parse(injected), layout);
+      assert.deepEqual((await getJson(port, "/layout.json")).body, layout);
+    } else {
+      assert.match(index.body, /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/);
+      assert.equal((await getText(port, "/layout.json")).statusCode, 404);
     }
-  });
+    assert.match(index.body, /foxglove-websocket/);
 
-  assert.match(await websocketUpgradeStatus(port, "https://evil.example"), /^HTTP\/1\.1 403/);
-  assert.match(await websocketUpgradeStatus(port, `http://127.0.0.1:${port}`), /^HTTP\/1\.1 101/);
-  assert.match(await websocketUpgradeStatus(port, "http://127.0.0.1:5173"), /^HTTP\/1\.1 101/);
-});
+    const bundle = await getText(port, "/main.3f1c2a9b8d7e6f5a4b3c.js");
+    assert.equal(bundle.statusCode, 200);
+    assert.equal(
+      bundle.headers["cache-control"],
+      "public, max-age=31536000, immutable",
+    );
+    const favicon = await getText(port, "/favicon.ico");
+    assert.equal(favicon.headers["cache-control"], "no-cache");
+    const revalidated = await getText(port, "/favicon.ico", {
+      "If-Modified-Since": favicon.headers["last-modified"],
+    });
+    assert.equal(revalidated.statusCode, 304);
+    assert.equal(revalidated.body, "");
+
+    await t.test(
+      "retries a missing or partial index without serving stale HTML",
+      async () => {
+        const indexPath = path.join(webRoot, "index.html");
+        const original = fs.readFileSync(indexPath, "utf8");
+        let revision = Date.now();
+        const replaceIndex = (html) => {
+          fs.writeFileSync(indexPath, html);
+          const modified = new Date((revision += 2000));
+          fs.utimesSync(indexPath, modified, modified);
+        };
+
+        for (const state of ["missing", "partial"]) {
+          if (state === "missing") {
+            fs.unlinkSync(indexPath);
+          } else {
+            replaceIndex("<!doctype html><html><head>");
+          }
+          for (const requestPath of ["/", "/index.html", "/workspace"]) {
+            const unavailable = await getText(port, requestPath);
+            assert.equal(unavailable.statusCode, 503);
+            assert.equal(unavailable.headers["cache-control"], "no-store");
+            assert.equal(unavailable.headers["retry-after"], "1");
+            assert.equal(
+              unavailable.headers["content-security-policy"],
+              index.headers["content-security-policy"],
+            );
+            assert.doesNotMatch(
+              unavailable.body,
+              /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/,
+            );
+          }
+
+          replaceIndex(
+            original.replace("</body>", `<p>${state} recovered</p></body>`),
+          );
+          const recovered = await getText(port, "/");
+          assert.equal(recovered.statusCode, 200);
+          assert.match(recovered.body, new RegExp(`${state} recovered`));
+          assert.match(recovered.body, /foxglove-websocket/);
+        }
+      },
+    );
+
+    assert.match(
+      await websocketUpgradeStatus(port, "https://evil.example"),
+      /^HTTP\/1\.1 403/,
+    );
+    assert.match(
+      await websocketUpgradeStatus(port, `http://127.0.0.1:${port}`),
+      /^HTTP\/1\.1 101/,
+    );
+    assert.match(
+      await websocketUpgradeStatus(port, "http://127.0.0.1:5173"),
+      /^HTTP\/1\.1 101/,
+    );
+  });
+}
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -357,7 +477,10 @@ function waitForListeningPort(child, stderr) {
     }, 5000);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
-      const match = /serving Lichtblick web bundle on http:\/\/127\.0\.0\.1:(\d+)/.exec(stdout);
+      const match =
+        /serving Lichtblick web bundle on http:\/\/127\.0\.0\.1:(\d+)/.exec(
+          stdout,
+        );
       if (!match) {
         return;
       }
@@ -399,20 +522,23 @@ function getJson(port, requestPath) {
 function getText(port, requestPath, headers = {}) {
   return new Promise((resolve, reject) => {
     http
-      .get({ host: "127.0.0.1", port, path: requestPath, headers }, (response) => {
-        let body = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk) => {
-          body += chunk;
-        });
-        response.on("end", () =>
-          resolve({
-            statusCode: response.statusCode,
-            body,
-            headers: response.headers,
-          }),
-        );
-      })
+      .get(
+        { host: "127.0.0.1", port, path: requestPath, headers },
+        (response) => {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            body += chunk;
+          });
+          response.on("end", () =>
+            resolve({
+              statusCode: response.statusCode,
+              body,
+              headers: response.headers,
+            }),
+          );
+        },
+      )
       .once("error", reject);
   });
 }
@@ -461,10 +587,17 @@ test("loads content-hashed entry scripts from a stable asset prefix only when as
     '<script src="https://cdn.example/x.0a1b2c3d4e5f60718293.js"></script>' +
     '<script src="plain.js"></script>' +
     "</head><body></body></html>";
-  assert.equal(transformIndexHtml(index, "/"), transformIndexHtml(index, "/", null));
+  assert.equal(
+    transformIndexHtml(index, "/"),
+    transformIndexHtml(index, "/", null),
+  );
   assert.doesNotMatch(transformIndexHtml(index, "/"), /lichtblick-assets/);
 
-  const staged = transformIndexHtml(index, "/", "/api/visualization/lichtblick-assets");
+  const staged = transformIndexHtml(
+    index,
+    "/",
+    "/api/visualization/lichtblick-assets",
+  );
   assert.match(
     staged,
     /src="\/api\/visualization\/lichtblick-assets\/main\.3f1c2a9b8d7e6f5a4b3c\.js"/,
@@ -473,13 +606,21 @@ test("loads content-hashed entry scripts from a stable asset prefix only when as
     staged,
     /src="\/api\/visualization\/lichtblick-assets\/vendor\.0a1b2c3d4e5f60718293\.js"/,
   );
-  assert.match(staged, /src="https:\/\/cdn\.example\/x\.0a1b2c3d4e5f60718293\.js"/);
+  assert.match(
+    staged,
+    /src="https:\/\/cdn\.example\/x\.0a1b2c3d4e5f60718293\.js"/,
+  );
   assert.match(staged, /src="plain\.js"/);
   assert.match(staged, /href="favicon-32x32\.png"/);
   assert.match(staged, /foxglove-websocket/);
 
   assert.throws(
-    () => transformIndexHtml('<head><script src="plain.js"></script></head>', "/", "/assets/"),
+    () =>
+      transformIndexHtml(
+        '<head><script src="plain.js"></script></head>',
+        "/",
+        "/assets/",
+      ),
     /no content-hashed script/,
   );
 });
@@ -499,21 +640,40 @@ test("accepts only same-origin absolute asset prefixes", () => {
     '/a"',
     "",
   ]) {
-    assert.throws(() => normalizeAssetUrlPrefix(value), /invalid asset URL prefix/, value);
+    assert.throws(
+      () => normalizeAssetUrlPrefix(value),
+      /invalid asset URL prefix/,
+      value,
+    );
   }
 });
 
 test("caches content-hashed bundles for good and revalidates everything else", () => {
   const immutable = "public, max-age=31536000, immutable";
-  assert.equal(staticCacheControl("/web/main.3f1c2a9b8d7e6f5a4b3c.js"), immutable);
-  assert.equal(staticCacheControl("/web/412.3f1c2a9b8d7e6f5a4b3c.js"), immutable);
-  assert.equal(staticCacheControl("/web/main.3f1c2a9b8d7e6f5a4b3c.js.map"), immutable);
-  assert.equal(staticCacheControl("/web/Worker.worker.3f1c2a9b8d7e6f5a4b3c.js"), immutable);
+  assert.equal(
+    staticCacheControl("/web/main.3f1c2a9b8d7e6f5a4b3c.js"),
+    immutable,
+  );
+  assert.equal(
+    staticCacheControl("/web/412.3f1c2a9b8d7e6f5a4b3c.js"),
+    immutable,
+  );
+  assert.equal(
+    staticCacheControl("/web/main.3f1c2a9b8d7e6f5a4b3c.js.map"),
+    immutable,
+  );
+  assert.equal(
+    staticCacheControl("/web/Worker.worker.3f1c2a9b8d7e6f5a4b3c.js"),
+    immutable,
+  );
   assert.equal(staticCacheControl("/web/3f1c2a9b8d7e6f5a4b3c.glb"), immutable);
   assert.equal(staticCacheControl("/web/favicon.ico"), "no-cache");
   assert.equal(staticCacheControl("/web/main.js"), "no-cache");
   assert.equal(staticCacheControl("/web/index.html"), "no-cache");
-  assert.equal(staticCacheControl("/web/3f1c2a9b8d7e6f5a4b3c.html"), "no-cache");
+  assert.equal(
+    staticCacheControl("/web/3f1c2a9b8d7e6f5a4b3c.html"),
+    "no-cache",
+  );
 });
 
 test("answers conditional requests at HTTP date precision", () => {

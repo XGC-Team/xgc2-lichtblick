@@ -1,0 +1,4199 @@
+[
+  {
+    "allowedTopics": "/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "layoutMode": "3d-above-camera-ar",
+        "runMode": "simulation",
+        "gridVisible": true,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": true,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "walls",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/xgc/camera/world/video_h264",
+        "cameraInfoTopic": "/xgc/camera/world/camera_info",
+        "visualizationTopics": [],
+        "transformTopics": []
+      },
+      "robots": [
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 0,
+            "y": 0,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav1",
+          "namespace": "/uav1",
+          "visualization": {
+            "descriptionFile": "urdf/fs150_visual.urdf",
+            "descriptionPackage": "fs150_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        }
+      ]
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 12,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              0,
+              0,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-grid": {
+              "color": "#9e9e9e",
+              "divisions": 30,
+              "frameLocked": true,
+              "instanceId": "xgc2-grid",
+              "label": "Grid",
+              "layerId": "foxglove.Grid",
+              "lineWidth": 1,
+              "order": 1,
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "size": 30,
+              "visible": true
+            },
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 1,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "param:/uav1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            }
+          },
+          "transforms": {
+            "frame:world": {
+              "visible": true
+            }
+          }
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 12,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              0,
+              0,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/xgc/camera/world/camera_info",
+            "imageTopic": "/xgc/camera/world/video_h264",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/ar_path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": true
+            }
+          }
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "column",
+        "first": "3D!xgc2",
+        "second": "Image!xgc2-camera-ar",
+        "splitPercentage": 45
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "defaults-one-uav"
+  },
+  {
+    "allowedTopics": "/algorithm/tf\n/robot_0/graph\n/robot_0/grid\n/robot_0/plan\n/robot_0/plan_list\n/robot_0/poses\n/robot_0/private_map\n/robot_0/reference\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/venue/reference_cloud\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "layoutMode": "3d-above-camera-ar",
+        "runMode": "simulation",
+        "gridVisible": true,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": true,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "walls",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/xgc/camera/world/video_h264",
+        "cameraInfoTopic": "/xgc/camera/world/camera_info",
+        "visualizationTopics": [
+          {
+            "topic": "/venue/reference_cloud",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "semantic",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false
+          },
+          {
+            "topic": "/robot_0/private_map",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "obstacle",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#ff550099",
+            "pointSize": 0.1,
+            "pointSizeMode": "world",
+            "pointShape": "square"
+          },
+          {
+            "topic": "/robot_0/plan",
+            "messageType": "nav_msgs/Path",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": true
+          },
+          {
+            "topic": "/robot_0/reference",
+            "messageType": "nav_msgs/Path",
+            "role": "semantic",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#00ff00ff"
+          },
+          {
+            "topic": "/robot_0/plan_list",
+            "messageType": "visualization_msgs/Marker",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": true
+          },
+          {
+            "topic": "/robot_0/graph",
+            "messageType": "visualization_msgs/MarkerArray",
+            "role": "semantic",
+            "expectedFrame": "world",
+            "visible3d": false,
+            "visibleAr": true
+          },
+          {
+            "topic": "/robot_0/poses",
+            "messageType": "geometry_msgs/PoseArray",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#123456ff"
+          },
+          {
+            "topic": "/robot_0/grid",
+            "messageType": "nav_msgs/OccupancyGrid",
+            "role": "obstacle",
+            "expectedFrame": "map",
+            "visible3d": true,
+            "visibleAr": false
+          }
+        ],
+        "transformTopics": [
+          "/algorithm/tf"
+        ]
+      },
+      "robots": [
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 0,
+            "y": 0,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav1",
+          "namespace": "/uav1",
+          "visualization": {
+            "descriptionFile": "urdf/fs150_visual.urdf",
+            "descriptionPackage": "fs150_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        }
+      ]
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 12,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              0,
+              0,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-grid": {
+              "color": "#9e9e9e",
+              "divisions": 30,
+              "frameLocked": true,
+              "instanceId": "xgc2-grid",
+              "label": "Grid",
+              "layerId": "foxglove.Grid",
+              "lineWidth": 1,
+              "order": 1,
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "size": 30,
+              "visible": true
+            },
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 1,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/algorithm/tf": {
+              "visible": true
+            },
+            "/robot_0/grid": {
+              "visible": true
+            },
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/robot_0/plan_list": {
+              "visible": true
+            },
+            "/robot_0/poses": {
+              "gradient": [
+                "#123456ff",
+                "#123456ff"
+              ],
+              "type": "arrow",
+              "visible": true
+            },
+            "/robot_0/private_map": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#ff550099",
+              "pointShape": "square",
+              "pointSize": 0.1,
+              "pointSizeMode": "world",
+              "visible": true
+            },
+            "/robot_0/reference": {
+              "gradient": [
+                "#00ff00ff",
+                "#00ff00ff"
+              ],
+              "lineWidth": 0.04,
+              "type": "line",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/venue/reference_cloud": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#8f8f8f99",
+              "pointShape": "circle",
+              "pointSize": 2,
+              "pointSizeMode": "screen",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "param:/uav1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            }
+          },
+          "transforms": {
+            "frame:world": {
+              "visible": true
+            }
+          }
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 12,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              0,
+              0,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/xgc/camera/world/camera_info",
+            "imageTopic": "/xgc/camera/world/video_h264",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/algorithm/tf": {
+              "visible": true
+            },
+            "/robot_0/graph": {
+              "visible": true
+            },
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/robot_0/plan_list": {
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/ar_path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": true
+            }
+          }
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "column",
+        "first": "3D!xgc2",
+        "second": "Image!xgc2-camera-ar",
+        "splitPercentage": 45
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "every-declared-type"
+  },
+  {
+    "allowedTopics": "/robot_0/plan\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/usb_cam/camera_info\n/usb_cam/image_raw/compressed\n/venue/obstacles\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/tf\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "layoutMode": "3d-camera-ar",
+        "runMode": "physical",
+        "gridVisible": false,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": false,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "ground",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/usb_cam/image_raw/compressed",
+        "cameraInfoTopic": "/usb_cam/camera_info",
+        "visualizationTopics": [
+          {
+            "topic": "/venue/obstacles",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "obstacle",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false
+          },
+          {
+            "topic": "/robot_0/plan",
+            "messageType": "nav_msgs/Path",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": true
+          }
+        ],
+        "transformTopics": []
+      },
+      "robots": [
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": -26,
+            "y": 2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav1",
+          "namespace": "/uav1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "physical",
+          "initialPose": {
+            "x": -26,
+            "y": -2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav2",
+          "namespace": "/uav2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 3,
+            "y": 1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "scout_mini",
+          "name": "ugv1",
+          "namespace": "/ugv1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "history/path",
+            "robotStatePublisher": false,
+            "sceneClass": "scout",
+            "sceneModel": "field_scout",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 4,
+            "y": -1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "mecanum_ugv",
+          "name": "ugv2",
+          "namespace": "/ugv2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "mecanum",
+            "visuals": []
+          }
+        }
+      ]
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav2/",
+              "instanceId": "xgc2-urdf-uav2",
+              "label": "uav2",
+              "layerId": "foxglove.Urdf",
+              "order": 3,
+              "parameter": "/uav2/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/field_scout/",
+              "instanceId": "xgc2-urdf-ugv1",
+              "label": "ugv1",
+              "layerId": "foxglove.Urdf",
+              "order": 4,
+              "parameter": "/ugv1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/ugv2/",
+              "instanceId": "xgc2-urdf-ugv2",
+              "label": "ugv2",
+              "layerId": "foxglove.Urdf",
+              "order": 5,
+              "parameter": "/ugv2/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/venue/obstacles": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#3399ffb3",
+              "pointShape": "square",
+              "pointSize": 2,
+              "pointSizeMode": "screen",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            }
+          },
+          "transforms": {}
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/usb_cam/camera_info",
+            "imageTopic": "/usb_cam/image_raw/compressed",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/ar_path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/ar_path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/venue/obstacles": {
+              "color": "#ff801a66",
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#3399ffb3",
+              "pointShape": "square",
+              "pointSize": 2,
+              "pointSizeMode": "screen",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": false
+            }
+          }
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "row",
+        "first": "3D!xgc2",
+        "second": "Image!xgc2-camera-ar",
+        "splitPercentage": 45
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "physical-usb-camera"
+  },
+  {
+    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/pose\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/consumer_status\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "sceneNamespace": "/xgc/scene",
+        "uavPalette": [
+          "#112233",
+          "#445566"
+        ],
+        "layoutMode": "3d-above-camera-ar-plot",
+        "runMode": "simulation",
+        "gridVisible": true,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": true,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "walls",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/xgc/camera/world/video_h264",
+        "cameraInfoTopic": "/xgc/camera/world/camera_info",
+        "visualizationTopics": [
+          {
+            "topic": "/robot_0/private_map",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "obstacle",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#ff550099"
+          }
+        ],
+        "transformTopics": [],
+        "plotPaths": [
+          "/uav1/pose.pose.position.x",
+          "/robot_0/stats.solve_time"
+        ]
+      },
+      "robots": [
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": -26,
+            "y": 2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav1",
+          "namespace": "/uav1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "physical",
+          "initialPose": {
+            "x": -26,
+            "y": -2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav2",
+          "namespace": "/uav2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 3,
+            "y": 1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "scout_mini",
+          "name": "ugv1",
+          "namespace": "/ugv1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "history/path",
+            "robotStatePublisher": false,
+            "sceneClass": "scout",
+            "sceneModel": "field_scout",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 4,
+            "y": -1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "mecanum_ugv",
+          "name": "ugv2",
+          "namespace": "/ugv2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "mecanum",
+            "visuals": []
+          }
+        }
+      ]
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-grid": {
+              "color": "#9e9e9e",
+              "divisions": 30,
+              "frameLocked": true,
+              "instanceId": "xgc2-grid",
+              "label": "Grid",
+              "layerId": "foxglove.Grid",
+              "lineWidth": 1,
+              "order": 1,
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "size": 30,
+              "visible": true
+            },
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav2/",
+              "instanceId": "xgc2-urdf-uav2",
+              "label": "uav2",
+              "layerId": "foxglove.Urdf",
+              "order": 3,
+              "parameter": "/uav2/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/field_scout/",
+              "instanceId": "xgc2-urdf-ugv1",
+              "label": "ugv1",
+              "layerId": "foxglove.Urdf",
+              "order": 4,
+              "parameter": "/ugv1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/ugv2/",
+              "instanceId": "xgc2-urdf-ugv2",
+              "label": "ugv2",
+              "layerId": "foxglove.Urdf",
+              "order": 5,
+              "parameter": "/ugv2/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "obstacleScene": {
+              "namespace": "/xgc/scene"
+            },
+            "transforms": {
+              "axisScale": 1,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/robot_0/private_map": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#ff550099",
+              "pointShape": "square",
+              "pointSize": 2,
+              "pointSizeMode": "screen",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/path": {
+              "gradient": [
+                "#11223380",
+                "#112233ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav1/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav2/path": {
+              "gradient": [
+                "#44556680",
+                "#445566ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "param:/uav1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            }
+          },
+          "transforms": {
+            "frame:world": {
+              "visible": true
+            }
+          }
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/xgc/camera/world/camera_info",
+            "imageTopic": "/xgc/camera/world/video_h264",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/ar_path": {
+              "gradient": [
+                "#11223380",
+                "#112233ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/ar_path": {
+              "gradient": [
+                "#44556680",
+                "#445566ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": true
+            }
+          }
+        },
+        "Plot!xgc2-plot": {
+          "isSynced": true,
+          "legendDisplay": "floating",
+          "paths": [
+            {
+              "enabled": true,
+              "timestampMethod": "receiveTime",
+              "value": "/uav1/pose.pose.position.x"
+            },
+            {
+              "enabled": true,
+              "timestampMethod": "receiveTime",
+              "value": "/robot_0/stats.solve_time"
+            }
+          ],
+          "showLegend": true,
+          "showPlotValuesInLegend": false,
+          "showXAxisLabels": true,
+          "showYAxisLabels": true,
+          "sidebarDimension": 240,
+          "xAxisVal": "timestamp"
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "column",
+        "first": "3D!xgc2",
+        "second": {
+          "direction": "row",
+          "first": "Image!xgc2-camera-ar",
+          "second": "Plot!xgc2-plot",
+          "splitPercentage": 50
+        },
+        "splitPercentage": 50
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "scene-plot-palette"
+  },
+  {
+    "allowedTopics": "/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/usb_cam/camera_info\n/usb_cam/video_h264\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/tf\n/xgc/scene\n/xgc/scene/consumer_status\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "sceneNamespace": "/xgc/scene",
+        "layoutMode": "camera-ar-3d",
+        "runMode": "simulation",
+        "gridVisible": true,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": true,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "walls",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/usb_cam/video_h264",
+        "cameraInfoTopic": "/usb_cam/camera_info",
+        "visualizationTopics": [],
+        "transformTopics": []
+      },
+      "robots": [
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": -26,
+            "y": 2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav1",
+          "namespace": "/uav1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "physical",
+          "initialPose": {
+            "x": -26,
+            "y": -2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav2",
+          "namespace": "/uav2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 3,
+            "y": 1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "scout_mini",
+          "name": "ugv1",
+          "namespace": "/ugv1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "history/path",
+            "robotStatePublisher": false,
+            "sceneClass": "scout",
+            "sceneModel": "field_scout",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 4,
+            "y": -1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "mecanum_ugv",
+          "name": "ugv2",
+          "namespace": "/ugv2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "mecanum",
+            "visuals": []
+          }
+        }
+      ]
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-grid": {
+              "color": "#9e9e9e",
+              "divisions": 30,
+              "frameLocked": true,
+              "instanceId": "xgc2-grid",
+              "label": "Grid",
+              "layerId": "foxglove.Grid",
+              "lineWidth": 1,
+              "order": 1,
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "size": 30,
+              "visible": true
+            },
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav2/",
+              "instanceId": "xgc2-urdf-uav2",
+              "label": "uav2",
+              "layerId": "foxglove.Urdf",
+              "order": 3,
+              "parameter": "/uav2/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/field_scout/",
+              "instanceId": "xgc2-urdf-ugv1",
+              "label": "ugv1",
+              "layerId": "foxglove.Urdf",
+              "order": 4,
+              "parameter": "/ugv1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/ugv2/",
+              "instanceId": "xgc2-urdf-ugv2",
+              "label": "ugv2",
+              "layerId": "foxglove.Urdf",
+              "order": 5,
+              "parameter": "/ugv2/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "obstacleScene": {
+              "namespace": "/xgc/scene"
+            },
+            "transforms": {
+              "axisScale": 1,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav1/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav2/path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "param:/uav1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            }
+          },
+          "transforms": {
+            "frame:world": {
+              "visible": true
+            }
+          }
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/usb_cam/camera_info",
+            "imageTopic": "/usb_cam/video_h264",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "layers": {
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav2/",
+              "instanceId": "xgc2-urdf-uav2",
+              "label": "uav2",
+              "layerId": "foxglove.Urdf",
+              "order": 3,
+              "parameter": "/uav2/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/field_scout/",
+              "instanceId": "xgc2-urdf-ugv1",
+              "label": "ugv1",
+              "layerId": "foxglove.Urdf",
+              "order": 4,
+              "parameter": "/ugv1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/ugv2/",
+              "instanceId": "xgc2-urdf-ugv2",
+              "label": "ugv2",
+              "layerId": "foxglove.Urdf",
+              "order": 5,
+              "parameter": "/ugv2/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "obstacleScene": {
+              "color": [
+                1,
+                0.5,
+                0.1,
+                0.4
+              ],
+              "namespace": "/xgc/scene"
+            },
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/tf": {
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/ar_path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/ar_path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": true
+            }
+          }
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "row",
+        "first": "Image!xgc2-camera-ar",
+        "second": "3D!xgc2",
+        "splitPercentage": 45
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "replay-pixels"
+  },
+  {
+    "allowedTopics": "/robot_0/plan\n/robot_0/private_map\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/venue/reference_cloud\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "layoutMode": "camera-ar-above-3d",
+        "runMode": "hybrid",
+        "gridVisible": true,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": true,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "walls",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/xgc/camera/world/video_h264",
+        "cameraInfoTopic": "/xgc/camera/world/camera_info",
+        "visualizationTopics": [
+          {
+            "topic": "/venue/reference_cloud",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "semantic",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false
+          },
+          {
+            "topic": "/robot_0/private_map",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "obstacle",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#ff550099",
+            "pointSize": 0.1,
+            "pointSizeMode": "world",
+            "pointShape": "square"
+          },
+          {
+            "topic": "/robot_0/plan",
+            "messageType": "nav_msgs/Path",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": true
+          }
+        ],
+        "transformTopics": []
+      },
+      "robots": [
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": -26,
+            "y": 2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav1",
+          "namespace": "/uav1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "physical",
+          "initialPose": {
+            "x": -26,
+            "y": -2,
+            "yaw": 0,
+            "z": 1
+          },
+          "kind": "px4_multirotor",
+          "name": "uav2",
+          "namespace": "/uav2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 3,
+            "y": 1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "scout_mini",
+          "name": "ugv1",
+          "namespace": "/ugv1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "history/path",
+            "robotStatePublisher": false,
+            "sceneClass": "scout",
+            "sceneModel": "field_scout",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": false
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 4,
+            "y": -1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "mecanum_ugv",
+          "name": "ugv2",
+          "namespace": "/ugv2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "mecanum",
+            "visuals": []
+          }
+        }
+      ]
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-grid": {
+              "color": "#9e9e9e",
+              "divisions": 30,
+              "frameLocked": true,
+              "instanceId": "xgc2-grid",
+              "label": "Grid",
+              "layerId": "foxglove.Grid",
+              "lineWidth": 1,
+              "order": 1,
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "size": 30,
+              "visible": true
+            },
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav2/",
+              "instanceId": "xgc2-urdf-uav2",
+              "label": "uav2",
+              "layerId": "foxglove.Urdf",
+              "order": 3,
+              "parameter": "/uav2/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/field_scout/",
+              "instanceId": "xgc2-urdf-ugv1",
+              "label": "ugv1",
+              "layerId": "foxglove.Urdf",
+              "order": 4,
+              "parameter": "/ugv1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/ugv2/",
+              "instanceId": "xgc2-urdf-ugv2",
+              "label": "ugv2",
+              "layerId": "foxglove.Urdf",
+              "order": 5,
+              "parameter": "/ugv2/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 1,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/robot_0/private_map": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#ff550099",
+              "pointShape": "square",
+              "pointSize": 0.1,
+              "pointSizeMode": "world",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav1/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav2/path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/venue/reference_cloud": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#8f8f8f99",
+              "pointShape": "circle",
+              "pointSize": 2,
+              "pointSizeMode": "screen",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "param:/uav1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/ugv2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            }
+          },
+          "transforms": {
+            "frame:world": {
+              "visible": true
+            }
+          }
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 45.5001524669458,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              -11,
+              0,
+              0.5
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/xgc/camera/world/camera_info",
+            "imageTopic": "/xgc/camera/world/video_h264",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "layers": {
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/field_scout/",
+              "instanceId": "xgc2-urdf-ugv1",
+              "label": "ugv1",
+              "layerId": "foxglove.Urdf",
+              "order": 3,
+              "parameter": "/ugv1/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-ugv2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/ugv2/",
+              "instanceId": "xgc2-urdf-ugv2",
+              "label": "ugv2",
+              "layerId": "foxglove.Urdf",
+              "order": 4,
+              "parameter": "/ugv2/visual_robot_description",
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/robot_0/private_map": {
+              "color": "#ff801a66",
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#ff550099",
+              "pointShape": "square",
+              "pointSize": 0.1,
+              "pointSizeMode": "world",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/ar_path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/ar_path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv1/history/path": {
+              "gradient": [
+                "#cbab0180",
+                "#cbab01ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/ugv2/path": {
+              "gradient": [
+                "#288f8c80",
+                "#288f8cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": true
+            }
+          }
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "column",
+        "first": "Image!xgc2-camera-ar",
+        "second": "3D!xgc2",
+        "splitPercentage": 45
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "hybrid-mixed"
+  },
+  {
+    "allowedTopics": "/algorithm/tf\n/robot_0/graph\n/robot_0/grid\n/robot_0/plan\n/robot_0/plan_list\n/robot_0/poses\n/robot_0/private_map\n/robot_0/reference\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav10/ar_path\n/uav10/joint_states\n/uav10/path\n/uav10/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/uav3/ar_path\n/uav3/joint_states\n/uav3/path\n/uav3/simple_lidar/points\n/uav4/ar_path\n/uav4/joint_states\n/uav4/path\n/uav4/simple_lidar/points\n/uav5/ar_path\n/uav5/joint_states\n/uav5/path\n/uav5/simple_lidar/points\n/uav6/ar_path\n/uav6/joint_states\n/uav6/path\n/uav6/simple_lidar/points\n/uav7/ar_path\n/uav7/joint_states\n/uav7/path\n/uav7/simple_lidar/points\n/uav8/ar_path\n/uav8/joint_states\n/uav8/path\n/uav8/simple_lidar/points\n/uav9/ar_path\n/uav9/joint_states\n/uav9/path\n/uav9/simple_lidar/points\n/venue/reference_cloud\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "layoutMode": "3d-above-camera-ar",
+        "runMode": "simulation",
+        "gridVisible": true,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": true,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "walls",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/xgc/camera/world/video_h264",
+        "cameraInfoTopic": "/xgc/camera/world/camera_info",
+        "visualizationTopics": [
+          {
+            "topic": "/venue/reference_cloud",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "semantic",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false
+          },
+          {
+            "topic": "/robot_0/private_map",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "obstacle",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#ff550099",
+            "pointSize": 0.1,
+            "pointSizeMode": "world",
+            "pointShape": "square"
+          },
+          {
+            "topic": "/robot_0/plan",
+            "messageType": "nav_msgs/Path",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": true
+          },
+          {
+            "topic": "/robot_0/reference",
+            "messageType": "nav_msgs/Path",
+            "role": "semantic",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#00ff00ff"
+          },
+          {
+            "topic": "/robot_0/plan_list",
+            "messageType": "visualization_msgs/Marker",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": true
+          },
+          {
+            "topic": "/robot_0/graph",
+            "messageType": "visualization_msgs/MarkerArray",
+            "role": "semantic",
+            "expectedFrame": "world",
+            "visible3d": false,
+            "visibleAr": true
+          },
+          {
+            "topic": "/robot_0/poses",
+            "messageType": "geometry_msgs/PoseArray",
+            "role": "prediction",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#123456ff"
+          },
+          {
+            "topic": "/robot_0/grid",
+            "messageType": "nav_msgs/OccupancyGrid",
+            "role": "obstacle",
+            "expectedFrame": "map",
+            "visible3d": true,
+            "visibleAr": false
+          }
+        ],
+        "transformTopics": [
+          "/algorithm/tf"
+        ]
+      },
+      "robots": [
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 0,
+            "y": 0,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav1",
+          "namespace": "/uav1",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 1,
+            "y": 1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav2",
+          "namespace": "/uav2",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 2,
+            "y": 2,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav3",
+          "namespace": "/uav3",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 3,
+            "y": 0,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav4",
+          "namespace": "/uav4",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 4,
+            "y": 1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav5",
+          "namespace": "/uav5",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 5,
+            "y": 2,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav6",
+          "namespace": "/uav6",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 6,
+            "y": 0,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav7",
+          "namespace": "/uav7",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 7,
+            "y": 1,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav8",
+          "namespace": "/uav8",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 8,
+            "y": 2,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav9",
+          "namespace": "/uav9",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        },
+        {
+          "authoredSimulationSensors": {
+            "simpleLidar": {
+              "enabled": true
+            }
+          },
+          "hybridSource": "simulation",
+          "initialPose": {
+            "x": 9,
+            "y": 0,
+            "yaw": 0,
+            "z": 0
+          },
+          "kind": "px4_multirotor",
+          "name": "uav10",
+          "namespace": "/uav10",
+          "visualization": {
+            "descriptionFile": "urdf/robot_visual.urdf",
+            "descriptionPackage": "robot_description",
+            "jointStateTopic": "joint_states",
+            "pathTopic": "path",
+            "robotStatePublisher": false,
+            "sceneClass": "fs150",
+            "visuals": []
+          }
+        }
+      ]
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 13.85280264206968,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              4.5,
+              1,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-grid": {
+              "color": "#9e9e9e",
+              "divisions": 30,
+              "frameLocked": true,
+              "instanceId": "xgc2-grid",
+              "label": "Grid",
+              "layerId": "foxglove.Grid",
+              "lineWidth": 1,
+              "order": 1,
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "size": 30,
+              "visible": true
+            },
+            "xgc2-urdf-uav1": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav1/",
+              "instanceId": "xgc2-urdf-uav1",
+              "label": "uav1",
+              "layerId": "foxglove.Urdf",
+              "order": 2,
+              "parameter": "/uav1/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav10": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav10/",
+              "instanceId": "xgc2-urdf-uav10",
+              "label": "uav10",
+              "layerId": "foxglove.Urdf",
+              "order": 11,
+              "parameter": "/uav10/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav2": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav2/",
+              "instanceId": "xgc2-urdf-uav2",
+              "label": "uav2",
+              "layerId": "foxglove.Urdf",
+              "order": 3,
+              "parameter": "/uav2/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav3": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav3/",
+              "instanceId": "xgc2-urdf-uav3",
+              "label": "uav3",
+              "layerId": "foxglove.Urdf",
+              "order": 4,
+              "parameter": "/uav3/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav4": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav4/",
+              "instanceId": "xgc2-urdf-uav4",
+              "label": "uav4",
+              "layerId": "foxglove.Urdf",
+              "order": 5,
+              "parameter": "/uav4/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav5": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav5/",
+              "instanceId": "xgc2-urdf-uav5",
+              "label": "uav5",
+              "layerId": "foxglove.Urdf",
+              "order": 6,
+              "parameter": "/uav5/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav6": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav6/",
+              "instanceId": "xgc2-urdf-uav6",
+              "label": "uav6",
+              "layerId": "foxglove.Urdf",
+              "order": 7,
+              "parameter": "/uav6/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav7": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav7/",
+              "instanceId": "xgc2-urdf-uav7",
+              "label": "uav7",
+              "layerId": "foxglove.Urdf",
+              "order": 8,
+              "parameter": "/uav7/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav8": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav8/",
+              "instanceId": "xgc2-urdf-uav8",
+              "label": "uav8",
+              "layerId": "foxglove.Urdf",
+              "order": 9,
+              "parameter": "/uav8/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            },
+            "xgc2-urdf-uav9": {
+              "displayMode": "visual",
+              "frameLocked": true,
+              "framePrefix": "xgc/robots/uav9/",
+              "instanceId": "xgc2-urdf-uav9",
+              "label": "uav9",
+              "layerId": "foxglove.Urdf",
+              "order": 10,
+              "parameter": "/uav9/visual_robot_description",
+              "scale": 2,
+              "sourceType": "param",
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 1,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/algorithm/tf": {
+              "visible": true
+            },
+            "/robot_0/grid": {
+              "visible": true
+            },
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/robot_0/plan_list": {
+              "visible": true
+            },
+            "/robot_0/poses": {
+              "gradient": [
+                "#123456ff",
+                "#123456ff"
+              ],
+              "type": "arrow",
+              "visible": true
+            },
+            "/robot_0/private_map": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#ff550099",
+              "pointShape": "square",
+              "pointSize": 0.1,
+              "pointSizeMode": "world",
+              "visible": true
+            },
+            "/robot_0/reference": {
+              "gradient": [
+                "#00ff00ff",
+                "#00ff00ff"
+              ],
+              "lineWidth": 0.04,
+              "type": "line",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav1/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav10/path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav10/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav2/path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav3/path": {
+              "gradient": [
+                "#ab47bc80",
+                "#ab47bcff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav3/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav4/path": {
+              "gradient": [
+                "#ec407a80",
+                "#ec407aff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav4/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav5/path": {
+              "gradient": [
+                "#7e57c280",
+                "#7e57c2ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav5/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav6/path": {
+              "gradient": [
+                "#ef535080",
+                "#ef5350ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav6/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav7/path": {
+              "gradient": [
+                "#ffa72680",
+                "#ffa726ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav7/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav8/path": {
+              "gradient": [
+                "#d4e15780",
+                "#d4e157ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav8/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/uav9/path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav9/simple_lidar/points": {
+              "colorField": "z",
+              "colorMap": "turbo",
+              "colorMode": "colormap",
+              "decayTime": 0,
+              "pointSize": 2,
+              "visible": true
+            },
+            "/venue/reference_cloud": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#8f8f8f99",
+              "pointShape": "circle",
+              "pointSize": 2,
+              "pointSizeMode": "screen",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "param:/uav1/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav10/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav2/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav3/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav4/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav5/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav6/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav7/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav8/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "param:/uav9/visual_robot_description": {
+              "showOutlines": false,
+              "visible": false
+            }
+          },
+          "transforms": {
+            "frame:world": {
+              "visible": true
+            }
+          }
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 13.85280264206968,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              4.5,
+              1,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/xgc/camera/world/camera_info",
+            "imageTopic": "/xgc/camera/world/video_h264",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/algorithm/tf": {
+              "visible": true
+            },
+            "/robot_0/graph": {
+              "visible": true
+            },
+            "/robot_0/plan": {
+              "axisScale": 0.15,
+              "gradient": [
+                "#ffbf00ff",
+                "#ffbf0040"
+              ],
+              "lineWidth": 0.01,
+              "type": "line-axes",
+              "visible": true
+            },
+            "/robot_0/plan_list": {
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/uav1/ar_path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav10/ar_path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav2/ar_path": {
+              "gradient": [
+                "#ff704380",
+                "#ff7043ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav3/ar_path": {
+              "gradient": [
+                "#ab47bc80",
+                "#ab47bcff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav4/ar_path": {
+              "gradient": [
+                "#ec407a80",
+                "#ec407aff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav5/ar_path": {
+              "gradient": [
+                "#7e57c280",
+                "#7e57c2ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav6/ar_path": {
+              "gradient": [
+                "#ef535080",
+                "#ef5350ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav7/ar_path": {
+              "gradient": [
+                "#ffa72680",
+                "#ffa726ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav8/ar_path": {
+              "gradient": [
+                "#d4e15780",
+                "#d4e157ff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/uav9/ar_path": {
+              "gradient": [
+                "#f2003c80",
+                "#f2003cff"
+              ],
+              "lineWidth": 0.02,
+              "type": "line",
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": true
+            }
+          }
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "column",
+        "first": "3D!xgc2",
+        "second": "Image!xgc2-camera-ar",
+        "splitPercentage": 45
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "lidar-fleet"
+  },
+  {
+    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/pose\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/consumer_status\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "input": {
+      "parameters": {
+        "sceneNamespace": "/xgc/scene",
+        "uavPalette": [
+          "#112233",
+          "#445566"
+        ],
+        "layoutMode": "3d-above-camera-ar-plot",
+        "runMode": "simulation",
+        "gridVisible": true,
+        "gridColor": "#9e9e9e",
+        "gridSize": 30,
+        "gridDivisions": 30,
+        "gridLineWidth": 1,
+        "axesVisible": true,
+        "axesScale": 1,
+        "scoutModelScale": 1,
+        "px4ModelScale": 2,
+        "mecanumModelScale": 1,
+        "worldBoundaryMode": "walls",
+        "uavHeightProjection": true,
+        "predictionLineWidth": 0.01,
+        "predictionAxisScale": 0.15,
+        "markerBackgroundColor": "#000000",
+        "markerBackgroundVisible": true,
+        "cameraImageTopic": "/xgc/camera/world/video_h264",
+        "cameraInfoTopic": "/xgc/camera/world/camera_info",
+        "visualizationTopics": [
+          {
+            "topic": "/robot_0/private_map",
+            "messageType": "sensor_msgs/PointCloud2",
+            "role": "obstacle",
+            "expectedFrame": "world",
+            "visible3d": true,
+            "visibleAr": false,
+            "color": "#ff550099"
+          }
+        ],
+        "transformTopics": [],
+        "plotPaths": [
+          "/uav1/pose.pose.position.x",
+          "/robot_0/stats.solve_time"
+        ]
+      },
+      "robots": []
+    },
+    "layout": {
+      "configById": {
+        "3D!xgc2": {
+          "cameraState": {
+            "distance": 12,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              0,
+              0,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-none",
+          "followTf": "world",
+          "layers": {
+            "xgc2-grid": {
+              "color": "#9e9e9e",
+              "divisions": 30,
+              "frameLocked": true,
+              "instanceId": "xgc2-grid",
+              "label": "Grid",
+              "layerId": "foxglove.Grid",
+              "lineWidth": 1,
+              "order": 1,
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "size": 30,
+              "visible": true
+            }
+          },
+          "scene": {
+            "meshUpAxis": "z_up",
+            "obstacleScene": {
+              "namespace": "/xgc/scene"
+            },
+            "transforms": {
+              "axisScale": 1,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/robot_0/private_map": {
+              "colorField": "z",
+              "colorMode": "flat",
+              "decayTime": 0,
+              "flatColor": "#ff550099",
+              "pointShape": "square",
+              "pointSize": 2,
+              "pointSizeMode": "screen",
+              "visible": true
+            },
+            "/tf_static": {
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls": {
+              "showOutlines": false,
+              "visible": true
+            }
+          },
+          "transforms": {
+            "frame:world": {
+              "visible": true
+            }
+          }
+        },
+        "Image!xgc2-camera-ar": {
+          "cameraState": {
+            "distance": 12,
+            "far": 5000,
+            "fovy": 45,
+            "near": 0.1,
+            "perspective": true,
+            "phi": 60,
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "targetOffset": [
+              0,
+              0,
+              0
+            ],
+            "targetOrientation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "thetaOffset": 45
+          },
+          "followMode": "follow-pose",
+          "imageMode": {
+            "annotations": {},
+            "calibrationTopic": "/xgc/camera/world/camera_info",
+            "imageTopic": "/xgc/camera/world/video_h264",
+            "rotation": 0,
+            "synchronize": false
+          },
+          "scene": {
+            "labelScaleFactor": 1.25,
+            "meshUpAxis": "z_up",
+            "transforms": {
+              "axisScale": 0,
+              "lineWidth": 0,
+              "showLabel": false
+            }
+          },
+          "topics": {
+            "/tf_static": {
+              "visible": true
+            },
+            "/xgc/aligned/scene": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/scene_ar": {
+              "backgroundColor": "#000000",
+              "showBackground": true,
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/tf": {
+              "visible": true
+            },
+            "/xgc/uav_height_projection_ar": {
+              "showOutlines": false,
+              "visible": true
+            },
+            "/xgc/world_boundary_ar": {
+              "showOutlines": false,
+              "visible": false
+            },
+            "/xgc/world_boundary_walls_ar": {
+              "showOutlines": false,
+              "visible": true
+            }
+          }
+        },
+        "Plot!xgc2-plot": {
+          "isSynced": true,
+          "legendDisplay": "floating",
+          "paths": [
+            {
+              "enabled": true,
+              "timestampMethod": "receiveTime",
+              "value": "/uav1/pose.pose.position.x"
+            },
+            {
+              "enabled": true,
+              "timestampMethod": "receiveTime",
+              "value": "/robot_0/stats.solve_time"
+            }
+          ],
+          "showLegend": true,
+          "showPlotValuesInLegend": false,
+          "showXAxisLabels": true,
+          "showYAxisLabels": true,
+          "sidebarDimension": 240,
+          "xAxisVal": "timestamp"
+        }
+      },
+      "globalVariables": {},
+      "layout": {
+        "direction": "column",
+        "first": "3D!xgc2",
+        "second": {
+          "direction": "row",
+          "first": "Image!xgc2-camera-ar",
+          "second": "Plot!xgc2-plot",
+          "splitPercentage": 50
+        },
+        "splitPercentage": 50
+      },
+      "playbackConfig": {
+        "messageOrder": "receiveTime",
+        "speed": 1
+      },
+      "userNodes": {}
+    },
+    "name": "obstacle-only"
+  }
+]

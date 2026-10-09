@@ -25,7 +25,8 @@ required_files=(
   .github/workflows/apt-release.yml xgc2/tests/test_artifact_manifest.py
   xgc2/tests/test_lichtblick_web.js xgc2/launcher/lichtblick-web.env
   xgc2/launcher/reverse-proxy-examples.md xgc2/launcher/xgc2-lichtblick-web
-  xgc2/launcher/xgc2-lichtblick-web.js
+  xgc2/launcher/xgc2-lichtblick-web.js xgc2/launcher/prepare-layout.cjs
+  xgc2/tests/test_prepared_layout.cjs xgc2/launcher/testdata/frozen-layouts.json
 )
 for file in "${required_files[@]}"; do
   [[ -f "${file}" ]] || { echo "Missing required file: ${file}" >&2; exit 1; }
@@ -226,5 +227,5 @@ fi
 
 git diff --check
 python3 -m unittest discover -s xgc2/tests -p 'test_*.py' -v
-node --test xgc2/tests/test_lichtblick_web.js
+node --test xgc2/tests/test_lichtblick_web.js xgc2/tests/test_prepared_layout.cjs
 echo "xgc2-lichtblick package compliance checks passed."
