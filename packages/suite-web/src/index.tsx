@@ -82,13 +82,7 @@ export async function main(getParams: () => Promise<MainParams> = async () => ({
   try {
     store = await initializeManagedPersistence();
   } catch (error: unknown) {
-    const root = createRoot(rootEl);
-    root.render(
-      <div role="alert">
-        Application state could not be loaded:{" "}
-        {error instanceof Error ? error.message : String(error)}
-      </div>,
-    );
+    log.error("Application state could not be loaded", error);
     return;
   }
   await initI18n();
