@@ -45,7 +45,11 @@ fi
 ldd_output="$(mktemp)"
 smoke_dir="$(mktemp -d)"
 launcher_pid=""
-fixture_node() { ELECTRON_RUN_AS_NODE=1 "${binary}" "${fixture}" "$@"; }
+# The control client uses the release's maintained Node runtime. Electron owns
+# the application listener and renderer, not the external SDK test client.
+fixture_runtime="/usr/lib/xgc2/lichtblick-web/node/bin/node"
+[[ -x "${fixture_runtime}" ]]
+fixture_node() { "${fixture_runtime}" "${fixture}" "$@"; }
 cleanup() {
   if [[ -n "${launcher_pid}" ]]; then
     kill -TERM -- "-${launcher_pid}" 2>/dev/null || true

@@ -213,6 +213,28 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
   async function verifyClosed(root) {
     const ref = read(path.join(root, "actual-service-ref.json"));
     await assert.rejects(rpc(root, ref, "/v1/describe"), "app-owned mTLS listener remained open after SIGTERM");
+    if (fs.existsSync(path.join(root, "renderer-proof.json"))) {
+      // Opening the 3D panel persists its normalized working configuration.
+      // After the renderer exits, check its saved semantics, then retain that
+      // exact acknowledged snapshot as the provider-restart oracle.
+      const state = load(root);
+      const saved = snapshotValues(await storageSnapshot(state));
+      const expected = state.expected[documentKeys[0]];
+      const layout = saved[documentKeys[0]];
+      assert.deepEqual(Object.keys(saved).sort(), documentKeys.slice().sort());
+      for (const key of ["id", "name", "permission", "baseline"]) assert.deepEqual(layout[key], expected[key], `renderer changed saved layout ${key}`);
+      assert.deepEqual(saved["profile:user"], state.expected["profile:user"]);
+      assert.equal(saved["configuration:language"], state.expected["configuration:language"]);
+      if (layout.working) {
+        const original = expected.baseline.data;
+        const working = layout.working.data;
+        for (const key of ["layout", "globalVariables", "userNodes", "playbackConfig"]) assert.deepEqual(working[key], original[key]);
+        const camera = working.configById["3D!installed"].cameraState;
+        for (const [key, value] of Object.entries(original.configById["3D!installed"].cameraState)) assert.deepEqual(camera[key], value, `renderer changed camera ${key}`);
+      }
+      state.expected = saved;
+      save(root, state);
+    }
     await verifyRestart(root);
   }
   return { prepare, verifyWeb, verifyDesktop, verifyClosed, verifyRestart, stopStorage, storageSnapshot, snapshotValues, load };
