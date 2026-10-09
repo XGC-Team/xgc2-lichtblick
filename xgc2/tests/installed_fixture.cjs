@@ -99,10 +99,11 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
       const receipt = await storage(state, "/v1/batch", { scope: state.scope, expected: snapshot.token, request_id: requestId, mutations: documentKeys.map((key) => { const family = key.slice(0, key.indexOf(":")); return { collection: "documents", key, expected_version: "0", data: { family, key: key.slice(family.length + 1), value: state.expected[key] } }; }) }, requestId);
       assert.equal(receipt.durability, "sqlite-full"); assert.equal(receipt.request_id, requestId); assert.equal(receipt.versions.length, 3);
       const command = (args) => execFileSync("openssl", args, { cwd: root, stdio: "ignore" });
-      command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.pem", "-days", "1", "-subj", "/CN=installed-smoke-ca", "-addext", "basicConstraints=critical,CA:TRUE"]);
+      fs.writeFileSync(path.join(root, "ca.cnf"), "[req]\ndistinguished_name=dn\nx509_extensions=ca_extensions\n[dn]\n[ca_extensions]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n", { mode: 0o600 });
+      command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.pem", "-days", "1", "-subj", "/CN=installed-smoke-ca", "-config", "ca.cnf", "-extensions", "ca_extensions"]);
       for (const role of ["server", "client"]) {
         command(["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", `${role}.key`, "-out", `${role}.csr`, "-subj", `/CN=${role === "server" ? "localhost" : "installed-smoke-owner"}`]);
-        write(path.join(root, `${role}.ext`), `basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=${role === "server" ? "serverAuth" : "clientAuth"}\n${role === "server" ? "subjectAltName=DNS:localhost,IP:127.0.0.1\n" : ""}`);
+        write(path.join(root, `${role}.ext`), `basicConstraints=critical,CA:FALSE\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=${role === "server" ? "serverAuth" : "clientAuth"}\n${role === "server" ? "subjectAltName=DNS:localhost,IP:127.0.0.1\n" : ""}`);
         command(["x509", "-req", "-in", `${role}.csr`, "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-out", `${role}.pem`, "-days", "1", "-extfile", `${role}.ext`]);
       }
       for (const name of ["ca.key", "ca.pem", "server.pem", "server.key", "client.pem", "client.key"]) fs.chmodSync(path.join(root, name), 0o600);
