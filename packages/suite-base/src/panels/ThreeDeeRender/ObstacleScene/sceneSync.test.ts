@@ -30,36 +30,38 @@ describe("scene sync retry policy", () => {
   it("uses applied as the only document-apply authority", () => {
     expect(
       canRetrySync(
-        envelope([
-          {
-            consumer: "gazebo",
-            epoch: "e",
-            revision: 3,
-            applied: false,
-            operational: false,
-            capability: "",
-            success: false,
-            message: "factory timeout",
-          },
-        ]),
+        parseSceneEnvelope(
+          envelope([
+            {
+              consumer: "gazebo",
+              epoch: "e",
+              revision: 3,
+              applied: false,
+              operational: false,
+              capability: "",
+              message: "factory timeout",
+            },
+          ]),
+        ),
       ),
     ).toBe(true);
-    expect(() =>
-      parseSceneEnvelope(
-        envelope([
-          {
-            consumer: "gazebo",
-            epoch: "e",
-            revision: 3,
-            applied: false,
-            operational: false,
-            capability: "",
-            success: true,
-            message: "stale success must not apply",
-          },
-        ]),
-      ),
-    ).toThrow("Invalid scene synchronization status.");
+    const current = envelope([
+      {
+        consumer: "gazebo",
+        epoch: "e",
+        revision: 3,
+        applied: false,
+        operational: false,
+        capability: "",
+        message: "stale success must not apply",
+      },
+    ]);
+    const parsed = parseSceneEnvelope({
+      ...current,
+      consumers: current.consumers.map((consumer) => ({ ...consumer, success: true })),
+    });
+    expect(parsed.consumers).toEqual(current.consumers);
+    expect(canRetrySync(parsed)).toBe(true);
   });
 
   it("does not offer retry for a declared capability gap on the current version", () => {
@@ -73,7 +75,6 @@ describe("scene sync retry policy", () => {
             applied: true,
             operational: true,
             capability: "ok",
-            success: true,
             message: "applied",
           },
           {
@@ -83,7 +84,6 @@ describe("scene sync retry policy", () => {
             applied: false,
             operational: false,
             capability: "unsupported",
-            success: false,
             message: "unsupported motion type: spiral",
           },
         ]),
@@ -102,7 +102,6 @@ describe("scene sync retry policy", () => {
             applied: true,
             operational: true,
             capability: "ok",
-            success: true,
             message: "old",
           },
         ]),
@@ -122,7 +121,6 @@ describe("scene sync retry policy", () => {
               applied: true,
               operational: false,
               capability: "unsupported",
-              success: true,
               message: "Reset cannot certify this motion",
             },
           ],

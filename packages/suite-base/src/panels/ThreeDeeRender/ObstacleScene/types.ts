@@ -65,7 +65,6 @@ export type SceneEnvelope = {
     capability: "" | "ok" | "unsupported";
     generation?: number;
     message: string;
-    success: boolean;
   }[];
   syncRetryable?: boolean;
 };
@@ -245,8 +244,6 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
       typeof consumer.operational !== "boolean" ||
       typeof consumer.capability !== "string" ||
       !["", "ok", "unsupported"].includes(consumer.capability) ||
-      typeof consumer.success !== "boolean" ||
-      consumer.success !== consumer.applied ||
       (consumer.generation != undefined &&
         (!Number.isSafeInteger(consumer.generation) || (consumer.generation as number) < 0)) ||
       typeof consumer.message !== "string"
@@ -273,7 +270,6 @@ export function parseSceneEnvelope(value: unknown): SceneEnvelope {
       operational: consumer.operational,
       capability: consumer.capability,
       message: consumer.message,
-      success: consumer.applied,
       ...(consumer.generation != undefined ? { generation: consumer.generation } : {}),
     })),
   };
