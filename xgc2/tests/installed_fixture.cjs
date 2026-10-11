@@ -141,12 +141,12 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
       request.end(payload);
     });
   }
-  /** Discovery as the process owner does it: a plain describe names the instance, then one bound describe is held until the service is ready. */
+  /** Discovery and readiness are unbound calls; the readiness wait needs no instance. */
   async function describe(root, seconds) {
     const discovered = await control(root, "GET", "/v1/describe");
     assert.equal(discovered.status, 200, JSON.stringify(discovered.json));
     const wait = Math.min(30000, Math.max(0, Math.floor(seconds * 1000)));
-    const response = await control(root, "GET", `/v1/describe?wait_ready_ms=${wait}`, { instance: discovered.json.instance_id });
+    const response = await control(root, "GET", `/v1/describe?wait_ready_ms=${wait}`);
     assert.equal(response.status, 200, JSON.stringify(response.json));
     const document = response.json;
     assert.equal(document.service, "xgc2.lichtblick.v1");

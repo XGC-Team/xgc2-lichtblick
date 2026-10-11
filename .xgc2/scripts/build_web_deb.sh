@@ -142,7 +142,7 @@ Section: web
 Priority: optional
 Architecture: ${target_arch}
 Maintainer: ${maintainer}
-Depends: ca-certificates, util-linux, libc6, libgcc-s1, libstdc++6, node-xgc2-xrpc (>= 0.1.0-1~), xgc2-storage
+Depends: ca-certificates, util-linux, libc6, libgcc-s1, libstdc++6, node-xgc2-xrpc (>= 0.2.0-1), xgc2-storage
 Recommends: ${bridge_package}
 Description: XGC2 Lichtblick browser-based robotics visualization
  Serves the pinned Lichtblick web application from a command-line HTTP server,

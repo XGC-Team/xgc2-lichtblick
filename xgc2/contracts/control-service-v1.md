@@ -32,10 +32,12 @@ prints one `{"type":"ready"}` line once its first window has loaded.
 ## Instance fence and headers
 
 Every request carries `X-Request-ID` and `X-Xrpc-Timeout-Ms`. `instance_id` is
-fresh on every process start. Every call except plain discovery
-(`GET /v1/describe` without a query) also carries it in `X-Xrpc-Instance-ID` and
-is refused with `409` when it differs, so a caller that talked to a previous
-process can never reach the next one. Calls are limited to 15 seconds.
+fresh on every process start. Discovery matches the `GET /v1/describe` path
+only, including a `wait_ready_ms` query, and requires no `X-Xrpc-Instance-ID`.
+Every other call carries the instance in that header and is refused with `409`
+when it is missing or differs. A discovery call that supplies the header is
+also fenced, so a caller bound to a previous process can never reach the next
+one. Calls are limited to 15 seconds.
 
 ## Readiness
 
@@ -62,11 +64,11 @@ storage that was replaced is a different environment for this binding: the
 service never rebinds, stays `ready:false` with the reason and the owner
 restarts it. A storage that answers again makes the service ready again.
 
-`GET /v1/describe?wait_ready_ms=<0..30000>` is a bound call (it carries the
-instance learned from the plain call). It holds the request, without polling,
-until `ready` is true, the wait elapses or the call's own deadline is near, and
-then answers with the current document. At most 16 calls are held; stopping
-answers them at once.
+`GET /v1/describe?wait_ready_ms=<0..30000>` is an unbound discovery call. Core
+can issue it before it knows the instance. It holds the request, without
+polling, until `ready` is true, the wait elapses or the call's own deadline is
+near, and then answers with the current document. At most 16 calls are held;
+stopping answers them at once.
 
 ## Operations
 

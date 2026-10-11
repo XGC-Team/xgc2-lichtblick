@@ -32,15 +32,20 @@ test("describe is the unbound discovery call and reports readiness and facts", a
   assert.deepEqual({ storage: response.json.facts.storage, http_port: response.json.facts.http_port }, { storage: "ready", http_port: 18081 });
 });
 
-test("wait_ready_ms holds the call until the launcher is ready, without polling", async (t) => {
+test("unbound wait_ready_ms holds the call until the launcher is ready, without polling", async (t) => {
   const { control, socketPath, call } = await startControl(t, { ready: false });
   const started = Date.now();
-  const held = call("GET", "/v1/describe?wait_ready_ms=5000");
+  let earlyResponse;
+  const held = rawCall(socketPath, "GET", "/v1/describe?wait_ready_ms=5000").then((response) => { earlyResponse = response; return response; });
   await delay(150);
+  assert.equal(earlyResponse?.status, undefined, "unbound readiness call must remain held before markReady");
   control.markReady();
   const response = await held;
+  assert.equal(response.status, 200);
+  assert.equal(response.headers["x-xrpc-instance-id"], control.instanceId);
   assert.equal(response.json.ready, true);
   assert.ok(Date.now() - started >= 140 && Date.now() - started < 2000, `answered when ready, after ${Date.now() - started} ms`);
+  t.diagnostic(`unbound readiness answered HTTP ${response.status} after ${Date.now() - started} ms`);
   // A wait that elapses answers with the current document.
   control.markNotReady("restarting");
   const waited = Date.now();
@@ -58,8 +63,6 @@ test("wait_ready_ms holds the call until the launcher is ready, without polling"
   const closed = control.close();
   assert.equal((await stopping).json.facts.reason, "stopping");
   await closed;
-  // Malformed waits and a bounded number of waiters.
-  void socketPath;
 });
 
 test("describe waits are validated and bounded", async (t) => {
@@ -89,6 +92,7 @@ test("every other call needs a ready launcher and the live instance", async (t) 
   // The instance fence rejects a caller of another process before any dispatch.
   assert.equal((await rawCall(socketPath, "GET", "/v1/view")).status, 409);
   assert.equal((await rawCall(socketPath, "GET", "/v1/view", { instance: "previous-instance" })).status, 409);
+  assert.equal((await call("GET", "/v1/describe?wait_ready_ms=5000", { instance: "previous-instance" })).status, 409);
   assert.equal((await call("GET", "/v1/nothing")).status, 404);
   assert.equal((await call("DELETE", "/v1/view")).status, 404);
 });

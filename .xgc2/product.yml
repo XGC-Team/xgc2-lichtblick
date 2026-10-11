@@ -17,7 +17,7 @@ apt:
   depends:
   - ca-certificates
   - util-linux
-  - node-xgc2-xrpc (>= 0.1.0-1~)
+  - node-xgc2-xrpc (>= 0.2.0-1)
   - xgc2-storage
   - libc6
   - libgcc-s1

@@ -51,7 +51,7 @@ async function startControl(t, { ready = true, access, monitor } = {}) {
   await control.start();
   t.after(() => control.close());
   if (ready) control.markReady();
-  return { ...base, viewStore, control, socketPath, changes, call: (method, target, options = {}) => rawCall(socketPath, method, target, { instance: control.instanceId, ...options }) };
+  return { ...base, viewStore, control, socketPath, changes, call: (method, target, options = {}) => rawCall(socketPath, method, target, { instance: method === "GET" && target.split("?", 1)[0] === "/v1/describe" ? undefined : control.instanceId, ...options }) };
 }
 
 module.exports = { rawCall, startControl };
