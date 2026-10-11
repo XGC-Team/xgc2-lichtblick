@@ -23,8 +23,6 @@ export interface ViewState {
 export const EMPTY_VIEW: DesiredView;
 /** Validates a view and returns its canonical form; throws a PersistenceError (400) otherwise. */
 export function normalizeView(value: unknown): DesiredView;
-/** Throws a PersistenceError (403) if a browser document request names the view family. */
-export function rejectViewFamily(request: unknown): void;
 export class ViewStore {
   constructor(client: ManagedDomainClient);
   readonly state: ViewState;

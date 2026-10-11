@@ -35,9 +35,9 @@ function rawCall(socketPath, method, target, { instance, body, headers = {}, tim
   });
 }
 
-/** The check a launcher uses: the smallest storage read, so a replaced or stopped storage rejects it. */
+/** The check a launcher uses: the smallest read of the pages' scope, so a replaced or stopped storage rejects it. */
 function storageCheck(client) {
-  return async () => { await client.request({ operation: "snapshot", keys: [{ family: "view", key: "desired" }] }, { timeoutMs: 1000 }); };
+  return async () => { await client.request({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] }, { timeoutMs: 1000 }); };
 }
 
 async function startControl(t, { ready = true, access, monitor } = {}) {

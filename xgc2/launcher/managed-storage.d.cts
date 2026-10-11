@@ -5,7 +5,17 @@ import type { StartupInput } from "./startup-input.cjs";
 export type ManagedAsset = { owner: "lichtblick"; asset_id: string; sha256: string; bytes: number };
 export interface ManagedDomainClient {
   readonly ready: Promise<void>;
+  /** The scope of the pages' documents (every family but the desired view). */
+  readonly scope: { readonly namespace: "lichtblick"; readonly user: string; readonly workspace: string };
+  /** The scope that holds only the desired view; undefined when none was granted. */
+  readonly viewScope: { readonly namespace: "lichtblick"; readonly user: string; readonly workspace: string } | undefined;
+  /** Document operations in the document scope; a request that names the view family is refused (403). */
   request(
+    request: unknown,
+    context?: { requestId?: string; timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<unknown>;
+  /** The same operations in the view scope, for the view family only; 503 without a view scope. */
+  requestView(
     request: unknown,
     context?: { requestId?: string; timeoutMs?: number; signal?: AbortSignal },
   ): Promise<unknown>;
@@ -31,6 +41,7 @@ export function createManagedDomainClient(options: {
   call: (route: string, body: unknown, context?: { requestId?: string; timeoutMs?: number; signal?: AbortSignal }) => Promise<unknown>;
   close?: () => void | Promise<void>;
   scope: { namespace: "lichtblick"; user: string; workspace: string };
+  viewScope?: { namespace: "lichtblick"; user: string; workspace: string };
   assetRoot: string;
   timeZone?: string;
   assetAccess?: "read-only" | "read-write";

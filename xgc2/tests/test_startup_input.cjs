@@ -28,6 +28,18 @@ test("the startup input carries the storage reference, scope, credential header 
   assert.ok(Object.isFrozen(input) && Object.isFrozen(input.storage.reference));
 });
 
+test("the desired view may have a scope of its own", (t) => {
+  const viewScope = { namespace: "lichtblick", user: "alice", workspace: "lab.view" };
+  const { file } = fixture(t, { viewScope });
+  const input = loadStartupInput(file);
+  assert.deepEqual(input.storage.viewScope, viewScope);
+  assert.ok(Object.isFrozen(input.storage.viewScope));
+  // A different user is as good as a different workspace.
+  assert.deepEqual(loadStartupInput(fixture(t, { viewScope: { ...scope, user: "bob" } }).file).storage.viewScope.user, "bob");
+  // Without one, the input is still valid (the desktop needs none); the web launcher refuses to start.
+  assert.equal(loadStartupInput(fixture(t).file).storage.viewScope, undefined);
+});
+
 test("an input or credential that is not private, owned and plain is refused", (t) => {
   const { root, file } = fixture(t);
   fs.chmodSync(file, 0o644);
@@ -71,6 +83,10 @@ test("only the declared schema is accepted", (t) => {
   rejected((input) => { input.storage.scope.namespace = "other"; }, /lichtblick/);
   rejected((input) => { input.storage.scope.user = ""; }, /scope user/);
   rejected((input) => { input.storage.scope.extra = 1; }, /unknown storage scope field/);
+  rejected((input) => { input.storage.view_scope = { ...scope }; }, /must differ/);
+  rejected((input) => { input.storage.view_scope = { ...scope, namespace: "other", workspace: "lab.view" }; }, /lichtblick namespace/);
+  rejected((input) => { input.storage.view_scope = { ...scope, workspace: "" }; }, /view_scope workspace/);
+  rejected((input) => { input.storage.view_scope = { ...scope, workspace: "lab.view", extra: 1 }; }, /unknown storage view_scope field/);
   rejected((input) => { input.assets.access = "write"; }, /access/);
   rejected((input) => { input.assets.root = "assets"; }, /canonical/);
   rejected((input) => { input.assets.root = "/a/../b"; }, /canonical/);

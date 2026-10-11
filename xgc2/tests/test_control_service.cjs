@@ -241,8 +241,10 @@ test("the launcher's own state comes first, and closing stops asking the storage
   const document = (await call("GET", "/v1/describe")).json;
   assert.equal(document.ready, false);
   assert.equal(document.facts.reason, "starting", "the launcher is not serving yet");
-  const before = storage.state.calls.filter((entry) => entry.route === "/v1/snapshot").length;
   await control.close();
+  // A question already on its way when the service closed may still arrive.
+  await delay(100);
+  const before = storage.state.calls.filter((entry) => entry.route === "/v1/snapshot").length;
   await delay(150);
   assert.equal(storage.state.calls.filter((entry) => entry.route === "/v1/snapshot").length, before, "a closed service asks nothing");
 });

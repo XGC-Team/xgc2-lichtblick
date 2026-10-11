@@ -78,6 +78,25 @@
             }
           }
         },
+        "view_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "user", "workspace"],
+          "description": "Optional (the web launcher requires it). A scope of its own that holds only the desired view, in the same namespace and a different user or workspace; the storage credential must authorize it too. Stating a view moves this scope's revision, never the one the pages' saves are fenced by.",
+          "properties": {
+            "namespace": {
+              "const": "lichtblick"
+            },
+            "user": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "workspace": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+          }
+        },
         "token_file": {
           "type": "string",
           "pattern": "^/",

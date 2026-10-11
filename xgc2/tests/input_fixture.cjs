@@ -13,20 +13,20 @@ function privateDirectory(prefix = "lichtblick-test-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 /** Writes the private startup input and the credential it names; returns the input's path. */
-function writeStartupInput(root, { reference, scope, assets, token = DEFAULT_TOKEN, access = "read-write", timeZone = "system", change } = {}) {
+function writeStartupInput(root, { reference, scope, viewScope, assets, token = DEFAULT_TOKEN, access = "read-write", timeZone = "system", change } = {}) {
   const tokenFile = path.join(root, "storage-token");
   fs.writeFileSync(tokenFile, token, { mode: 0o600 });
-  const input = { schema_version: 1, operator_time_zone: timeZone, storage: structuredClone({ reference, scope, token_file: tokenFile }), assets: { root: assets, access } };
+  const input = { schema_version: 1, operator_time_zone: timeZone, storage: structuredClone({ reference, scope, ...(viewScope ? { view_scope: viewScope } : {}), token_file: tokenFile }), assets: { root: assets, access } };
   change?.(input);
   const file = path.join(root, "startup-input.json");
   fs.writeFileSync(file, JSON.stringify(input), { mode: 0o600 });
   return file;
 }
 /** The startup input as the loader returns it, for tests that hand it over directly. */
-function domainInput(reference, scope, assetRoot, token = DEFAULT_TOKEN, access = "read-write") {
+function domainInput(reference, scope, assetRoot, token = DEFAULT_TOKEN, access = "read-write", viewScope) {
   return {
     operatorTimeZone: "system",
-    storage: { reference, scope, authorization: { Authorization: `Bearer ${token}` } },
+    storage: { reference, scope, ...(viewScope ? { viewScope } : {}), authorization: { Authorization: `Bearer ${token}` } },
     assets: { root: assetRoot, access },
   };
 }

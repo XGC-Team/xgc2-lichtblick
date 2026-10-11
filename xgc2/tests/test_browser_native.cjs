@@ -23,8 +23,9 @@ test("a real clean browser restores the camera saved by actual 3D interaction th
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "s8-browser-"));
   const assets = path.join(root, "assets"); await fs.mkdir(assets, { mode: 0o700 });
   const scope = { namespace: "lichtblick", user: "browser", workspace: "test" };
+  const viewScope = { ...scope, workspace: "test.view" };
   const ownerGrant = "explicit-browser-fixture-owner-grant";
-  const grants = path.join(root, "grants.json"); await fs.writeFile(grants, JSON.stringify([{ ...scope, token: ownerGrant }]), { mode: 0o600 });
+  const grants = path.join(root, "grants.json"); await fs.writeFile(grants, JSON.stringify([{ ...scope, token: ownerGrant }, { ...viewScope, token: ownerGrant }]), { mode: 0o600 });
   const refs = path.join(root, "refs.json");
   const storage = spawn(process.env.XGC2_STORAGE_TEST_BINARY, ["--db", path.join(root, "storage.db"), "--manifest", path.resolve(__dirname, "../contracts/storage-manifest.json"), "--grants", grants, "--http-socket", path.join(root, "rpc.sock"), "--target-id", "fixture", "--ref-out", refs, "--create"], { stdio: "ignore" });
   let browser; let launcher; let product; let transport;
@@ -61,7 +62,7 @@ test("a real clean browser restores the camera saved by actual 3D interaction th
     { family: "configuration", key: "language", expectedVersion: "0", value: "en" },
   ] });
   await product.close(); product = undefined; transport.close(); transport = undefined;
-  const startupInput = writeStartupInput(root, { reference, scope, assets, token: ownerGrant });
+  const startupInput = writeStartupInput(root, { reference, scope, viewScope, assets, token: ownerGrant });
   const controlSocket = path.join(root, "control.sock");
   const buildInfo = path.join(root, "build-info.json"); await fs.writeFile(buildInfo, JSON.stringify({ schema: "xgc2.lichtblick-web.build.v1", package: "xgc2-lichtblick-web", version: "1.27.0-1~test", upstreamSha: "1".repeat(40) }));
   launcher = spawn(process.execPath, [path.resolve(__dirname, "../launcher/xgc2-lichtblick-web.js"), "--startup-input", startupInput, "--control-socket", controlSocket, "--host", "127.0.0.1", "--port", "0", "--control-plane-url", "ws://127.0.0.1:9"], { env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: process.env.XGC2_LICHTBLICK_TEST_WEB_ROOT, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "no-defaults") }, stdio: ["ignore", "pipe", "pipe"] });

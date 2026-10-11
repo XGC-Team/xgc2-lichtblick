@@ -148,3 +148,10 @@ test("SIGTERM ends the streams and drains; the socket goes with the process", as
   assert.equal(stream.frames.at(-1).event, "closing");
   assert.equal(fs.existsSync(launcher.socketPath), false);
 });
+
+test("a launcher without a view scope in its startup input does not start", async (t) => {
+  const { launcher } = await startLauncher(t, { storage: { withViewScope: false } });
+  const exit = await launcher.exited;
+  assert.equal(exit.code, 1);
+  assert.match(launcher.output + launcher.errors, /storage\.view_scope/);
+});

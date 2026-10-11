@@ -32,7 +32,7 @@ test("actual launcher retains the domain lease after an incomplete native drain 
   peer.listen(socket); await new Promise((resolve) => peer.once("listening", resolve));
   const scope = { namespace: "lichtblick", user: "fixture", workspace: "drain" };
   const reference = { target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "drain-peer", profile: "http.v1", endpoint: { kind: "unix", address: socket } };
-  const input = writeStartupInput(root, { reference, scope, assets });
+  const input = writeStartupInput(root, { reference, scope, viewScope: { ...scope, workspace: "drain.view" }, assets });
   const controlSocket = path.join(root, "control.sock");
   const owner = spawn(process.execPath, [LAUNCHER, "--startup-input", input, "--control-socket", controlSocket, "--host", "127.0.0.1", "--port", "0", "--shutdown-ms", "50", "--frame-ancestors", "'self'"],
     { env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: web, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "no-defaults"), ALLOWED_ORIGINS: "", FRAME_ANCESTORS: "" }, stdio: ["ignore", "pipe", "pipe"] });

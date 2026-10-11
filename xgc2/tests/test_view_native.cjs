@@ -12,6 +12,7 @@ const { ViewStore, normalizeView, EMPTY_VIEW } = require("../launcher/view-state
 const { domainInput, privateDirectory } = require("./input_fixture.cjs");
 
 const scope = { namespace: "lichtblick", user: "view", workspace: "native" };
+const viewScope = { namespace: "lichtblick", user: "view", workspace: "native.view" };
 const credential = "native-view-fixture-owner-grant-32-bytes";
 const view = { layoutId: "camera-ar", followRobot: "uav1", perspective: true, visibleSurfaces: ["3d-tools", "topics"] };
 
@@ -22,7 +23,7 @@ test("the desired view keeps its revision and CAS semantics on the actual storag
   const assets = path.join(root, "assets"); await fs.mkdir(assets, { mode: 0o700 });
   const refs = path.join(root, "refs.json");
   const grants = path.join(root, "grants.json");
-  await fs.writeFile(grants, JSON.stringify([{ ...scope, token: credential }]), { mode: 0o600 });
+  await fs.writeFile(grants, JSON.stringify([{ ...scope, token: credential }, { ...viewScope, token: credential }]), { mode: 0o600 });
   let child;
   async function stop() {
     if (!child || child.exitCode !== null) return;
@@ -46,7 +47,7 @@ test("the desired view keeps its revision and CAS semantics on the actual storag
     throw Error("storage provider did not publish a reference");
   }
   function product(reference) {
-    const client = createManagedDomainClientFromInput(domainInput(reference, scope, assets, credential));
+    const client = createManagedDomainClientFromInput(domainInput(reference, scope, assets, credential, "read-write", viewScope));
     clients.push(client);
     return client;
   }
@@ -55,16 +56,20 @@ test("the desired view keeps its revision and CAS semantics on the actual storag
   assert.deepEqual(await store.load(), { revision: "0", view: EMPTY_VIEW });
   const first = await store.set(view, { expectedRevision: "0" });
   assert.ok(BigInt(first.revision) > 0n);
-  // A page saves its own documents: the database token moves, the view write still lands.
+  // A view write leaves the revision the pages' saves are fenced by alone, on the actual provider, and a page save leaves the view's.
   const profile = await firstClient.request({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] });
-  await firstClient.request({ operation: "batch", expected: profile.token, requestId: "page-profile-1", changes: [{ family: "profile", key: "user", expectedVersion: "0", value: { currentLayoutId: "a" } }] });
+  const saved = await firstClient.request({ operation: "batch", expected: profile.token, requestId: "page-profile-1", changes: [{ family: "profile", key: "user", expectedVersion: "0", value: { currentLayoutId: "a" } }] });
+  const fenced = (await firstClient.request({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] })).token;
+  assert.deepEqual(fenced, saved.token);
   const second = await store.set({ ...view, perspective: false });
+  assert.deepEqual((await firstClient.request({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] })).token, fenced, "stating a view moved the revision the pages are fenced by");
+  assert.equal(store.state.revision, second.revision);
   assert.ok(BigInt(second.revision) > BigInt(first.revision));
   await assert.rejects(store.set(view, { expectedRevision: first.revision }), (error) => error.code === "conflict");
   assert.equal((await store.set({ ...view, perspective: false })).unchanged, true);
   // A second owner of the same scope (it only reads assets) races for the same document.
   const reference = await readReference(refs);
-  const rivalClient = createManagedDomainClientFromInput(domainInput(reference, scope, assets, credential, "read-only"));
+  const rivalClient = createManagedDomainClientFromInput(domainInput(reference, scope, assets, credential, "read-only", viewScope));
   clients.push(rivalClient);
   const rival = new ViewStore(rivalClient);
   await rival.load();

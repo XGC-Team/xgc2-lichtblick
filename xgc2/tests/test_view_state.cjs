@@ -3,7 +3,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { EMPTY_VIEW, ViewStore, normalizeView, rejectViewFamily } = require("../launcher/view-state.cjs");
+const { EMPTY_VIEW, ViewStore, normalizeView } = require("../launcher/view-state.cjs");
 const { startStorage } = require("./storage_fixture.cjs");
 
 const full = { layoutId: "camera-ar", followRobot: "uav1", perspective: true, visibleSurfaces: ["topics", "3d-tools"] };
@@ -19,13 +19,26 @@ test("a view is exactly four nullable fields in canonical form", () => {
   }
 });
 
-test("browsers cannot name the view family in a document request", () => {
-  for (const request of [{ operation: "snapshot", keys: [{ family: "view", key: "desired" }] }, { operation: "snapshot", families: ["view"] },
-    { operation: "batch", changes: [{ family: "profile", key: "user" }, { family: "view", key: "desired" }] }]) {
-    assert.throws(() => rejectViewFamily(request), (error) => error.code === "permission_denied" && error.status === 403);
+test("the view family has a scope of its own that pages cannot reach", async (t) => {
+  const { client, storage } = await startStorage(t);
+  const view = { operation: "snapshot", keys: [{ family: "view", key: "desired" }] };
+  for (const request of [view, { operation: "snapshot", families: ["view"] },
+    { operation: "batch", expected: { database_id: "x", schema: "x", revision: "0" }, requestId: "page-writes-view", changes: [{ family: "profile", key: "user", expectedVersion: "0", value: {} }, { family: "view", key: "desired", expectedVersion: "0", value: {} }] }]) {
+    await assert.rejects(client.request(request), (error) => error.code === "permission_denied" && error.status === 403, JSON.stringify(request));
   }
-  assert.doesNotThrow(() => rejectViewFamily({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] }));
-  assert.doesNotThrow(() => rejectViewFamily(undefined));
+  // The view scope holds the view and nothing else.
+  for (const request of [{ operation: "snapshot", keys: [{ family: "profile", key: "user" }] }, { operation: "snapshot", families: ["layouts"] }]) {
+    await assert.rejects(client.requestView(request), (error) => error.code === "permission_denied" && error.status === 403, JSON.stringify(request));
+  }
+  assert.equal(storage.state.calls.length, 0, "a refused request never reaches the storage");
+  assert.deepEqual((await client.requestView(view)).records.map((record) => record.missing), [true]);
+  assert.deepEqual(storage.state.calls.map((call) => call.scope), ["view"]);
+});
+
+test("a client without a view scope cannot hold a view", async (t) => {
+  const { client } = await startStorage(t, { withViewScope: false });
+  await assert.rejects(client.requestView({ operation: "snapshot", keys: [{ family: "view", key: "desired" }] }), (error) => error.code === "unavailable" && error.status === 503);
+  await assert.rejects(new ViewStore(client).load(), (error) => error.code === "unavailable");
 });
 
 test("the revision is the storage version: unset is 0, a write advances it, an identical view keeps it", async (t) => {
@@ -63,20 +76,37 @@ test("expectedRevision makes the write conditional and a stale one changes nothi
   await assert.rejects(store.set(full, { expectedRevision: "01" }), (error) => error.code === "invalid_argument");
 });
 
-test("a write that lost a race with an unrelated document is read again, not replayed blindly", async (t) => {
+test("saves of the pages never touch the revision a view write depends on", async (t) => {
   const { client, storage } = await startStorage(t);
   const store = new ViewStore(client);
   await store.load();
-  // A page saves a layout between our read and our write.
+  // A page saves its documents between our read and our write: the view scope does not notice.
+  storage.state.beforeBatch = () => { storage.touch("profile", "user", { currentLayoutId: "x" }); storage.state.beforeBatch = undefined; };
+  const written = await store.set(full);
+  assert.equal(storage.state.calls.filter((call) => call.route === "/v1/batch").length, 1, "no retry: the pages' scope is not the view's scope");
+  assert.deepEqual(written.view, normalizeView(full));
+  assert.equal(storage.revision, 1n, "the pages' scope moved only by their own save");
+  // And the other way round: a view write leaves the revision the pages are fenced by alone.
+  const before = storage.revision;
+  await store.set({ ...full, followRobot: "uav2" });
+  assert.equal(storage.revision, before);
+});
+
+test("a write that lost a race with another writer of the view is read again, not replayed blindly", async (t) => {
+  const { client, storage } = await startStorage(t);
+  const store = new ViewStore(client);
+  await store.load();
   let raced = false;
-  storage.state.beforeBatch = () => { if (!raced) { raced = true; storage.touch("profile", "user", { currentLayoutId: "x" }); } };
+  storage.state.beforeBatch = () => { if (!raced) { raced = true; storage.touch("view", "desired", { ...EMPTY_VIEW, followRobot: "uav9" }); } };
+  // An unconditional write re-reads and replaces the competitor's view.
   const written = await store.set(full);
   assert.equal(raced, true);
-  assert.equal(storage.state.calls.filter((call) => call.route === "/v1/batch").length, 2, "one retry after the token moved");
+  assert.equal(storage.state.calls.filter((call) => call.route === "/v1/batch").length, 2, "one retry after the revision moved");
   assert.deepEqual(written.view, normalizeView(full));
-  // A competing writer of the view itself is not retried over: it is a real conflict.
+  // A conditional write does not: it is a real conflict, and the competitor's view stays.
   storage.state.beforeBatch = () => { storage.touch("view", "desired", { ...EMPTY_VIEW, followRobot: "uav9" }); storage.state.beforeBatch = undefined; };
   await assert.rejects(store.set({ perspective: true }, { expectedRevision: store.state.revision }), (error) => error.code === "conflict");
+  assert.equal(store.state.view.followRobot, "uav9");
 });
 
 test("an uncertain write is settled by reading the storage", async (t) => {

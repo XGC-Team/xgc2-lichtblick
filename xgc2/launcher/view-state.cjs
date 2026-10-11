@@ -7,7 +7,10 @@ const { PersistenceError } = require("./managed-storage.cjs");
 
 // The desired view of the viewer pages: the one document Core states and every
 // page reads. It lives in the launcher's managed document storage, family
-// `view`, so it outlives the launcher and a page that opens later finds it.
+// `view` of the view scope, so it outlives the launcher and a page that opens
+// later finds it. The scope is its own because the pages' saves are fenced by
+// the revision of the document scope: a write there would make the next save of
+// every open page fail with a revision conflict.
 const VIEW_FAMILY = "view";
 const VIEW_KEY = "desired";
 // The surfaces the embed protocol can show; the order is the canonical one. The left
@@ -43,17 +46,6 @@ function normalizeView(value) {
     surfaces = SURFACES.filter((surface) => visibleSurfaces.includes(surface));
   }
   return { layoutId, followRobot, perspective, visibleSurfaces: surfaces };
-}
-
-/** A browser may read the view, never write it: refuse any document request that names its family. */
-function rejectViewFamily(request) {
-  const names = [];
-  if (request && typeof request === "object") {
-    for (const key of request.keys ?? []) names.push(key?.family);
-    for (const family of request.families ?? []) names.push(family);
-    for (const change of request.changes ?? []) names.push(change?.family);
-  }
-  if (names.includes(VIEW_FAMILY)) throw new PersistenceError("permission_denied", "the desired view is controlled through the control service", 403);
 }
 
 class ViewStore {
@@ -94,7 +86,7 @@ class ViewStore {
   }
 
   async #read() {
-    const snapshot = await this.#client.request({ operation: "snapshot", keys: [{ family: VIEW_FAMILY, key: VIEW_KEY }] });
+    const snapshot = await this.#client.requestView({ operation: "snapshot", keys: [{ family: VIEW_FAMILY, key: VIEW_KEY }] });
     return { token: snapshot.token, ...this.#interpret(snapshot.records[0]) };
   }
 
@@ -120,7 +112,7 @@ class ViewStore {
         return { ...this.#state, unchanged: true };
       }
       try {
-        const receipt = await this.#client.request({
+        const receipt = await this.#client.requestView({
           operation: "batch", expected: current.token, requestId: `view-${randomUUID()}`,
           changes: [{ family: VIEW_FAMILY, key: VIEW_KEY, expectedVersion: current.revision, value: view }],
         });
@@ -138,4 +130,4 @@ class ViewStore {
   }
 }
 
-module.exports = { VIEW_FAMILY, VIEW_KEY, SURFACES, EMPTY_VIEW, ViewStore, normalizeView, rejectViewFamily };
+module.exports = { VIEW_FAMILY, VIEW_KEY, SURFACES, EMPTY_VIEW, ViewStore, normalizeView };

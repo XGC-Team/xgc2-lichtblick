@@ -12,6 +12,7 @@ const MAX_ASSET_BYTES = 8 * 1024 * 1024;
 // A storage call is bounded; the owner's drain waits for admitted work for at most SHUTDOWN_MS.
 const CALL_TIMEOUT_MS = 15000;
 const SHUTDOWN_MS = 16000;
+const VIEW_FAMILY = "view";
 const FAMILY_LIMITS = Object.freeze({
   layouts: 2 * 1024 * 1024, profile: 65536, configuration: 65536,
   workspace: 65536, extensions: 256 * 1024, desktop: 65536, view: 65536,
@@ -28,6 +29,10 @@ class PersistenceError extends Error {
   }
 }
 function invalid(message) { throw new PersistenceError("invalid_argument", message); }
+function checkScope(scope, name) {
+  object(scope, name); fields(scope, ["namespace", "user", "workspace"]);
+  if (scope.namespace !== "lichtblick" || typeof scope.user !== "string" || !ID.test(scope.user) || typeof scope.workspace !== "string" || !ID.test(scope.workspace)) invalid(`explicit Lichtblick user/workspace ${name} required`);
+}
 function object(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalid(`${name} must be an object`);
   return value;
@@ -83,9 +88,12 @@ function privateControlFile(stat) {
 
 // The injected call is the XRPC SDK client; domain code never opens a socket.
 class ManagedDomainClient {
-  constructor({ call, close = async () => {}, scope, assetRoot, timeZone = "system", assetAccess = "read-write" }) {
-    object(scope, "scope"); fields(scope, ["namespace", "user", "workspace"]);
-    if (scope.namespace !== "lichtblick" || typeof scope.user !== "string" || !ID.test(scope.user) || typeof scope.workspace !== "string" || !ID.test(scope.workspace)) invalid("explicit Lichtblick user/workspace scope required");
+  constructor({ call, close = async () => {}, scope, viewScope, assetRoot, timeZone = "system", assetAccess = "read-write" }) {
+    checkScope(scope, "scope");
+    if (viewScope !== undefined) {
+      checkScope(viewScope, "view scope");
+      if (viewScope.user === scope.user && viewScope.workspace === scope.workspace) invalid("the view scope must differ from the document scope");
+    }
     if (typeof call !== "function") invalid("XRPC storage call required");
     if (typeof assetRoot !== "string" || !path.isAbsolute(assetRoot) || path.normalize(assetRoot) !== assetRoot) invalid("canonical granted extension directory required");
     if (process.platform !== "linux") invalid("extension asset grants require the Linux descriptor lease");
@@ -94,6 +102,7 @@ class ManagedDomainClient {
     try { this.assetClock = new Intl.DateTimeFormat("sv-SE", { ...(timeZone === "system" ? {} : { timeZone }), year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }); }
     catch { invalid("valid operator IANA time zone or system required"); }
     this.call = call; this.scope = Object.freeze({ ...scope }); this.assetRoot = assetRoot;
+    this.viewScope = viewScope === undefined ? undefined : Object.freeze({ ...viewScope });
     this.closeTransport = close; this.assetCount = 0; this.assetBytes = 0;
     this.pendingAssets = 0; this.pendingBytes = 0; this.maxAssets = 256; this.maxAssetBytes = 128 * 1024 * 1024;
     this.assetAccess = assetAccess; this.assetOperations = new Set(); this.assetClosing = false;
@@ -152,9 +161,24 @@ class ManagedDomainClient {
     const failed = results.find((result) => result.status === "rejected");
     if (failed) throw failed.reason;
   }
+  /**
+   * The documents of the pages: every family except the desired view, in the document scope.
+   * The pages' saves are fenced by this scope's revision, so nothing else may write it.
+   */
   async request(input, context = {}) {
+    return await this.run(this.scope, (family) => family !== VIEW_FAMILY, "the desired view is controlled through the control service", input, context);
+  }
+  /** The desired view: the one family of the view scope, whose revision no page is fenced by. */
+  async requestView(input, context = {}) {
+    if (!this.viewScope) throw new PersistenceError("unavailable", "no view scope is configured", 503);
+    return await this.run(this.viewScope, (family) => family === VIEW_FAMILY, "the view scope holds only the desired view", input, context);
+  }
+  async run(scope, permitted, refusal, input, context) {
     return await this.domainOperation(async () => {
     object(input, "request");
+    for (const family of [...(Array.isArray(input.keys) ? input.keys.map((key) => key?.family) : []), ...(Array.isArray(input.families) ? input.families : []), ...(Array.isArray(input.changes) ? input.changes.map((change) => change?.family) : [])]) {
+      if (typeof family === "string" && Object.hasOwn(FAMILY_LIMITS, family) && !permitted(family)) throw new PersistenceError("permission_denied", refusal, 403);
+    }
     if (Buffer.byteLength(JSON.stringify(input)) > MAX_WIRE_BYTES) throw new PersistenceError("resource_exhausted", "document request too large", 413);
     if (input.operation === "snapshot") {
       fields(input, ["operation", "keys", "families", "after", "limit", "at"]);
@@ -172,7 +196,7 @@ class ManagedDomainClient {
         if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 128) invalid("page limit must be 1..128");
         if (input.after !== undefined) { decoded(input.after); query.after = input.after; }
       }
-      const result = await this.call("/v1/snapshot", { scope: this.scope, queries: [query], ...(input.at ? { at: token(input.at) } : {}) }, context);
+      const result = await this.call("/v1/snapshot", { scope, queries: [query], ...(input.at ? { at: token(input.at) } : {}) }, context);
       if (!Array.isArray(result.results) || result.results.length !== 1 || result.results[0].collection !== "documents") throw new PersistenceError("internal", "invalid storage snapshot", 502);
       return { token: token(result.token), records: result.results[0].records.map(record), ...(result.results[0].next_after ? { nextAfter: result.results[0].next_after } : {}) };
     }
@@ -192,7 +216,7 @@ class ManagedDomainClient {
         return { collection: "documents", key, expected_version: change.expectedVersion, ...(change.delete ? { delete: true } : { data }) };
       });
       if (new Set(mutations.map((m) => m.key)).size !== mutations.length) invalid("duplicate batch keys");
-      const result = await this.call("/v1/batch", { scope: this.scope, expected: token(input.expected), request_id: input.requestId, mutations }, { ...context, requestId: input.requestId });
+      const result = await this.call("/v1/batch", { scope, expected: token(input.expected), request_id: input.requestId, mutations }, { ...context, requestId: input.requestId });
       try {
         return this.receipt(result, input.requestId, mutations);
       } catch (error) {
@@ -205,7 +229,7 @@ class ManagedDomainClient {
     if (input.operation === "receipt") {
       fields(input, ["operation", "requestId"]);
       if (typeof input.requestId !== "string" || !ID.test(input.requestId)) invalid("canonical request identity required");
-      return this.receipt(await this.call("/v1/receipt", { scope: this.scope, request_id: input.requestId }, context), input.requestId);
+      return this.receipt(await this.call("/v1/receipt", { scope, request_id: input.requestId }, context), input.requestId);
     }
     invalid("undeclared persistence operation");
     });
@@ -309,7 +333,7 @@ function createManagedDomainClientFromInput(input, { diagnostics } = {}) {
     return value;
   };
   try {
-    return createManagedDomainClient({ scope: storage.scope, assetRoot: assets.root, assetAccess: assets.access, timeZone: operatorTimeZone, call, close: () => transport.close() });
+    return createManagedDomainClient({ scope: storage.scope, viewScope: storage.viewScope, assetRoot: assets.root, assetAccess: assets.access, timeZone: operatorTimeZone, call, close: () => transport.close() });
   } catch (error) {
     void transport.close();
     throw error;

@@ -32,7 +32,7 @@ const {
 const { createControlService } = require("./control-service.cjs");
 const { loadStartupInput, checkUnixAddress } = require("./startup-input.cjs");
 const { readJSONInput } = require("./prepare-layout.cjs");
-const { ViewStore, rejectViewFamily } = require("./view-state.cjs");
+const { ViewStore } = require("./view-state.cjs");
 const { createViewGateway } = require("./view-gateway.cjs");
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -801,7 +801,6 @@ function buildRequestListener(
           input = JSON.parse(
             (await readBoundedBody(req, MAX_WIRE_BYTES)).toString("utf8"),
           );
-          rejectViewFamily(input);
           writeJson(
             res,
             200,
@@ -1101,6 +1100,10 @@ async function main() {
     diagnostics = new Diagnostics({
       sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
     });
+    if (!input.storage.viewScope)
+      throw new Error(
+        "the startup input needs storage.view_scope for the desired view",
+      );
     persistence = createManagedDomainClientFromInput(input, { diagnostics });
     const viewStore = new ViewStore(persistence);
     views = createViewGateway(viewStore);
@@ -1112,10 +1115,10 @@ async function main() {
       diagnostics,
       shutdownMs,
       dependency: {
-        // The view document is the smallest read that proves the bound storage instance answers.
+        // The smallest read of the pages' scope that proves the bound storage instance answers.
         check: async () => {
           await persistence.request(
-            { operation: "snapshot", keys: [{ family: "view", key: "desired" }] },
+            { operation: "snapshot", keys: [{ family: "profile", key: "user" }] },
             { timeoutMs: 3000 },
           );
         },

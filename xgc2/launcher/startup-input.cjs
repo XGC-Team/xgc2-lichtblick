@@ -17,6 +17,13 @@ function object(value, name, allowed, required = allowed) {
   for (const key of required) if (!Object.hasOwn(value, key)) invalid(`missing ${name} field ${key}`);
   return value;
 }
+function checkScope(value, name) {
+  const scope = object(value, name, ["namespace", "user", "workspace"]);
+  if (scope.namespace !== "lichtblick") invalid(`the ${name} belongs to the lichtblick namespace`);
+  id(scope.user, `${name} user`);
+  id(scope.workspace, `${name} workspace`);
+  return scope;
+}
 function id(value, name) {
   if (typeof value !== "string" || !ID.test(value)) invalid(`${name} must be 1..128 canonical identifier characters`);
   return value;
@@ -87,7 +94,7 @@ function loadStartupInput(filePath) {
   object(input, "startup input", ["schema_version", "operator_time_zone", "storage", "assets"]);
   if (input.schema_version !== 1) invalid("current startup input schema required");
   if (typeof input.operator_time_zone !== "string" || input.operator_time_zone.length < 1 || input.operator_time_zone.length > 128) invalid("authoritative operator time zone required");
-  const storage = object(input.storage, "storage", ["reference", "scope", "token_file"]);
+  const storage = object(input.storage, "storage", ["reference", "scope", "view_scope", "token_file"], ["reference", "scope", "token_file"]);
   const reference = object(storage.reference, "storage reference", ["target_id", "service", "api_version", "instance_id", "profile", "endpoint"]);
   id(reference.target_id, "storage target_id");
   id(reference.instance_id, "storage instance_id");
@@ -95,10 +102,10 @@ function loadStartupInput(filePath) {
   object(reference.endpoint, "storage endpoint", ["kind", "address"]);
   if (reference.endpoint.kind !== "unix") invalid("the storage endpoint must be a local Unix socket");
   checkUnixAddress(reference.endpoint.address, "storage endpoint address");
-  const scope = object(storage.scope, "storage scope", ["namespace", "user", "workspace"]);
-  if (scope.namespace !== "lichtblick") invalid("the storage scope belongs to the lichtblick namespace");
-  id(scope.user, "scope user");
-  id(scope.workspace, "scope workspace");
+  const scope = checkScope(storage.scope, "storage scope");
+  // The desired view lives in a scope of its own: its writes move that scope's revision, never the one the pages' saves are fenced by.
+  const viewScope = storage.view_scope === undefined ? undefined : checkScope(storage.view_scope, "storage view_scope");
+  if (viewScope && viewScope.user === scope.user && viewScope.workspace === scope.workspace) invalid("storage view_scope must differ from the storage scope");
   const token = readPrivateFile(storage.token_file, MAX_TOKEN_BYTES).toString("utf8");
   if (!TOKEN.test(token)) invalid("the storage credential must be one RFC 6750 bearer token without a trailing newline");
   const assets = object(input.assets, "assets", ["root", "access"]);
@@ -109,6 +116,7 @@ function loadStartupInput(filePath) {
     storage: Object.freeze({
       reference: Object.freeze({ ...reference, endpoint: Object.freeze({ ...reference.endpoint }) }),
       scope: Object.freeze({ ...scope }),
+      ...(viewScope ? { viewScope: Object.freeze({ ...viewScope }) } : {}),
       authorization: Object.freeze({ Authorization: `Bearer ${token}` }),
     }),
     assets: Object.freeze({ root: assets.root, access: assets.access }),
