@@ -3,19 +3,15 @@
   "definitions": [
     {
       "id": "lichtblick-web",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "label": "Lichtblick WebUI",
       "description": "The Lichtblick browser server of one Run. It serves the viewer pages, proxies the live-data WebSocket and hosts xgc2.lichtblick.v1 (describe, persistence, extension assets and the desired view) on a Unix socket that the process creates in the private runtime directory its owner allocated. Its document storage, view scope, credential and asset grant arrive in one private startup input file that the owner writes.",
-      "drivers": [
-        "host"
-      ],
       "parameters": {
         "properties": {
           "socketPath": {
             "type": "string",
             "description": "Absolute path of the control socket, inside a private runtime directory allocated by the process owner.",
-            "fixedOnly": true,
-            "ownedEndpoint": "unix-socket"
+            "fixedOnly": true
           },
           "startupInputPath": {
             "type": "string",
@@ -49,31 +45,18 @@
           "socketPath",
           "startupInputPath",
           "layoutJson"
-        ],
-        "additionalProperties": false
+        ]
       },
-      "resourceClaims": [
-        {
-          "bindingKey": "http",
-          "kind": "tcp-listener",
-          "mode": "",
-          "capacity": 0,
-          "address": "127.0.0.1",
-          "portParameter": "port"
-        }
-      ],
       "services": [
         {
           "service": "xgc2.lichtblick.v1",
           "api_version": "1",
           "profile": "http.v1",
-          "endpointParameter": "socketPath",
-          "describePath": "/v1/describe"
+          "endpointParameter": "socketPath"
         }
       ],
       "command": {
         "executable": "/usr/bin/xgc2-lichtblick-web",
-        "directExecutable": true,
         "args": [
           "--startup-input",
           "${startupInputPath}",
@@ -99,14 +82,8 @@
         "startGraceMs": 15000,
         "timeoutMs": 30000
       },
-      "liveness": {
-        "kind": "none"
-      },
       "stop": {
-        "gracePeriod": 20000000000
-      },
-      "restart": {
-        "mode": "never"
+        "graceMs": 20000
       },
       "logs": {
         "maxBytes": 8388608,

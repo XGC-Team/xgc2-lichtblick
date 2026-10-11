@@ -54,6 +54,10 @@ CSP controls, `/healthz`, and `/version`. Local development uses
 process definition, [process-definitions/xgc2-lichtblick-web.json](process-definitions/xgc2-lichtblick-web.json),
 runs the packaged `/usr/bin/xgc2-lichtblick-web` launcher and is installed to
 `/usr/share/xgc2/process-definitions` for XGC Core.
+Core allocates the service socket named by `endpointParameter`; its parameter is
+`fixedOnly`. The `port` and `bridgePort` integer parameters keep their defaults of
+18081 and 8765; Core does not allocate the page listener. Readiness uses `describe`,
+and `stop.graceMs` is 20000.
 
 Both web and desktop require one private startup input file from the owning
 deployment. It declares a live storage reference, scope (and, for the web

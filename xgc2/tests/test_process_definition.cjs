@@ -20,35 +20,47 @@ function expand(value, values) {
   });
 }
 
-test("the definition is one host process whose endpoint, files and port are declared parameters", () => {
+test("the definition is one process whose endpoint, files and ports are declared parameters", () => {
   assert.equal(document.apiVersion, "xgc.execution.process/v1");
+  assert.deepEqual(Object.keys(document).sort(), ["apiVersion", "definitions"]);
   assert.equal(document.definitions.length, 1);
   const [definition] = document.definitions;
   assert.equal(definition.id, "lichtblick-web");
-  assert.deepEqual(definition.drivers, ["host"]);
-  const { properties, required, additionalProperties } = definition.parameters;
-  assert.equal(additionalProperties, false);
+  assert.equal(definition.version, "2.1.0");
+  for (const [fields, allowed] of [
+    [definition, ["id", "version", "label", "description", "parameters", "setupFiles", "command", "services", "readiness", "stop", "logs"]],
+    [definition.parameters, ["properties", "required", "groups"]],
+    [definition.command, ["executable", "args", "workDir", "env", "stdinParameter"]],
+    [definition.readiness, ["kind", "startGraceMs", "timeoutMs", "address", "masterUri"]],
+    [definition.stop, ["graceMs", "rpc"]],
+    [definition.logs, ["maxBytes", "files"]],
+  ]) {
+    for (const key of Object.keys(fields)) assert.ok(allowed.includes(key), `unsupported field ${key}`);
+  }
+  const { properties, required } = definition.parameters;
   assert.deepEqual(required.slice().sort(), ["layoutJson", "socketPath", "startupInputPath"]);
-  const owned = Object.entries(properties).filter(([, property]) => property.ownedEndpoint);
-  assert.deepEqual(owned.map(([name, property]) => [name, property.ownedEndpoint, property.fixedOnly]), [["socketPath", "unix-socket", true]]);
-  assert.equal(properties.startupInputPath["x-xgc-path-kind"], "file");
+  for (const property of Object.values(properties)) {
+    for (const key of Object.keys(property)) assert.ok(["type", "description", "default", "enum", "minimum", "maximum", "sensitive", "output", "fixedOnly", "x-xgc-path-kind", "x-xgc-file-extensions"].includes(key), `unsupported parameter field ${key}`);
+  }
+  assert.deepEqual(properties.socketPath, { type: "string", description: "Absolute path of the control socket, inside a private runtime directory allocated by the process owner.", fixedOnly: true });
   assert.equal(properties.startupInputPath.fixedOnly, true);
+  assert.equal(properties.startupInputPath["x-xgc-path-kind"], "file");
+  assert.deepEqual(properties.startupInputPath["x-xgc-file-extensions"], [".json"]);
+  assert.deepEqual(properties.port, { type: "integer", description: "Lichtblick HTTP port on the local host; XGC uses the dedicated loopback port 18081", default: 18081, minimum: 1, maximum: 65535 });
+  assert.deepEqual(properties.bridgePort, { type: "integer", description: "Foxglove-compatible WebSocket port on the local host", default: 8765, minimum: 1, maximum: 65535 });
   // The service is the one the launcher hosts, at the endpoint the process owner allocates.
-  assert.deepEqual(definition.services, [{ service: "xgc2.lichtblick.v1", api_version: "1", profile: "http.v1", endpointParameter: "socketPath", describePath: "/v1/describe" }]);
+  assert.deepEqual(definition.services, [{ service: "xgc2.lichtblick.v1", api_version: "1", profile: "http.v1", endpointParameter: "socketPath" }]);
   assert.equal(definition.readiness.kind, "describe");
   assert.ok(definition.readiness.startGraceMs > 0 && definition.readiness.timeoutMs >= definition.readiness.startGraceMs);
-  assert.equal(definition.restart.mode, "never");
+  assert.deepEqual(definition.stop, { graceMs: 20000 });
   // Product executables only: no wrapper, shell, probe command, or token and TLS parameters.
   assert.equal(definition.command.executable, "/usr/bin/xgc2-lichtblick-web");
-  assert.equal(definition.command.directExecutable, true);
   for (const retired of ["bootstrap", "token", "tls", "certificate", "storage-binary", "python", "bash", "sh"]) {
     assert.ok(!JSON.stringify(definition).toLowerCase().includes(`"${retired}`) && !definition.command.executable.includes(retired), retired);
   }
   const used = new Set([...definition.command.args, ...Object.values(definition.command.env ?? {})].flatMap(placeholders));
   for (const name of used) assert.ok(Object.hasOwn(properties, name), `${name} is not a declared parameter`);
   assert.equal(definition.command.stdinParameter, "layoutJson");
-  for (const claim of definition.resourceClaims) assert.ok(Object.hasOwn(properties, claim.portParameter));
-  assert.ok(Object.keys(definition).every((key) => key !== "exec"));
 });
 
 test("the launcher accepts the command the definition declares and answers the service it declares", async (t) => {
