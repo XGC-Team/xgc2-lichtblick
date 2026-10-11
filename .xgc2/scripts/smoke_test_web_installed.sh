@@ -48,7 +48,7 @@ JSON
   --host 127.0.0.1 --port 0 --control-plane-url ws://127.0.0.1:9 \
   <"${smoke_dir}/view-input.json" >"${smoke_dir}/server.log" 2>&1 &
 server_pid=$!
-"${node}" - "${smoke_dir}" "${tests}/control_fixture.cjs" <<'NODE'
+"${node}" - "${smoke_dir}" "${tests}/raw_call.cjs" <<'NODE'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
