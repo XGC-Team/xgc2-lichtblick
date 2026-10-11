@@ -9,8 +9,8 @@ const { spawn } = require("node:child_process");
 const { setTimeout: delay } = require("node:timers/promises");
 const { buildSync } = require("esbuild");
 const test = require("node:test");
-const { createDomainFixture } = require("./tls_fixture.cjs");
-const { createManagedDomainClientFromBootstrap, createManagedPolicy } = require("../launcher/managed-storage.cjs");
+const { domainInput } = require("./input_fixture.cjs");
+const { createManagedDomainClientFromInput } = require("../launcher/managed-storage.cjs");
 
 test("actual managed document client restores camera after browser replacement and storage restart; competing CAS cannot overwrite", async (t) => {
   const binary = process.env.XGC2_STORAGE_TEST_BINARY;
@@ -54,7 +54,7 @@ test("actual managed document client restores camera after browser replacement a
     throw Error("storage provider did not publish a reference");
   }
   function product(ref) {
-    const client = createManagedDomainClientFromBootstrap(createDomainFixture(ref, scope, assets, ownerGrant), createManagedPolicy({}));
+    const client = createManagedDomainClientFromInput(domainInput(ref, scope, assets, ownerGrant));
     clients.push(client); return client;
   }
   const moduleFile = path.join(root, "document-client.cjs");

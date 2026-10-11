@@ -4,40 +4,44 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const http = require("node:http");
-const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const test = require("node:test");
-const { createTLSFixture } = require("./tls_fixture.cjs");
 const { createManagedDomainClient } = require("../launcher/managed-storage.cjs");
+const { LAUNCHER } = require("./launcher_fixture.cjs");
+const { privateDirectory, writeStartupInput } = require("./input_fixture.cjs");
+const { writeWebRoot } = require("./launcher_fixture.cjs");
 
 function deferred() { let release; return { promise: new Promise((resolve) => { release = resolve; }), release: () => release() }; }
+const token = { database_id: "drain-db", schema: "lichtblick.persistence.v1", revision: "0" };
 
-test("actual launcher retains the domain lease after an incomplete native drain and closes on a later owner request", { timeout: 10000 }, async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "s8-drain-"));
+test("actual launcher retains the domain lease after an incomplete native drain and closes on a later owner request", { timeout: 15000 }, async (t) => {
+  const root = privateDirectory("lichtblick-drain-");
   const assets = path.join(root, "assets"); await fs.mkdir(assets, { mode: 0o700 });
-  const web = path.join(root, "web"); await fs.mkdir(web);
-  await fs.writeFile(path.join(web, "index.html"), "<!doctype html><html><head></head><body>Native fixture</body></html>");
-  const buildInfo = path.join(root, "build-info.json");
-  await fs.writeFile(buildInfo, JSON.stringify({ schema: "xgc2.lichtblick-web.build.v1", package: "xgc2-lichtblick-web", version: "1.27.0-1~test", upstreamSha: "1".repeat(40) }));
+  const { web, buildInfo } = writeWebRoot(root);
   const entered = deferred(); const blocked = deferred();
+  let requests = 0;
+  // A storage that answers the launcher's own startup read at once and then holds the operation of a page.
   const peer = http.createServer(async (request, response) => {
     for await (const _chunk of request) { /* Native peer holds its accepted operation. */ }
-    entered.release(); await blocked.promise;
-    response.setHeader("X-Xrpc-Instance-ID", "drain-peer"); response.end(JSON.stringify({ token: { database_id: "drain-db", schema: "lichtblick.persistence.v1", revision: "0" }, results: [{ collection: "documents", records: [{ key: "profile:user", version: "0", missing: true }] }] }));
+    if (++requests > 1) { entered.release(); await blocked.promise; }
+    response.setHeader("X-Xrpc-Instance-ID", "drain-peer");
+    response.end(JSON.stringify({ token, results: [{ collection: "documents", records: [{ key: "profile:user", version: "0", missing: true }, { key: "view:desired", version: "0", missing: true }] }] }));
   });
   const socket = path.join(root, "storage.sock");
   peer.listen(socket); await new Promise((resolve) => peer.once("listening", resolve));
   const scope = { namespace: "lichtblick", user: "fixture", workspace: "drain" };
-  const tls = createTLSFixture(root);
-  const input = tls.writeInput({ schema_version: 1, storage: { grant: "fixture-documents", reference: { target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "drain-peer", profile: "http.v1", endpoint: { kind: "unix", address: socket } }, scope, authorization: "fixture-storage-auth" }, assets: { access: "read-write", grant: "fixture-assets", root: assets } });
-  const owner = spawn(process.execPath, [path.resolve(__dirname, "../launcher/xgc2-lichtblick-web.js"), "--bootstrap-input", input, "--host", "127.0.0.1", "--port", "0"], { env: { ...process.env, XGC2_XRPC_LOG_LEVEL: "info", XGC2_XRPC_LOG_FORMAT: "json", XGC2_XRPC_SHUTDOWN_TIMEOUT_MS: "50", XGC2_LICHTBLICK_WEB_STATIC_ROOT: web, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "no-defaults") }, stdio: ["ignore", "pipe", "pipe"] });
+  const reference = { target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "drain-peer", profile: "http.v1", endpoint: { kind: "unix", address: socket } };
+  const input = writeStartupInput(root, { reference, scope, assets });
+  const controlSocket = path.join(root, "control.sock");
+  const owner = spawn(process.execPath, [LAUNCHER, "--startup-input", input, "--control-socket", controlSocket, "--host", "127.0.0.1", "--port", "0", "--shutdown-ms", "50", "--frame-ancestors", "'self'"],
+    { env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: web, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "no-defaults"), ALLOWED_ORIGINS: "", FRAME_ANCESTORS: "" }, stdio: ["ignore", "pipe", "pipe"] });
   let output = ""; let errorOutput = "";
   owner.stdout.on("data", (chunk) => { output += chunk; }); owner.stderr.on("data", (chunk) => { errorOutput += chunk; });
   async function waitFor(predicate) {
     await new Promise((resolve, reject) => {
       const check = () => { if (predicate()) { cleanup(); resolve(); } };
-      const timer = setTimeout(() => { cleanup(); reject(Error(`owner condition failed: ${output} ${errorOutput}`)); }, 2000);
+      const timer = setTimeout(() => { cleanup(); reject(Error(`owner condition failed: ${output} ${errorOutput}`)); }, 4000);
       const cleanup = () => { clearTimeout(timer); owner.stdout.off("data", check); owner.stderr.off("data", check); };
       owner.stdout.on("data", check); owner.stderr.on("data", check); check();
     });
@@ -48,7 +52,7 @@ test("actual launcher retains the domain lease after an incomplete native drain 
     peer.closeAllConnections(); await new Promise((resolve) => peer.close(resolve));
     await fs.rm(root, { recursive: true, force: true });
   });
-  await waitFor(() => output.includes('{"type":"service_ref"'));
+  await waitFor(() => /serving Lichtblick web bundle on http:\/\/127\.0\.0\.1:[0-9]+/.test(output));
   const origin = /serving Lichtblick web bundle on (http:\/\/127\.0\.0\.1:[0-9]+)/.exec(output)[1];
   const attempt = fetch(`${origin}/xgc2/storage`, { method: "POST", body: JSON.stringify({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] }), headers: { Origin: origin, "Content-Type": "application/json" } });
   attempt.catch(() => {});
@@ -63,5 +67,6 @@ test("actual launcher retains the domain lease after an incomplete native drain 
   const diagnostics = errorOutput.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
   assert.ok(diagnostics.some((record) => record.event === "shutdown_started"), "native diagnostic worker acknowledged its bounded records before exit");
   assert.ok(diagnostics.every((record) => record.event !== "sink_failed"));
+  await assert.rejects(fs.stat(controlSocket), { code: "ENOENT" });
   const next = createManagedDomainClient({ scope, assetRoot: assets, call: async () => {} }); await next.ready; await next.close();
 });

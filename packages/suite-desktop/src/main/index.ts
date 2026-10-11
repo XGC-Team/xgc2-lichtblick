@@ -5,7 +5,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { loadBootstrapInput, derivePolicy, Diagnostics } from "@xgc2/xrpc";
+import { Diagnostics } from "@xgc2/xrpc";
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from "electron";
 
 import Logger from "@lichtblick/log";
@@ -28,14 +28,11 @@ import {
 } from "./rosPackageResources";
 import { getAppSetting, initializeAppSettings } from "./settings";
 import {
-  createManagedDomainRPC,
-  ManagedDomainRPC,
-} from "../../../../xgc2/launcher/managed-rpc.cjs";
-import {
-  createManagedDomainClientFromBootstrap,
-  createManagedPolicy,
+  createManagedDomainClientFromInput,
   ManagedDomainClient,
+  SHUTDOWN_MS,
 } from "../../../../xgc2/launcher/managed-storage.cjs";
+import { loadStartupInput } from "../../../../xgc2/launcher/startup-input.cjs";
 import {
   LICHTBLICK_PRODUCT_HOMEPAGE,
   LICHTBLICK_PRODUCT_NAME,
@@ -61,7 +58,7 @@ async function updateLanguage() {
 }
 
 export async function main(options: {
-  bootstrapInput: string;
+  startupInput: string;
   argv?: readonly string[];
 }): Promise<void> {
   const publicArguments = parseDesktopArguments(options.argv ?? process.argv).argv;
@@ -276,12 +273,11 @@ export async function main(options: {
   // This method will be called when Electron has finished
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
-  const domainOptions = loadBootstrapInput(options.bootstrapInput, { role: "server" });
+  const input = loadStartupInput(options.startupInput);
   const diagnostics = new Diagnostics({
     sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
   });
-  const policy = createManagedPolicy(process.env, diagnostics);
-  const runtime: { rpc?: ManagedDomainRPC; client?: ManagedDomainClient } = {};
+  const runtime: { client?: ManagedDomainClient } = {};
   let closing = false;
   let drained = false;
   app.on("before-quit", (event) => {
@@ -293,9 +289,8 @@ export async function main(options: {
       closing = true;
       runtime.client?.beginDrain();
       void (async () => {
-        await runtime.rpc?.close();
         await runtime.client?.close();
-        await diagnostics.close({ timeoutMs: Number(policy.fields.SHUTDOWN_TIMEOUT_MS?.value) });
+        await diagnostics.close({ timeoutMs: SHUTDOWN_MS });
       })()
         .then(() => {
           drained = true;
@@ -311,25 +306,11 @@ export async function main(options: {
   // drain as the desktop's Quit action before releasing the native owner.
   process.once("SIGTERM", () => app.quit());
   process.once("SIGINT", () => app.quit());
-  const managedClient = createManagedDomainClientFromBootstrap(
-    domainOptions,
-    derivePolicy(policy, {
-      role: "lichtblick-storage",
-      ceilings: { MAX_REQUEST_BYTES: 4 * 1024 * 1024, MAX_RESPONSE_BYTES: 4 * 1024 * 1024 },
-    }),
-  );
+  const managedClient = createManagedDomainClientFromInput(input, { diagnostics });
   runtime.client = managedClient;
   registerManagedPersistenceIPC(managedClient);
   // whenReady also handles readiness reached while loading the managed snapshot.
   await Promise.all([app.whenReady(), managedClient.ready]);
-  runtime.rpc = createManagedDomainRPC(managedClient, {
-    ...domainOptions,
-    policy: derivePolicy(policy, {
-      role: "lichtblick-private",
-      ceilings: { MAX_REQUEST_BYTES: 8 * 1024 * 1024, MAX_RESPONSE_BYTES: 8 * 1024 * 1024 },
-    }),
-  });
-  const serviceRef = await runtime.rpc.start();
   await initializeAppSettings(async (request) => await managedClient.request(request));
   await initI18n({ context: "electron-main" });
   await updateLanguage();
@@ -420,7 +401,8 @@ export async function main(options: {
     pendingSecondInstances.length = 0;
     Menu.setApplicationMenu(initialWindow.getMenu()); // When the app is launching for the first time we don't receive the browser-window-focus event.
   }
-  process.stdout.write(`${JSON.stringify({ type: "service_ref", service_ref: serviceRef })}\n`);
+  // The desktop hosts no service; this line tells its supervisor that it is up.
+  process.stdout.write(`${JSON.stringify({ type: "ready" })}\n`);
 
   // Quit when all windows are closed, except on macOS. There, it's common
   // for applications and their menu bar to stay active until the user quits

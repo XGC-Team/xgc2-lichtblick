@@ -9,9 +9,12 @@ const { spawn } = require("node:child_process");
 
 const MAX_WIRE_BYTES = 4 * 1024 * 1024;
 const MAX_ASSET_BYTES = 8 * 1024 * 1024;
+// A storage call is bounded; the owner's drain waits for admitted work for at most SHUTDOWN_MS.
+const CALL_TIMEOUT_MS = 15000;
+const SHUTDOWN_MS = 16000;
 const FAMILY_LIMITS = Object.freeze({
   layouts: 2 * 1024 * 1024, profile: 65536, configuration: 65536,
-  workspace: 65536, extensions: 256 * 1024, desktop: 65536,
+  workspace: 65536, extensions: 256 * 1024, desktop: 65536, view: 65536,
 });
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -272,33 +275,21 @@ class ManagedDomainClient {
 
 function createManagedDomainClient(options) { return new ManagedDomainClient(options); }
 
-function createManagedPolicy(environment = process.env, diagnostics) {
-  const { resolvePolicy } = require("@xgc2/xrpc");
-  const budgets = { CALL_TIMEOUT_MS: 15000, SHUTDOWN_TIMEOUT_MS: 16000, HOST_MAX_CONNECTIONS: 32, HOST_MAX_IN_FLIGHT: 8, MAX_REQUEST_BYTES: MAX_ASSET_BYTES, MAX_RESPONSE_BYTES: 64 * 1024 * 1024, CLIENT_MAX_CONNECTIONS: 8, CLIENT_MAX_REFERENCES: 1 };
-  return resolvePolicy({ environment, diagnostics, defaults: budgets, ceilings: budgets });
-}
-
-function createManagedDomainClientFromBootstrap({ binding, resolveGrant, application }, policy) {
-  const { BootstrapBinding, HTTPClient } = require("@xgc2/xrpc");
-  if (!(binding instanceof BootstrapBinding) || typeof resolveGrant !== "function") invalid("explicit SDK bootstrap owner required");
-  object(application, "Lichtblick application startup"); fields(application, ["schema_version", "storage", "assets", "operator_time_zone"]);
-  if (application.schema_version !== 1) invalid("current Lichtblick application startup schema required");
-  if (typeof application.operator_time_zone !== "string" || !application.operator_time_zone) invalid("authoritative operator time zone required");
-  const storage = object(application.storage, "storage grant"); fields(storage, ["grant", "reference", "scope", "authorization"]);
-  const assets = object(application.assets, "asset grant"); fields(assets, ["grant", "root", "access"]);
-  if (!["read-only", "read-write"].includes(assets.access)) invalid("explicit asset read-only/read-write grant required");
-  if (storage.grant === assets.grant || !binding.storage_grants.includes(storage.grant) || !binding.storage_grants.includes(assets.grant)) invalid("explicit distinct document and asset grants required");
-  const reference = object(storage.reference, "storage reference");
-  fields(reference, ["target_id", "service", "api_version", "instance_id", "profile", "endpoint"]);
-  if (reference.service !== "xgc2.storage.v1.Storage" || reference.api_version !== "1" || !ID.test(reference.instance_id ?? "") || reference.profile !== "http.v1" || reference.endpoint?.kind !== "unix" || reference.target_id !== binding.target_id) invalid("instance-bound local storage-v1 reference required");
-  const authorization = resolveGrant(storage.authorization, "authorization");
-  if (!authorization?.headers || typeof authorization.headers !== "object") invalid("outbound storage authorization grant required");
-  if (!policy || typeof policy.effective !== "function") invalid("composition-owned resolved runtime policy required");
-  const transport = new HTTPClient({ policy, localTarget: binding.target_id });
+// The client of the document storage named by the startup input. Limits are
+// plain options: 8 connections to the one storage reference, 4 MiB documents.
+function createManagedDomainClientFromInput(input, { diagnostics } = {}) {
+  const { HTTPClient } = require("@xgc2/xrpc");
+  object(input, "startup input");
+  const { storage, assets, operatorTimeZone } = input;
+  const reference = storage.reference;
+  const transport = new HTTPClient({
+    diagnostics, localTarget: reference.target_id, maxConnections: 8, maxReferences: 1,
+    maxRequestBytes: MAX_WIRE_BYTES, maxResponseBytes: MAX_WIRE_BYTES, callTimeoutMs: CALL_TIMEOUT_MS,
+  });
   const call = async (route, body, options = {}) => {
     let response;
     try {
-      response = await transport.call(reference, route, { timeoutMs: Math.min(options.timeoutMs ?? policy.fields.CALL_TIMEOUT_MS.value, policy.fields.CALL_TIMEOUT_MS.value), signal: options.signal, requestId: options.requestId, method: "POST", json: body, headers: authorization.headers });
+      response = await transport.call(reference, route, { timeoutMs: Math.min(options.timeoutMs ?? CALL_TIMEOUT_MS, CALL_TIMEOUT_MS), signal: options.signal, requestId: options.requestId, method: "POST", json: body, headers: storage.authorization });
     } catch (error) {
       const failure = new PersistenceError(error.code ?? "unavailable", "storage transport failed", 503);
       failure.outcome = error.disposition ?? "outcome_unknown"; failure.requestId = options.requestId;
@@ -318,11 +309,11 @@ function createManagedDomainClientFromBootstrap({ binding, resolveGrant, applica
     return value;
   };
   try {
-    return createManagedDomainClient({ scope: storage.scope, assetRoot: assets.root, assetAccess: assets.access, timeZone: application.operator_time_zone, call, close: () => transport.close() });
+    return createManagedDomainClient({ scope: storage.scope, assetRoot: assets.root, assetAccess: assets.access, timeZone: operatorTimeZone, call, close: () => transport.close() });
   } catch (error) {
     void transport.close();
     throw error;
   }
 }
 
-module.exports = { MAX_WIRE_BYTES, MAX_ASSET_BYTES, PersistenceError, createManagedPolicy, createManagedDomainClient, createManagedDomainClientFromBootstrap };
+module.exports = { MAX_WIRE_BYTES, MAX_ASSET_BYTES, CALL_TIMEOUT_MS, SHUTDOWN_MS, PersistenceError, createManagedDomainClient, createManagedDomainClientFromInput };

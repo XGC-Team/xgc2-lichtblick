@@ -11,7 +11,8 @@ const test = require("node:test");
 const { isDeepStrictEqual } = require("node:util");
 const { chromium } = require("playwright");
 const { HTTPClient } = require("@xgc2/xrpc");
-const { createTLSFixture } = require("./tls_fixture.cjs");
+const { writeStartupInput } = require("./input_fixture.cjs");
+const { rawCall } = require("./control_fixture.cjs");
 const { createManagedDomainClient } = require("../launcher/managed-storage.cjs");
 
 
@@ -60,23 +61,21 @@ test("a real clean browser restores the camera saved by actual 3D interaction th
     { family: "configuration", key: "language", expectedVersion: "0", value: "en" },
   ] });
   await product.close(); product = undefined; transport.close(); transport = undefined;
-  const tls = createTLSFixture(root);
-  const bootstrap = tls.writeInput({ schema_version: 1, storage: { grant: "fixture-documents", reference, scope, authorization: "fixture-storage-auth" }, assets: { access: "read-write", grant: "fixture-assets", root: assets } }, ownerGrant);
+  const startupInput = writeStartupInput(root, { reference, scope, assets, token: ownerGrant });
+  const controlSocket = path.join(root, "control.sock");
   const buildInfo = path.join(root, "build-info.json"); await fs.writeFile(buildInfo, JSON.stringify({ schema: "xgc2.lichtblick-web.build.v1", package: "xgc2-lichtblick-web", version: "1.27.0-1~test", upstreamSha: "1".repeat(40) }));
-  launcher = spawn(process.execPath, [path.resolve(__dirname, "../launcher/xgc2-lichtblick-web.js"), "--bootstrap-input", bootstrap, "--host", "127.0.0.1", "--port", "0", "--control-plane-url", "ws://127.0.0.1:9"], { env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: process.env.XGC2_LICHTBLICK_TEST_WEB_ROOT, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "no-defaults") }, stdio: ["ignore", "pipe", "pipe"] });
+  launcher = spawn(process.execPath, [path.resolve(__dirname, "../launcher/xgc2-lichtblick-web.js"), "--startup-input", startupInput, "--control-socket", controlSocket, "--host", "127.0.0.1", "--port", "0", "--control-plane-url", "ws://127.0.0.1:9"], { env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: process.env.XGC2_LICHTBLICK_TEST_WEB_ROOT, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "no-defaults") }, stdio: ["ignore", "pipe", "pipe"] });
   let output = ""; let errorsFromLauncher = ""; launcher.stderr.on("data", (chunk) => { errorsFromLauncher += chunk; });
   const origin = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(Error(`launcher readiness failed: ${errorsFromLauncher}`)), 5000);
-    launcher.stdout.on("data", (chunk) => { output += chunk; const found = /serving Lichtblick web bundle on (http:\/\/127\.0\.0\.1:[0-9]+)/.exec(output); if (found && output.includes('{"type":"service_ref"')) { clearTimeout(timer); resolve(found[1]); } });
+    launcher.stdout.on("data", (chunk) => { output += chunk; const found = /serving Lichtblick web bundle on (http:\/\/127\.0\.0\.1:[0-9]+)/.exec(output); if (found) { clearTimeout(timer); resolve(found[1]); } });
     launcher.once("exit", () => { clearTimeout(timer); reject(Error(`launcher failed: ${errorsFromLauncher}`)); });
   });
-  const rpcReference = JSON.parse(output.split("\n").find((line) => line.startsWith('{"type":"service_ref"'))).service_ref;
   async function gateway(request) {
     const response = await fetch(`${origin}/xgc2/storage`, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(request) });
     const value = await response.json(); assert.equal(response.status, 200, JSON.stringify(value)); return value;
   }
-  const nativeRPC = new HTTPClient({ tls: tls.clientTLS }); t.after(() => nativeRPC.close());
-  const describe = await nativeRPC.call(rpcReference, "/v1/describe", { timeoutMs: 1000, headers: { Authorization: `Bearer ${tls.grant}` } }); assert.equal(describe.status, 200);
+  const describe = await rawCall(controlSocket, "GET", "/v1/describe", { timeoutMs: 1000 }); assert.equal(describe.status, 200); assert.equal(describe.json.ready, true);
   browser = await chromium.launch({ executablePath: process.env.XGC2_BROWSER_TEST_BINARY, headless: true, args: ["--enable-unsafe-swiftshader", "--disable-dev-shm-usage"] });
   let context = await browser.newContext({ viewport: { width: 1280, height: 850 } });
   let page = await context.newPage(); const errors = []; page.on("pageerror", (error) => errors.push(error.message));
@@ -115,6 +114,6 @@ test("a real clean browser restores the camera saved by actual 3D interaction th
   for (const [label, property] of [["Distance", "distance"], ["Theta", "thetaOffset"], ["Phi", "phi"]]) assert.ok(Math.abs(Number(await fieldInput(label).inputValue()) - saved[property]) <= 0.001, `cold browser must display saved ${property}`);
   assert.ok(saved.targetOffset.some((value) => value !== 0), "actual 3D pan must change camera target");
   await stop(launcher);
-  await assert.rejects(nativeRPC.call(rpcReference, "/v1/describe", { timeoutMs: 500, headers: { Authorization: `Bearer ${tls.grant}` } }));
+  await assert.rejects(rawCall(controlSocket, "GET", "/v1/describe", { timeoutMs: 500 }));
   await page.screenshot({ path: "/tmp/sol8-camera-settings.png" });
 });

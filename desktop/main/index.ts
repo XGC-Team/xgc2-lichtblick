@@ -12,10 +12,10 @@ import { parseDesktopArguments } from "../../packages/suite-desktop/src/main/par
 
 void (async () => {
   const parsed = parseDesktopArguments(process.argv);
-  if (parsed.bootstrapInput == undefined) {
-    throw new Error("Desktop startup requires --bootstrap-input <granted file>");
+  if (parsed.startupInput == undefined) {
+    throw new Error("Desktop startup requires --startup-input <granted file>");
   }
-  await main({ bootstrapInput: parsed.bootstrapInput, argv: parsed.argv });
+  await main({ startupInput: parsed.startupInput, argv: parsed.argv });
 })().catch((error: unknown) => {
   console.error(
     "Desktop initialization failed",

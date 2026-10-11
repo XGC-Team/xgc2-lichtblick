@@ -4,7 +4,6 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -12,7 +11,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createTLSFixture } = require("./tls_fixture.cjs");
+const { startLauncher } = require("./launcher_fixture.cjs");
 
 process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT = "/tmp/unused";
 process.env.XGC2_LICHTBLICK_WEB_ENV_FILE = "/tmp/unused.env";
@@ -62,11 +61,62 @@ test("parses the browser server command line", () => {
       allowedOrigins: ["https://xgc.example", "http://127.0.0.1:5173"],
       frameAncestors: "'self' https://xgc.example",
       assetUrlPrefix: null,
-      bootstrapInput: null,
+      startupInput: null,
+      controlSocket: null,
+      shutdownMs: null,
       showHelp: false,
       layoutStdin: false,
     },
   );
+});
+
+test("parses the startup input and the control socket exactly once each", () => {
+  assert.deepEqual(
+    {
+      ...parseArgs([
+        "--startup-input",
+        "/run/xgc2/input.json",
+        "--control-socket",
+        "/run/xgc2/sockets/lichtblick.sock",
+      ]),
+    },
+    {
+      host: null,
+      port: null,
+      controlPlaneUrl: null,
+      publicUrlPrefix: null,
+      allowedOrigins: [],
+      frameAncestors: null,
+      assetUrlPrefix: null,
+      startupInput: "/run/xgc2/input.json",
+      controlSocket: "/run/xgc2/sockets/lichtblick.sock",
+      shutdownMs: null,
+      showHelp: false,
+      layoutStdin: false,
+    },
+  );
+  for (const argv of [
+    ["--startup-input", "a", "--startup-input", "b"],
+    ["--control-socket", "a", "--control-socket", "b"],
+    ["--startup-input"],
+    ["--control-socket", "--port"],
+    ["--startup-input", "--control-socket", "x"],
+  ]) {
+    assert.throws(() => parseArgs(argv), /explicit --(startup-input|control-socket)/);
+  }
+});
+
+test("the drain budget is a bounded millisecond count", () => {
+  assert.equal(parseArgs(["--shutdown-ms", "250"]).shutdownMs, 250);
+  for (const value of ["0", "60001", "-5", "1.5", "fast", ""]) {
+    assert.throws(() => parseArgs(["--shutdown-ms", value]), /invalid --shutdown-ms/);
+  }
+});
+
+test("the retired bootstrap input and per-launch TLS options are gone", () => {
+  for (const flag of ["--bootstrap-input", "--tls-cert", "--rpc-token"]) {
+    assert.throws(() => parseArgs([flag, "value"]), /unknown option/);
+  }
 });
 
 test("rejects the retired XGC layout flags", () => {
@@ -215,59 +265,10 @@ test("reloads index.html after the webpack hash changes", () => {
 
 for (const withLayout of [false, true]) {
   test(`serves source metadata and prepared layout=${withLayout} with WebSocket Origin`, async (t) => {
-    const temporary = fs.mkdtempSync(
-      path.join(os.tmpdir(), "xgc2-lichtblick-test-"),
-    );
-    const webRoot = path.join(temporary, "web");
-    fs.mkdirSync(webRoot);
-    const assetRoot = path.join(temporary, "managed-extensions");
-    fs.mkdirSync(assetRoot, { mode: 0o700 });
-    const tls = createTLSFixture(temporary);
-    const bootstrapInput = tls.writeInput({
-      schema_version: 1,
-      storage: {
-        grant: "fixture-documents",
-        reference: {
-          target_id: "fixture",
-          service: "xgc2.storage.v1.Storage",
-          api_version: "1",
-          instance_id: "test-storage",
-          profile: "http.v1",
-          endpoint: {
-            kind: "unix",
-            address: path.join(temporary, "storage.sock"),
-          },
-        },
-        scope: { namespace: "lichtblick", user: "test", workspace: "test" },
-        authorization: "fixture-storage-auth",
-      },
-      assets: {
-        access: "read-write",
-        grant: "fixture-assets",
-        root: assetRoot,
-      },
-    });
-    fs.writeFileSync(
-      path.join(webRoot, "index.html"),
-      "<!doctype html><html><head></head><script>" +
-        "globalThis.LICHTBLICK_SUITE_DEFAULT_LAYOUT = " +
-        "[/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/][0];" +
-        "</script><body></body></html>",
-    );
-    fs.writeFileSync(
-      path.join(webRoot, "main.3f1c2a9b8d7e6f5a4b3c.js"),
-      "// bundle",
-    );
-    fs.writeFileSync(path.join(webRoot, "favicon.ico"), "icon");
-    const buildInfoFile = path.join(temporary, "build-info.json");
-    const buildInfo = {
-      schema: "xgc2.lichtblick-web.build.v1",
-      package: "xgc2-lichtblick-web",
-      version: "1.27.0-1~test",
-      upstreamSha: "1".repeat(40),
+    const layout = {
+      configById: { scene: { title: "</script><>&\u2028\u2029" } },
+      layout: "scene",
     };
-    fs.writeFileSync(buildInfoFile, JSON.stringify(buildInfo));
-
     const upstream = net.createServer((socket) => {
       let request = "";
       socket.on("data", (chunk) => {
@@ -292,62 +293,33 @@ for (const withLayout of [false, true]) {
       });
     });
     await listen(upstream);
+    t.after(() => closeServer(upstream));
     const upstreamPort = upstream.address().port;
-
-    const layout = {
-      configById: { scene: { title: "</script><>&\u2028\u2029" } },
-      layout: "scene",
-    };
-    const launcherPath = path.resolve(
-      __dirname,
-      "../launcher/xgc2-lichtblick-web.js",
-    );
-    const child = childProcess.spawn(
-      process.execPath,
-      [
-        launcherPath,
-        ...(withLayout ? ["--layout-stdin"] : []),
-        "--bootstrap-input",
-        bootstrapInput,
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "0",
-        "--control-plane-url",
-        `ws://127.0.0.1:${upstreamPort}`,
-        "--allowed-origin",
-        "http://127.0.0.1:5173",
-        "--frame-ancestors",
-        "'self' http://127.0.0.1:5173",
-      ],
-      {
-        env: {
-          ...process.env,
-          XGC2_LICHTBLICK_WEB_STATIC_ROOT: webRoot,
-          XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfoFile,
-          XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(temporary, "missing.env"),
-          ALLOWED_ORIGINS: "",
-          FRAME_ANCESTORS: "",
-        },
-        stdio: ["pipe", "pipe", "pipe"],
+    const { launcher, web, buildInfo: buildInfoFile } = await startLauncher(t, {
+      stdin: withLayout ? JSON.stringify(layout) : undefined,
+      layoutStdin: withLayout,
+      controlPlane: `ws://127.0.0.1:${upstreamPort}`,
+      frameAncestors: "'self' http://127.0.0.1:5173",
+      allowedOrigins: ["http://127.0.0.1:5173"],
+      prepare: ({ web: webRoot }) => {
+        fs.writeFileSync(
+          path.join(webRoot, "index.html"),
+          "<!doctype html><html><head></head><script>" +
+            "globalThis.LICHTBLICK_SUITE_DEFAULT_LAYOUT = " +
+            "[/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/][0];" +
+            "</script><body></body></html>",
+        );
+        fs.writeFileSync(
+          path.join(webRoot, "main.3f1c2a9b8d7e6f5a4b3c.js"),
+          "// bundle",
+        );
+        fs.writeFileSync(path.join(webRoot, "favicon.ico"), "icon");
       },
-    );
-    child.stdin.end(withLayout ? JSON.stringify(layout) : undefined);
-    let stderr = "";
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
     });
+    const webRoot = web;
+    const buildInfo = JSON.parse(fs.readFileSync(buildInfoFile, "utf8"));
 
-    t.after(async () => {
-      if (child.exitCode == null) {
-        child.kill("SIGTERM");
-      }
-      await waitForExit(child);
-      await closeServer(upstream);
-      fs.rmSync(temporary, { recursive: true, force: true });
-    });
-
-    const port = await waitForListeningPort(child, () => stderr);
+    const port = await launcher.waitForPort();
     const version = await getJson(port, "/version");
     assert.deepEqual(version.body, buildInfo);
     assert.equal(
@@ -460,42 +432,6 @@ function listen(server) {
 
 function closeServer(server) {
   return new Promise((resolve) => server.close(resolve));
-}
-
-function waitForExit(child) {
-  if (child.exitCode != null) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => child.once("exit", resolve));
-}
-
-function waitForListeningPort(child, stderr) {
-  return new Promise((resolve, reject) => {
-    let stdout = "";
-    const timeout = setTimeout(() => {
-      reject(new Error(`launcher did not listen in time\n${stderr()}`));
-    }, 5000);
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-      const match =
-        /serving Lichtblick web bundle on http:\/\/127\.0\.0\.1:(\d+)/.exec(
-          stdout,
-        );
-      if (!match) {
-        return;
-      }
-      clearTimeout(timeout);
-      resolve(Number(match[1]));
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      reject(new Error(`launcher exited with ${code}\n${stderr()}`));
-    });
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-  });
 }
 
 function getJson(port, requestPath) {

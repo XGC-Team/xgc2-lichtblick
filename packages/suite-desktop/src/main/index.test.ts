@@ -5,7 +5,7 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { loadBootstrapInput, derivePolicy, Diagnostics } from "@xgc2/xrpc";
+import { Diagnostics } from "@xgc2/xrpc";
 import { app } from "electron";
 
 import StudioWindow from "./StudioWindow";
@@ -13,11 +13,8 @@ import { createNewWindow } from "./createNewWindow";
 import { getFilesToOpen } from "./getFilesToOpen";
 import { main } from "./index";
 import { initializeAppSettings } from "./settings";
-import { createManagedDomainRPC } from "../../../../xgc2/launcher/managed-rpc.cjs";
-import {
-  createManagedDomainClientFromBootstrap,
-  createManagedPolicy,
-} from "../../../../xgc2/launcher/managed-storage.cjs";
+import { createManagedDomainClientFromInput } from "../../../../xgc2/launcher/managed-storage.cjs";
+import { loadStartupInput } from "../../../../xgc2/launcher/startup-input.cjs";
 
 jest.mock("electron", () => ({
   app: {
@@ -41,8 +38,6 @@ jest.mock("electron", () => ({
 }));
 jest.mock("electron-squirrel-startup", () => false);
 jest.mock("@xgc2/xrpc", () => ({
-  loadBootstrapInput: jest.fn(),
-  derivePolicy: jest.fn((parent) => parent),
   Diagnostics: jest.fn(),
 }));
 jest.mock("@lichtblick/log", () => ({
@@ -92,23 +87,18 @@ jest.mock("../common/webpackDefines", () => ({
   LICHTBLICK_PRODUCT_VERSION: "1.0.0",
   LICHTBLICK_PRODUCT_HOMEPAGE: "https://example.test",
 }));
-jest.mock("../../../../xgc2/launcher/managed-rpc.cjs", () => ({
-  createManagedDomainRPC: jest.fn(),
-}));
 jest.mock("../../../../xgc2/launcher/managed-storage.cjs", () => ({
-  createManagedDomainClientFromBootstrap: jest.fn(),
-  createManagedPolicy: jest.fn(),
+  createManagedDomainClientFromInput: jest.fn(),
+  SHUTDOWN_MS: 16000,
+}));
+jest.mock("../../../../xgc2/launcher/startup-input.cjs", () => ({
+  loadStartupInput: jest.fn(),
 }));
 
-const policy = { fields: { SHUTDOWN_TIMEOUT_MS: { value: 16000 } } };
 const diagnostics = { close: jest.fn(async () => undefined) };
-const serviceRef = {
-  instance_id: "actual-fixture-instance",
-  endpoint: { kind: "https", address: "https://127.0.0.1:31234" },
-};
-const domainOptions = {} as ReturnType<typeof loadBootstrapInput>;
+const input = {} as ReturnType<typeof loadStartupInput>;
 const startupOptions = {
-  bootstrapInput: "/private/desktop-input.json",
+  startupInput: "/private/desktop-input.json",
   argv: ["electron", ".webpack"],
 };
 
@@ -118,22 +108,14 @@ const client = {
   beginDrain: jest.fn(),
   close: jest.fn(async () => undefined),
 };
-const rpc = {
-  start: jest.fn(async () => ({})),
-  close: jest.fn(async () => undefined),
-};
 beforeEach(() => {
   jest.clearAllMocks();
-  rpc.start.mockResolvedValue(serviceRef);
-  (createManagedPolicy as jest.Mock).mockReturnValue(policy);
   (Diagnostics as unknown as jest.Mock).mockImplementation(() => diagnostics);
   diagnostics.close.mockResolvedValue(undefined);
-  rpc.close.mockResolvedValue(undefined);
   client.close.mockResolvedValue(undefined);
   (initializeAppSettings as jest.Mock).mockResolvedValue(undefined);
-  (createManagedDomainClientFromBootstrap as jest.Mock).mockReturnValue(client);
-  (createManagedDomainRPC as jest.Mock).mockReturnValue(rpc);
-  (loadBootstrapInput as jest.Mock).mockReturnValue(domainOptions);
+  (createManagedDomainClientFromInput as jest.Mock).mockReturnValue(client);
+  (loadStartupInput as jest.Mock).mockReturnValue(input);
 });
 
 function deferred(): { promise: Promise<void>; release: () => void } {
@@ -161,8 +143,7 @@ function quit(): jest.Mock {
   return preventDefault;
 }
 
-it("starts the owned RPC and loads managed settings before constructing a window", async () => {
-  const starting = deferred();
+it("opens the managed storage and loads managed settings before constructing a window", async () => {
   const loading = deferred();
   const rendererLoading = deferred();
   (StudioWindow as unknown as jest.Mock).mockImplementationOnce(() => ({
@@ -171,38 +152,15 @@ it("starts the owned RPC and loads managed settings before constructing a window
     }),
     getMenu: jest.fn(),
   }));
-  rpc.start.mockImplementationOnce(async () => {
-    await starting.promise;
-    return serviceRef;
-  });
   (initializeAppSettings as jest.Mock).mockImplementationOnce(async () => {
     await loading.promise;
   });
   const output = jest.spyOn(process.stdout, "write").mockImplementation(() => true);
   const initialized = main(startupOptions);
   await flush();
-  expect(rpc.start).toHaveBeenCalledTimes(1);
-  expect(loadBootstrapInput).toHaveBeenCalledWith(startupOptions.bootstrapInput, {
-    role: "server",
-  });
-  expect(createManagedDomainRPC).toHaveBeenCalledWith(client, { ...domainOptions, policy });
-  expect(createManagedDomainClientFromBootstrap).toHaveBeenCalledWith(domainOptions, policy);
-  expect(createManagedPolicy).toHaveBeenCalledTimes(1);
-  expect(createManagedPolicy).toHaveBeenCalledWith(process.env, diagnostics);
+  expect(loadStartupInput).toHaveBeenCalledWith(startupOptions.startupInput);
+  expect(createManagedDomainClientFromInput).toHaveBeenCalledWith(input, { diagnostics });
   expect(Diagnostics).toHaveBeenCalledTimes(1);
-  expect(derivePolicy).toHaveBeenCalledTimes(2);
-  expect(derivePolicy).toHaveBeenCalledWith(policy, {
-    role: "lichtblick-storage",
-    ceilings: { MAX_REQUEST_BYTES: 4194304, MAX_RESPONSE_BYTES: 4194304 },
-  });
-  expect(derivePolicy).toHaveBeenCalledWith(policy, {
-    role: "lichtblick-private",
-    ceilings: { MAX_REQUEST_BYTES: 8388608, MAX_RESPONSE_BYTES: 8388608 },
-  });
-  expect(initializeAppSettings).not.toHaveBeenCalled();
-  expect(StudioWindow).not.toHaveBeenCalled();
-  starting.release();
-  await flush();
   expect(initializeAppSettings).toHaveBeenCalledTimes(1);
   expect(StudioWindow).not.toHaveBeenCalled();
   expect(output).not.toHaveBeenCalled();
@@ -212,50 +170,36 @@ it("starts the owned RPC and loads managed settings before constructing a window
   rendererLoading.release();
   await initialized;
   expect(StudioWindow).toHaveBeenCalledTimes(1);
-  expect(output).toHaveBeenCalledWith(
-    `${JSON.stringify({ type: "service_ref", service_ref: serviceRef })}\n`,
-  );
+  expect(output).toHaveBeenCalledWith(`${JSON.stringify({ type: "ready" })}\n`);
   output.mockRestore();
 });
 
-it("closes RPC before storage and exits after both have drained", async () => {
+it("drains storage before diagnostics and exits after both have drained", async () => {
   await main(startupOptions);
   const draining = deferred();
-  rpc.close.mockImplementationOnce(async () => {
+  client.close.mockImplementationOnce(async () => {
     await draining.promise;
   });
   expect(quit()).toHaveBeenCalledTimes(1);
-  expect(rpc.close).toHaveBeenCalledTimes(1);
-  expect(client.close).not.toHaveBeenCalled();
+  expect(client.beginDrain).toHaveBeenCalledTimes(1);
+  expect(client.close).toHaveBeenCalledTimes(1);
   expect(diagnostics.close).not.toHaveBeenCalled();
   expect((app.quit as jest.Mock).mock.calls).toHaveLength(0);
   expect(quit()).toHaveBeenCalledTimes(1);
-  expect(rpc.close).toHaveBeenCalledTimes(1);
+  expect(client.close).toHaveBeenCalledTimes(1);
   draining.release();
   await flush();
-  expect(client.close).toHaveBeenCalledTimes(1);
   expect(diagnostics.close).toHaveBeenCalledWith({ timeoutMs: 16000 });
   expect((app.quit as jest.Mock).mock.calls).toHaveLength(1);
 });
 
-it("fails without a window when the RPC cannot start and still releases its client", async () => {
-  rpc.start.mockRejectedValueOnce(new Error("RPC grant unavailable"));
-  await expect(main(startupOptions)).rejects.toThrow("RPC grant unavailable");
-  expect(StudioWindow).not.toHaveBeenCalled();
-  quit();
-  await flush();
-  expect(rpc.close).toHaveBeenCalledTimes(1);
-  expect(client.close).toHaveBeenCalledTimes(1);
-  expect((app.quit as jest.Mock).mock.calls).toHaveLength(1);
-});
-
-it("does not forward bootstrap grant paths to file handling or a second-instance window", async () => {
+it("does not forward startup input paths to file handling or a second-instance window", async () => {
   await main({
     ...startupOptions,
     argv: [
       ...startupOptions.argv,
-      "--bootstrap-input",
-      startupOptions.bootstrapInput,
+      "--startup-input",
+      startupOptions.startupInput,
       "--force-multiple-windows",
       "/data/run.mcap",
     ],
@@ -270,19 +214,19 @@ it("does not forward bootstrap grant paths to file handling or a second-instance
   )![1] as (event: unknown, argv: string[]) => void;
   secondInstance({}, [
     ...startupOptions.argv,
-    "--bootstrap-input",
+    "--startup-input",
     "/private/second-input.json",
     "/data/second.mcap",
   ]);
   expect(createNewWindow).toHaveBeenCalledWith([...startupOptions.argv, "/data/second.mcap"]);
 });
 
-it("rejects an invalid shared bootstrap grant before opening a client or window", async () => {
-  (loadBootstrapInput as jest.Mock).mockImplementationOnce(() => {
-    throw new Error("Bootstrap grant unavailable");
+it("rejects an invalid startup input before opening a client or window", async () => {
+  (loadStartupInput as jest.Mock).mockImplementationOnce(() => {
+    throw new Error("Startup input unavailable");
   });
-  await expect(main(startupOptions)).rejects.toThrow("Bootstrap grant unavailable");
-  expect(createManagedDomainClientFromBootstrap).not.toHaveBeenCalled();
+  await expect(main(startupOptions)).rejects.toThrow("Startup input unavailable");
+  expect(createManagedDomainClientFromInput).not.toHaveBeenCalled();
   expect(StudioWindow).not.toHaveBeenCalled();
 });
 
@@ -299,22 +243,22 @@ it("does not publish readiness when the initial renderer fails to load", async (
   output.mockRestore();
   quit();
   await flush();
-  expect(rpc.close).toHaveBeenCalledTimes(1);
   expect(client.close).toHaveBeenCalledTimes(1);
 });
 
-it("retains the domain and permits a later owner drain when RPC work outlives the close budget", async () => {
+it("retains the domain and permits a later owner drain when storage work outlives the close budget", async () => {
   await main(startupOptions);
-  rpc.close.mockRejectedValueOnce(new Error("actual work remains"));
+  client.close.mockRejectedValueOnce(new Error("actual work remains"));
   quit();
   await flush();
   expect(client.beginDrain).toHaveBeenCalledTimes(1);
-  expect(client.close).not.toHaveBeenCalled();
+  expect(client.close).toHaveBeenCalledTimes(1);
   expect(diagnostics.close).not.toHaveBeenCalled();
   expect((app.quit as jest.Mock).mock.calls).toHaveLength(0);
   quit();
   await flush();
-  expect(client.close).toHaveBeenCalledTimes(1);
+  expect(client.close).toHaveBeenCalledTimes(2);
+  expect(diagnostics.close).toHaveBeenCalledTimes(1);
   expect((app.quit as jest.Mock).mock.calls).toHaveLength(1);
 });
 
@@ -336,7 +280,7 @@ it("retains the diagnostic owner until its actual writer drains", async () => {
 });
 
 it("drains diagnostics when domain construction fails before an owned client exists", async () => {
-  (createManagedDomainClientFromBootstrap as jest.Mock).mockImplementationOnce(() => {
+  (createManagedDomainClientFromInput as jest.Mock).mockImplementationOnce(() => {
     throw new Error("invalid domain grant");
   });
   const draining = deferred();
@@ -346,7 +290,6 @@ it("drains diagnostics when domain construction fails before an owned client exi
   await flush();
   expect(diagnostics.close).toHaveBeenCalledTimes(1);
   expect(client.close).not.toHaveBeenCalled();
-  expect(rpc.close).not.toHaveBeenCalled();
   expect((app.quit as jest.Mock).mock.calls).toHaveLength(0);
   draining.release();
   await flush();

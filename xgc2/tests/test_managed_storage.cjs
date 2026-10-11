@@ -7,9 +7,9 @@ const path = require("node:path");
 const os = require("node:os");
 const http = require("node:http");
 const test = require("node:test");
-const { createDomainFixture } = require("./tls_fixture.cjs");
+const { domainInput } = require("./input_fixture.cjs");
 const { createHTTPHost } = require("@xgc2/xrpc");
-const { createManagedDomainClient, createManagedDomainClientFromBootstrap, createManagedPolicy } = require("../launcher/managed-storage.cjs");
+const { createManagedDomainClient, createManagedDomainClientFromInput } = require("../launcher/managed-storage.cjs");
 const { buildRequestListener, parseWsUrl } = require("../launcher/xgc2-lichtblick-web.js");
 
 const scope = { namespace: "lichtblick", user: "alice", workspace: "lab" };
@@ -111,7 +111,7 @@ test("actual browser gateway rejects cross-origin and undeclared schema while se
   response = await fetch(base, { method: "POST", headers: { Origin: "http://studio.test", "Content-Type": "application/json" }, body: JSON.stringify({ ...request, scope }) });
   assert.equal(response.status, 400);
 });
-test("real SDK UDS client supplies instance binding and grant, preserves a storage conflict", async (t) => {
+test("real SDK UDS client supplies instance binding and credential, preserves a storage conflict", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sol8-managed-uds-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const socket = path.join(root, "storage.sock");
@@ -129,12 +129,13 @@ test("real SDK UDS client supplies instance binding and grant, preserves a stora
   });
   server.listen(socket); await new Promise((resolve) => server.once("listening", resolve));
   t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
-  const client = createManagedDomainClientFromBootstrap(createDomainFixture({ target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "storage-fixture", profile: "http.v1", endpoint: { kind: "unix", address: socket } }, scope, root, "g".repeat(32)), createManagedPolicy({}));
+  const reference = { target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "storage-fixture", profile: "http.v1", endpoint: { kind: "unix", address: socket } };
+  const client = createManagedDomainClientFromInput(domainInput(reference, scope, root, "g".repeat(32)));
   // The grant directory and UDS fixture intentionally share a temporary root;
   // bind only after the product has inventoried its asset grant.
   await assert.rejects(client.ready, /undeclared entry/);
   const assetRoot = path.join(root, "assets"); await fs.mkdir(assetRoot, { mode: 0o700 });
-  const configured = createManagedDomainClientFromBootstrap(createDomainFixture({ target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "storage-fixture", profile: "http.v1", endpoint: { kind: "unix", address: socket } }, scope, assetRoot, "g".repeat(32)), createManagedPolicy({}));
+  const configured = createManagedDomainClientFromInput(domainInput(reference, scope, assetRoot, "g".repeat(32)));
   await configured.ready;
   t.after(() => configured.close()); t.after(() => client.close());
   await assert.rejects(configured.request({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] }), (error) => error.code === "conflict" && error.status === 409);

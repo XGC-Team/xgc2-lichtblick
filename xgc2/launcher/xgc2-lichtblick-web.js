@@ -12,29 +12,28 @@
 // Override per-launch with --control-plane-url, or per-machine by setting
 // CONTROL_PLANE_URL in xgc2/launcher/lichtblick-web.env.
 //
-// HTTP lifecycle and WebSocket transport are provided by @xgc2/xrpc.
+// HTTP lifecycle and WebSocket transport are provided by @xgc2/xrpc. The domain
+// service `xgc2.lichtblick.v1` listens on a private Unix socket named by
+// --control-socket; browsers only ever reach the same-origin gateway.
 
 "use strict";
 
 const fs = require("node:fs");
-const {
-  createHTTPHost,
-  proxyWebSocket,
-  loadBootstrapInput,
-  derivePolicy,
-  Diagnostics,
-} = require("@xgc2/xrpc");
+const { createHTTPHost, proxyWebSocket, Diagnostics } = require("@xgc2/xrpc");
 const path = require("node:path");
 const url = require("node:url");
 const {
   MAX_WIRE_BYTES,
   MAX_ASSET_BYTES,
+  SHUTDOWN_MS,
   PersistenceError,
-  createManagedPolicy,
-  createManagedDomainClientFromBootstrap,
+  createManagedDomainClientFromInput,
 } = require("./managed-storage.cjs");
-const { createManagedDomainRPC } = require("./managed-rpc.cjs");
+const { createControlService } = require("./control-service.cjs");
+const { loadStartupInput, checkUnixAddress } = require("./startup-input.cjs");
 const { readJSONInput } = require("./prepare-layout.cjs");
+const { ViewStore, rejectViewFamily } = require("./view-state.cjs");
+const { createViewGateway } = require("./view-gateway.cjs");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8080;
@@ -87,7 +86,9 @@ function parseArgs(argv) {
     allowedOrigins: [],
     frameAncestors: null,
     assetUrlPrefix: null,
-    bootstrapInput: null,
+    startupInput: null,
+    controlSocket: null,
+    shutdownMs: null,
     showHelp: false,
     layoutStdin: false,
   };
@@ -132,14 +133,32 @@ function parseArgs(argv) {
       case "--asset-url-prefix":
         opts.assetUrlPrefix = argv[++i];
         break;
-      case "--bootstrap-input":
+      case "--startup-input":
         if (
-          opts.bootstrapInput != null ||
+          opts.startupInput != null ||
           !argv[i + 1] ||
           argv[i + 1].startsWith("--")
         )
-          throw new Error("one explicit --bootstrap-input file is required");
-        opts.bootstrapInput = argv[++i];
+          throw new Error("one explicit --startup-input file is required");
+        opts.startupInput = argv[++i];
+        break;
+      case "--shutdown-ms":
+        opts.shutdownMs = Number.parseInt(argv[++i], 10);
+        if (
+          !/^[1-9][0-9]{0,4}$/.test(argv[i] ?? "") ||
+          opts.shutdownMs > 60000
+        ) {
+          throw new Error(`invalid --shutdown-ms value: ${argv[i]}`);
+        }
+        break;
+      case "--control-socket":
+        if (
+          opts.controlSocket != null ||
+          !argv[i + 1] ||
+          argv[i + 1].startsWith("--")
+        )
+          throw new Error("one explicit --control-socket path is required");
+        opts.controlSocket = argv[++i];
         break;
       default:
         if (arg.startsWith("--")) {
@@ -175,7 +194,12 @@ function printHelp() {
       "                                   Env: FRAME_ANCESTORS.",
       `                                   Default: ${DEFAULT_FRAME_ANCESTORS}`,
       "  --asset-url-prefix <path>      Stable same-origin hashed-asset path. Env: ASSET_URL_PREFIX.",
-      "  --bootstrap-input <file>       Required private application input granted by the process owner.",
+      "  --startup-input <file>         Required private input granted by the process owner:",
+      "                                   storage reference, scope, credential and asset grant.",
+      "  --control-socket <path>        Required absolute Unix socket path of the xgc2.lichtblick.v1",
+      "                                   service, inside the owner's private runtime directory.",
+      "  --shutdown-ms <ms>             How long a Stop waits for admitted work (1..60000).",
+      `                                   Default: ${SHUTDOWN_MS}`,
       "  --layout-stdin                 Read the prepared initial LayoutData from stdin.",
       "  -h, --help                     Show this help and exit.",
       "",
@@ -681,6 +705,7 @@ function buildRequestListener(
   persistence,
   originAllowed = () => false,
   initialLayout,
+  viewGateway,
 ) {
   return async function requestListener(req, res) {
     const requestUrl = new URL(req.url, "http://localhost");
@@ -694,6 +719,53 @@ function buildRequestListener(
       );
       return;
     }
+    // A browser declares its origin on every write. A same-origin read does not
+    // always send Origin, so a read may fall back to the page that issued it.
+    const declaredOrigin = (sameOriginRead) =>
+      req.headers.origin ??
+      (sameOriginRead &&
+      req.headers["sec-fetch-site"] === "same-origin" &&
+      req.headers.referer
+        ? new URL(req.headers.referer).origin
+        : undefined);
+    const viewState = requestUrl.pathname === `${base}/xgc2/view`;
+    const viewEvents = requestUrl.pathname === `${base}/xgc2/view/events`;
+    if (viewState || viewEvents) {
+      // The desired view is stated through the control service; pages read it.
+      try {
+        if (!originAllowed(declaredOrigin(true)))
+          throw new PersistenceError(
+            "permission_denied",
+            "view origin is not allowed",
+            403,
+          );
+        if (!viewGateway)
+          throw new PersistenceError(
+            "unavailable",
+            "the desired view is not configured",
+            503,
+          );
+        if (req.method !== "GET")
+          throw new PersistenceError("invalid_argument", "GET required", 400);
+        if (viewState) viewGateway.state(res, responseSecurityHeaders);
+        else viewGateway.events(req, res, responseSecurityHeaders);
+      } catch (error) {
+        if (!res.destroyed && !res.headersSent)
+          writeJson(
+            res,
+            error.status ?? 503,
+            {
+              code: error.code ?? "unavailable",
+              message:
+                error instanceof PersistenceError
+                  ? error.message
+                  : "the desired view is unavailable",
+            },
+            responseSecurityHeaders,
+          );
+      }
+      return;
+    }
     const documentRoute = requestUrl.pathname === `${base}/xgc2/storage`;
     const assetRoute = requestUrl.pathname === `${base}/xgc2/extensions/assets`;
     const assetRead = requestUrl.pathname.startsWith(
@@ -704,14 +776,7 @@ function buildRequestListener(
       try {
         // Require a declared browser Origin on every persistence route. The
         // desktop bridge calls the domain client inside the main process.
-        const browserOrigin =
-          req.headers.origin ??
-          (assetRead &&
-          req.headers["sec-fetch-site"] === "same-origin" &&
-          req.headers.referer
-            ? new URL(req.headers.referer).origin
-            : undefined);
-        if (!originAllowed(browserOrigin))
+        if (!originAllowed(declaredOrigin(assetRead)))
           throw new PersistenceError(
             "permission_denied",
             "persistence origin is not allowed",
@@ -736,6 +801,7 @@ function buildRequestListener(
           input = JSON.parse(
             (await readBoundedBody(req, MAX_WIRE_BYTES)).toString("utf8"),
           );
+          rejectViewFamily(input);
           writeJson(
             res,
             200,
@@ -981,28 +1047,29 @@ async function main() {
   }
 
   const responseSecurityHeaders = securityHeaders(validatedFrameAncestors);
+  const shutdownMs = opts.shutdownMs ?? SHUTDOWN_MS;
   let persistence;
-  let productRPC;
+  let control;
+  let views;
   let hostRuntime;
-  let serviceRef;
-  let policy;
   let diagnostics;
   let allowedOrigins = configuredOrigins;
+  let listenPort;
   let closing;
   const close = () => {
     if (!closing) {
       persistence?.beginDrain();
       closing = (async () => {
+        control?.markNotReady("stopping");
+        views?.close();
         const results = await Promise.allSettled([
           hostRuntime?.close(),
-          productRPC?.close(),
+          control?.close(),
         ]);
         const failure = results.find((result) => result.status === "rejected");
         if (failure) throw failure.reason;
         await persistence?.close();
-        await diagnostics?.close({
-          timeoutMs: policy?.fields.SHUTDOWN_TIMEOUT_MS.value ?? 16000,
-        });
+        await diagnostics?.close({ timeoutMs: shutdownMs });
       })().catch((error) => {
         closing = undefined;
         throw error;
@@ -1025,35 +1092,36 @@ async function main() {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   try {
-    const bootstrap = loadBootstrapInput(opts.bootstrapInput, {
-      role: "server",
-    });
+    if (!opts.startupInput)
+      throw new Error("--startup-input is required");
+    if (!opts.controlSocket)
+      throw new Error("--control-socket is required");
+    checkUnixAddress(opts.controlSocket, "--control-socket");
+    const input = loadStartupInput(opts.startupInput);
     diagnostics = new Diagnostics({
       sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
     });
-    policy = createManagedPolicy(process.env, diagnostics);
-    persistence = createManagedDomainClientFromBootstrap(
-      bootstrap,
-      derivePolicy(policy, {
-        role: "lichtblick-storage",
-        ceilings: {
-          MAX_REQUEST_BYTES: MAX_WIRE_BYTES,
-          MAX_RESPONSE_BYTES: MAX_WIRE_BYTES,
-        },
-      }),
-    );
-    await persistence.ready;
-    productRPC = createManagedDomainRPC(persistence, {
-      ...bootstrap,
-      policy: derivePolicy(policy, {
-        role: "lichtblick-private",
-        ceilings: {
-          MAX_REQUEST_BYTES: MAX_ASSET_BYTES,
-          MAX_RESPONSE_BYTES: MAX_ASSET_BYTES,
-        },
+    persistence = createManagedDomainClientFromInput(input, { diagnostics });
+    const viewStore = new ViewStore(persistence);
+    views = createViewGateway(viewStore);
+    // The service listens first, so its owner can wait on describe while the
+    // storage and the page listener come up; it is ready when the pages are.
+    control = createControlService(persistence, {
+      socketPath: opts.controlSocket,
+      viewStore,
+      diagnostics,
+      shutdownMs,
+      facts: () => ({
+        storage: "ready",
+        assets: input.assets.access,
+        control_plane: `${targetWs.protocol}//${targetWs.hostname}:${targetWs.port}${targetWs.path}`,
+        pages: { view_streams: views.streamCount },
+        ...(listenPort ? { http_port: listenPort } : {}),
       }),
     });
-    serviceRef = await productRPC.start();
+    await control.start();
+    await persistence.ready;
+    await viewStore.load();
     hostRuntime = createHTTPHost(
       buildRequestListener(
         targetWs,
@@ -1064,20 +1132,20 @@ async function main() {
         persistence,
         (origin) => websocketOriginAllowed(origin, allowedOrigins),
         initialLayout,
+        views,
       ),
       {
-        policy: derivePolicy(policy, {
-          role: "lichtblick-public",
-          ceilings: {
-            MAX_REQUEST_BYTES: MAX_ASSET_BYTES,
-            MAX_RESPONSE_BYTES: 64 * 1024 * 1024,
-          },
-        }),
+        diagnostics,
+        maxConnections: 64,
+        maxInFlight: 64,
+        maxBodyBytes: MAX_ASSET_BYTES,
+        maxResponseBytes: 64 * 1024 * 1024,
+        shutdownMs,
       },
     );
   } catch (error) {
-    logError(`managed persistence startup failed: ${error.message}`);
-    await close();
+    logError(`startup failed: ${error.message}`);
+    await close().catch(() => {});
     process.exitCode = 1;
     return;
   }
@@ -1145,9 +1213,8 @@ async function main() {
         resolve();
       });
     });
-    process.stdout.write(
-      `${JSON.stringify({ type: "service_ref", service_ref: serviceRef })}\n`,
-    );
+    listenPort = server.address().port;
+    control.markReady();
     server.on("error", (error) => {
       logError(`server error: ${error.message}`);
       void close().then(

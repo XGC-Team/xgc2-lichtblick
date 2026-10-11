@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://xgc2.dev/contracts/lichtblick/bootstrap-application-v1",
-  "title": "Lichtblick BootstrapInput.application v1",
+  "$id": "https://xgc2.dev/contracts/lichtblick/startup-input-v1",
+  "title": "Lichtblick startup input v1",
+  "description": "The one private file (mode 0600, in a directory with mode 0700, at most 16 KiB) a launcher or desktop owner is started with: --startup-input <absolute path>.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "operator_time_zone", "storage", "assets"],
@@ -18,16 +19,8 @@
     "storage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["grant", "authorization", "reference", "scope"],
+      "required": ["reference", "scope", "token_file"],
       "properties": {
-        "grant": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-        },
-        "authorization": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-        },
         "reference": {
           "type": "object",
           "additionalProperties": false,
@@ -84,18 +77,19 @@
               "pattern": "^[A-Za-z0-9._:-]{1,128}$"
             }
           }
+        },
+        "token_file": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "Absolute path of a private file (same rules as this one, at most 1024 bytes) holding the bearer token that authorizes this scope at the storage service: RFC 6750 token characters, no trailing newline."
         }
       }
     },
     "assets": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["grant", "root", "access"],
+      "required": ["root", "access"],
       "properties": {
-        "grant": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-        },
         "root": {
           "type": "string",
           "pattern": "^/",
