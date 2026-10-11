@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
-const { PersistenceError } = require("./managed-storage.cjs");
+const { ViewError } = require("./view-state.cjs");
 
 // A stream whose peer stops reading is dropped rather than buffered without bound.
 const MAX_STREAM_BACKLOG_BYTES = 64 * 1024;
@@ -33,7 +33,7 @@ function createViewGateway(viewStore, { heartbeatMs = 15000, maxStreams = 16 } =
       response.end(body);
     },
     events(request, response, headers) {
-      if (streams.size >= maxStreams) throw new PersistenceError("resource_exhausted", "too many view streams", 503);
+      if (streams.size >= maxStreams) throw new ViewError("resource_exhausted", "too many view streams", 503);
       response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no", ...headers });
       const state = viewStore.state;
       // EventSource reconnects with the last id it saw; an up-to-date page needs no repeat.

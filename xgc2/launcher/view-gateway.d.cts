@@ -6,7 +6,7 @@ export interface ViewGateway {
   readonly streamCount: number;
   /** Answers with the current `{revision, view}`. */
   state(response: ServerResponse, headers?: OutgoingHttpHeaders): void;
-  /** Opens an event stream: the current state, then every change; throws a PersistenceError (503) past the stream limit. */
+  /** Opens an event stream: the current state, then every change; throws a ViewError (503) past the stream limit. */
   events(request: IncomingMessage, response: ServerResponse, headers?: OutgoingHttpHeaders): void;
   close(): void;
 }

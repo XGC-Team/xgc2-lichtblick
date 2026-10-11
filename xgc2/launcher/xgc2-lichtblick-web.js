@@ -1098,7 +1098,7 @@ async function main() {
         "the startup input needs storage.view_scope for the desired view",
       );
     persistence = createManagedDomainClientFromInput(input, { diagnostics });
-    const viewStore = new ViewStore(persistence);
+    const viewStore = new ViewStore();
     views = createViewGateway(viewStore);
     // The service listens first, so its owner can wait on describe while the
     // storage and the page listener come up; it is ready when the pages are.
@@ -1129,7 +1129,6 @@ async function main() {
     });
     await control.start();
     await persistence.ready;
-    await viewStore.load();
     hostRuntime = createHTTPHost(
       buildRequestListener(
         targetWs,
