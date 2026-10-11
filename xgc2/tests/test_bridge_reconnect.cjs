@@ -15,9 +15,9 @@ const { ORIGIN, startLauncher } = require("./launcher_fixture.cjs");
 const { rawCall } = require("./control_fixture.cjs");
 const { PLAYER, playerHarness } = require("./player_reconnect_fixture.cjs");
 
-async function until(predicate, timeoutMs = 5000) {
+async function until(predicate, timeoutMs = 5000, context = () => "") {
   const deadline = Date.now() + timeoutMs;
-  while (!predicate()) { assert.ok(Date.now() < deadline, "condition timed out"); await delay(10); }
+  while (!predicate()) { assert.ok(Date.now() < deadline, `condition timed out ${context()}`); await delay(10); }
 }
 async function unusedPort() {
   const reservation = net.createServer();
@@ -113,7 +113,11 @@ for (const workers of [true, false]) test(`the page retries a late bridge and re
   await until(() => harness.stats.latest?.presence === "RECONNECTING");
   assert.equal(harness.stats.latest.alerts.length, 0);
   const first = await bridge(t, port);
-  await until(() => first.received.length === 2);
+  await until(() => first.received.length === 2, 5000, () => JSON.stringify({
+    presence: harness.stats.latest?.presence, attempts: harness.stats.attempts, activeWorkers: harness.stats.activeWorkers,
+    bridgeConnections: first.connections, bridgeMessages: first.received.length, launcherErrors: launcher.errors.slice(-400),
+    logs: logs.slice(-6).map((entry) => `${entry.level}: ${entry.args.map(String).join(" ").slice(0, 160)}`),
+  }));
   assert.equal(harness.stats.latest.presence, "PRESENT");
   assert.equal(first.connections, 1);
   await first.stop();
@@ -247,7 +251,10 @@ test("[long] a bridge down for sixty seconds stays idle and bounded, then recove
   assert.equal(launcher.errors, "", "the proxy does not log every refused upstream attempt");
   await childCall(child, "latest");
   const restarted = await bridge(t, port, "after-long-outage");
-  await until(() => restarted.received.length === 2, 32000);
+  await until(() => restarted.received.length === 2, 32000, () => JSON.stringify({
+    bridgeConnections: restarted.connections, bridgeMessages: restarted.received.length, childOutput: output.slice(-300), childErrors: errors.slice(-600),
+    launcherErrors: launcher.errors.slice(-400),
+  }));
   assert.equal(restarted.connections, 1);
   assert.equal(restarted.received.find((message) => message.op === "subscribe").subscriptions[0].channelId, 2);
   assert.equal(restarted.received.find((message) => message.op === "advertise").channels[0].topic, "/publish-latest");

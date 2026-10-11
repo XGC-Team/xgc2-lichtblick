@@ -232,7 +232,7 @@ docker run "${docker_run_args[@]}" \
     # One CI cell runs the tagged sixty-second bridge outage check.
     if [[ "${PACKAGE_DISTRIBUTION}" == noble && "${TARGET_ARCH}" == amd64 ]]; then
       XGC2_RECONNECT_LONG_TEST=1 NODE_PATH=/usr/lib/xgc2/node_modules \
-        nice -n 19 node --test --test-concurrency=2 "${tests}/test_bridge_reconnect.cjs"
+        node --test "${tests}/test_bridge_reconnect.cjs"
     fi
     /workspace/source/.xgc2/scripts/smoke_test_installed.sh
     /workspace/source/.xgc2/scripts/smoke_test_web_installed.sh

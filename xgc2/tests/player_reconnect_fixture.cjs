@@ -21,8 +21,9 @@ function playerHarness({ url, workers = true, jitter = () => 0.5, logger = conso
   const compiledWorker = ts.transpileModule(fs.readFileSync(path.join(PLAYER, "worker.ts"), "utf8"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
+  // An eval worker resolves modules from the working directory, not from this file: hand it the absolute path.
   const workerCode = `const { parentPort } = require("node:worker_threads");
-    const NativeWebSocket = require("ws");
+    const NativeWebSocket = require(${JSON.stringify(require.resolve("ws"))});
     class WebSocket extends NativeWebSocket {
       constructor(url, protocols) { super(url, protocols, { origin: new URL(url).origin.replace(/^ws/, "http") }); }
     }
