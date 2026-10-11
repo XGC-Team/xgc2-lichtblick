@@ -26,7 +26,7 @@ status="$(dpkg-query -W -f='${db:Status-Abbrev}' "${package_name}")"
 [[ -f /usr/share/doc/xgc2-lichtblick/copyright ]]
 [[ -x /usr/bin/xgc2-storage ]] || { echo "Installed /usr/bin/xgc2-storage is required." >&2; exit 1; }
 [[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/package.json ]] || { echo "Installed Node xRPC SDK is required." >&2; exit 1; }
-for prerequisite in openssl xvfb-run dbus-run-session setsid; do
+for prerequisite in xvfb-run dbus-run-session setsid; do
   command -v "${prerequisite}" >/dev/null || { echo "Installed smoke requires ${prerequisite}." >&2; exit 1; }
 done
 if dpkg-query -L "${package_name}" | grep -q '^/usr/share/doc/lichtblick/'; then
@@ -83,7 +83,7 @@ launch_seconds="${LICHTBLICK_SMOKE_LAUNCH_SECONDS:-25}"
 fixture_node prepare "${smoke_dir}"
 setsid xvfb-run -a dbus-run-session -- \
   "${launcher}" \
-    --bootstrap-input "${smoke_dir}/bootstrap.json" \
+    --startup-input "${smoke_dir}/startup-input.json" \
     --user-data-dir="${smoke_dir}/electron" \
     --remote-debugging-address=127.0.0.1 \
     --remote-debugging-port=0 \
@@ -93,8 +93,6 @@ setsid xvfb-run -a dbus-run-session -- \
     >"${smoke_dir}/lichtblick.log" 2>&1 &
 launcher_pid=$!
 fixture_node verify-desktop "${smoke_dir}" "${smoke_dir}/lichtblick.log" "${launch_seconds}"
-cat "${smoke_dir}/actual-service-ref.json"
-printf '\n'
 
 kill -TERM -- "-${launcher_pid}"
 for _ in $(seq 1 100); do
@@ -114,4 +112,4 @@ launcher_pid=""
 fixture_node verify-closed "${smoke_dir}"
 fixture_node stop "${smoke_dir}"
 
-echo "xgc2-lichtblick installed Bootstrap, actual mTLS ServiceRef, renderer restore and shutdown smoke passed."
+echo "xgc2-lichtblick installed startup input, ready line, renderer restore and shutdown smoke passed."

@@ -129,7 +129,7 @@ export YARN_ENABLE_IMMUTABLE_INSTALLS=true
 [[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/index.d.cts ]] || { echo "Installed node-xgc2-xrpc build dependency is required." >&2; exit 1; }
 node - <<'NODE'
 const sdk = require("/usr/lib/xgc2/node_modules/@xgc2/xrpc");
-for (const name of ["Diagnostics", "derivePolicy", "loadBootstrapInput", "HTTPClient", "createBoundHTTPHost"]) {
+for (const name of ["Diagnostics", "HTTPClient"]) {
   if (typeof sdk[name] !== "function") throw new Error(`Installed Node xRPC SDK lacks ${name}`);
 }
 NODE

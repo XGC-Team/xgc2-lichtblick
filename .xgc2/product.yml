@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: xgc2-lichtblick
 name: XGC2 Lichtblick Web and Desktop
-version: 1.27.0-37
+version: 1.27.0-38
 kind: mixed
 summary: Pinned XGC2-maintained Lichtblick browser server with an optional Electron desktop package.
 groups:
@@ -42,8 +42,10 @@ usage:
   notes: xgc2-lichtblick-web is the default browser-based package and never opens
     a desktop window. It recommends the release-matched Foxglove bridge (Noetic on
     focal, Humble on jammy, and Jazzy on noble) so standard installs add the live-data
-    bridge automatically. The optional xgc2-lichtblick package retains Electron desktop
-    integration and disables its built-in updater; install upgrades through APT.
+    bridge automatically. It ships its process definition, hosts the xgc2.lichtblick.v1
+    control service on a private Unix socket, and takes its storage grant from one
+    private startup input file. The optional xgc2-lichtblick package retains Electron
+    desktop integration and disables its built-in updater; install upgrades through APT.
 conflicts:
   apt_packages:
   - lichtblick
@@ -52,6 +54,7 @@ ownership:
   - /usr/bin/xgc2-lichtblick-web
   - /usr/lib/xgc2/lichtblick-web
   - /etc/xgc2/lichtblick-web.env
+  - /usr/share/xgc2/process-definitions/xgc2-lichtblick-web.json
   - /usr/share/doc/xgc2-lichtblick-web
   - /opt/Lichtblick
   - /usr/bin/lichtblick
@@ -75,6 +78,6 @@ release:
     xgc2-storage: verify
     xgc2-xrpc: rebuild
   apt_versions:
-    focal: 1.27.0-37~focal
-    jammy: 1.27.0-37~jammy
-    noble: 1.27.0-37~noble
+    focal: 1.27.0-38~focal
+    jammy: 1.27.0-38~jammy
+    noble: 1.27.0-38~noble

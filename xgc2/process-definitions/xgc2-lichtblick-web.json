@@ -1,0 +1,117 @@
+{
+  "apiVersion": "xgc.execution.process/v1",
+  "definitions": [
+    {
+      "id": "lichtblick-web",
+      "version": "2.0.0",
+      "label": "Lichtblick WebUI",
+      "description": "The Lichtblick browser server of one Run. It serves the viewer pages, proxies the live-data WebSocket and hosts xgc2.lichtblick.v1 (describe, persistence, extension assets and the desired view) on a Unix socket that the process creates in the private runtime directory its owner allocated. Its document storage, view scope, credential and asset grant arrive in one private startup input file that the owner writes.",
+      "drivers": [
+        "host"
+      ],
+      "parameters": {
+        "properties": {
+          "socketPath": {
+            "type": "string",
+            "description": "Absolute path of the control socket, inside a private runtime directory allocated by the process owner.",
+            "fixedOnly": true,
+            "ownedEndpoint": "unix-socket"
+          },
+          "startupInputPath": {
+            "type": "string",
+            "description": "Private startup input file written by the process owner (mode 0600 in a directory with mode 0700): the document storage reference, its scope and the scope of the desired view, the file holding the credential for both, the extension asset grant and the operator time zone.",
+            "fixedOnly": true,
+            "x-xgc-path-kind": "file",
+            "x-xgc-file-extensions": [
+              ".json"
+            ]
+          },
+          "bridgePort": {
+            "type": "integer",
+            "description": "Foxglove-compatible WebSocket port on the local host",
+            "default": 8765,
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "port": {
+            "type": "integer",
+            "description": "Lichtblick HTTP port on the local host; XGC uses the dedicated loopback port 18081",
+            "default": 18081,
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "layoutJson": {
+            "type": "string",
+            "description": "Prepared native LayoutData passed unchanged on stdin."
+          }
+        },
+        "required": [
+          "socketPath",
+          "startupInputPath",
+          "layoutJson"
+        ],
+        "additionalProperties": false
+      },
+      "resourceClaims": [
+        {
+          "bindingKey": "http",
+          "kind": "tcp-listener",
+          "mode": "",
+          "capacity": 0,
+          "address": "127.0.0.1",
+          "portParameter": "port"
+        }
+      ],
+      "services": [
+        {
+          "service": "xgc2.lichtblick.v1",
+          "api_version": "1",
+          "profile": "http.v1",
+          "endpointParameter": "socketPath",
+          "describePath": "/v1/describe"
+        }
+      ],
+      "command": {
+        "executable": "/usr/bin/xgc2-lichtblick-web",
+        "directExecutable": true,
+        "args": [
+          "--startup-input",
+          "${startupInputPath}",
+          "--control-socket",
+          "${socketPath}",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "${port}",
+          "--control-plane-url",
+          "ws://127.0.0.1:${bridgePort}",
+          "--public-url-prefix",
+          "/",
+          "--layout-stdin"
+        ],
+        "env": {
+          "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        },
+        "stdinParameter": "layoutJson"
+      },
+      "readiness": {
+        "kind": "describe",
+        "startGraceMs": 15000,
+        "timeoutMs": 30000
+      },
+      "liveness": {
+        "kind": "none"
+      },
+      "stop": {
+        "gracePeriod": 20000000000
+      },
+      "restart": {
+        "mode": "never"
+      },
+      "logs": {
+        "maxBytes": 8388608,
+        "files": 4
+      }
+    }
+  ]
+}

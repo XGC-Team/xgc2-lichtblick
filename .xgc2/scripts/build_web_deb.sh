@@ -42,7 +42,7 @@ source_date_epoch="${SOURCE_DATE_EPOCH:?build entry must supply the commit times
 [[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/index.d.cts ]] || { echo "Installed node-xgc2-xrpc build dependency is required." >&2; exit 1; }
 node - <<'NODE'
 const sdk = require("/usr/lib/xgc2/node_modules/@xgc2/xrpc");
-for (const name of ["Diagnostics", "derivePolicy", "loadBootstrapInput", "HTTPClient", "createBoundHTTPHost"]) {
+for (const name of ["Diagnostics", "HTTPClient", "createHTTPHost", "createRPCHost", "newInstanceId", "proxyWebSocket"]) {
   if (typeof sdk[name] !== "function") throw new Error(`Installed Node xRPC SDK lacks ${name}`);
 }
 NODE
@@ -64,6 +64,7 @@ install -d \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/node/bin" \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/web" \
   "${pkg_root}/usr/share/doc/${package_name}" \
+  "${pkg_root}/usr/share/xgc2/process-definitions"
 
 cp -a "${web_root}/." "${pkg_root}/usr/lib/xgc2/lichtblick-web/web/"
 install -m 0755 "$(command -v node)" \
@@ -72,12 +73,12 @@ install -m 0755 "${repo_root}/xgc2/launcher/xgc2-lichtblick-web" \
   "${pkg_root}/usr/bin/xgc2-lichtblick-web"
 install -m 0644 "${repo_root}/xgc2/launcher/xgc2-lichtblick-web.js" \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/xgc2-lichtblick-web.js"
-install -m 0644 "${repo_root}/xgc2/launcher/managed-storage.cjs" \
-  "${pkg_root}/usr/lib/xgc2/lichtblick-web/managed-storage.cjs"
-install -m 0644 "${repo_root}/xgc2/launcher/managed-rpc.cjs" \
-  "${pkg_root}/usr/lib/xgc2/lichtblick-web/managed-rpc.cjs"
-install -m 0644 "${repo_root}/xgc2/launcher/prepare-layout.cjs" \
-  "${pkg_root}/usr/lib/xgc2/lichtblick-web/prepare-layout.cjs"
+for module in managed-storage control-service startup-input view-state view-gateway prepare-layout; do
+  install -m 0644 "${repo_root}/xgc2/launcher/${module}.cjs" \
+    "${pkg_root}/usr/lib/xgc2/lichtblick-web/${module}.cjs"
+done
+install -m 0644 "${repo_root}/xgc2/process-definitions/xgc2-lichtblick-web.json" \
+  "${pkg_root}/usr/share/xgc2/process-definitions/xgc2-lichtblick-web.json"
 python3 - \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/build-info.json" \
   "${package_version}" \
@@ -146,7 +147,9 @@ Recommends: ${bridge_package}
 Description: XGC2 Lichtblick browser-based robotics visualization
  Serves the pinned Lichtblick web application from a command-line HTTP server,
  auto-connects through a same-origin WebSocket proxy, and leaves initial layout
- ownership to the embedding application.
+ ownership to the embedding application. Hosts the xgc2.lichtblick.v1 control
+ service (describe, persistence, extension assets and the desired view) on a
+ private Unix socket, and ships its process definition for XGC Core.
 EOF
 
 find "${pkg_root}" -exec touch -h -d "@${source_date_epoch}" {} +

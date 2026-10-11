@@ -7,7 +7,10 @@ asset path. Desktop callers use the same domain operations through their
 preload bridge. Browser storage is not consulted during ordinary startup.
 
 Families: `layouts`, `profile`, `configuration`, `workspace`, `extensions`,
-`desktop`. Keys are UTF-8 identifiers, at most 480 bytes; they are not paths.
+`desktop`. The family `view` (the desired view, see [view-v1.md](view-v1.md))
+belongs to a scope of its own and is refused here: the revision of this scope
+fences the pages' saves, so nothing but the pages' documents may be written to it.
+Keys are UTF-8 identifiers, at most 480 bytes; they are not paths.
 Layout keys retain namespace and layout identity. A layout value retains the
 existing baseline/working distinction and managed Core wiring import rules.
 
@@ -71,31 +74,36 @@ the former database is not a requirement for the new product.
 
 ## Native startup and ownership
 
-Web launcher and desktop main require `--bootstrap-input <absolute-private-file>`.
-The shared SDK reads and validates the common BootstrapInput envelope and private
-TLS/bearer grants. This product validates only its `application` payload against
-`bootstrap-application.schema.json`: current schema, exact scope, live local
-storage reference, two distinct declared document/asset grants, explicit asset
-access, and the operator Settings time zone. There is no certificate, token,
-transport, scope or asset-root discovery from HOME, cwd or product environment.
-The native HTTPS Lichtblick host advertises its actual `xgc2.lichtblick.v1.Lichtblick`
-ServiceRef after application startup; the application owns readiness and closes
-both public and private admission before releasing storage and asset resources.
-Core does not start a sidecar or probe.
+Web launcher and desktop main require `--startup-input <absolute-private-file>`.
+The file is written by the process owner, has mode `0600`, lies in a directory
+with mode `0700` owned by the same user, is a single-link regular file of at most
+16 KiB and is opened without following symbolic links. It is validated against
+[startup-input.schema.json](startup-input.schema.json): current schema, exact
+scope, the scope of the desired view (required by the web launcher), a live local
+storage-v1 reference bound to one storage instance, the private file that holds
+the storage bearer token, explicit asset access, and the operator Settings time
+zone. There is no certificate, transport, scope or
+asset-root discovery from HOME, cwd or the environment, and no TLS or token
+material of the product's own.
 
-The composition root resolves the common runtime policy once from a startup
-environment snapshot and injects it into clients and hosts. Their concurrency
-resources remain distinct. One common SDK Diagnostics owner serves all role views;
-its bounded stderr worker closes after actual host and domain work drains. The
-supervisor owns log rotation. Desktop consumes the installed Node SDK at
+The web launcher hosts the [control service](control-service-v1.md) on the Unix
+socket named by `--control-socket`; its owner discovers it with `describe` and
+waits for readiness there. The desktop hosts no service and prints
+`{"type":"ready"}` once its first window has loaded. Both close admission before
+releasing storage and asset resources. Core does not start a sidecar or probe.
+
+One SDK Diagnostics owner serves all role views; its bounded stderr worker closes
+after actual host and domain work drains. The supervisor owns log rotation. The
+web launcher and the desktop consume the installed Node SDK at
 `/usr/lib/xgc2/node_modules/@xgc2/xrpc` as a whole external module, preserving
-the SDK's native worker and private dependency paths. Calls are limited to 15 seconds and ordinary drain to
-16 seconds. An incomplete drain retains its resources and refuses to claim
-exit; the owner can request drain again after actual work has quiesced.
-Public bundle responses require up to 64 MiB; document
-requests/responses are limited to 4 MiB and extension archives to 8 MiB. A role's
-budget must be enforced by the common SDK; route validation does not substitute
-for transport byte limits.
+the SDK's native worker and private dependency paths. Limits are plain options of
+each client and host: storage calls are limited to 15 seconds over at most 8
+connections, ordinary drain to 16 seconds. An incomplete drain retains its
+resources and refuses to claim exit; the owner can request drain again after
+actual work has quiesced. Public bundle responses allow up to 64 MiB; document
+requests/responses are limited to 4 MiB and extension archives to 8 MiB. The
+transport enforces these byte limits; route validation does not substitute for
+them.
 
 A read-write asset grant owns one exclusive Linux file lease for its complete
 lifecycle. The bounded `/usr/bin/flock` startup helper exits immediately; the

@@ -13,9 +13,16 @@ unset NODE_PATH
 [[ -f /usr/lib/xgc2/lichtblick-web/web/index.html ]]
 [[ -f /usr/lib/xgc2/lichtblick-web/build-info.json ]]
 [[ -f /etc/xgc2/lichtblick-web.env ]]
+definition=/usr/share/xgc2/process-definitions/xgc2-lichtblick-web.json
+[[ -f "${definition}" ]]
+"${node}" -e '
+  const document = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+  const [definition] = document.definitions;
+  if (document.apiVersion !== "xgc.execution.process/v1" || definition.command.executable !== "/usr/bin/xgc2-lichtblick-web" || definition.services[0].service !== "xgc2.lichtblick.v1") process.exit(1);
+' "${definition}"
 [[ -x /usr/bin/xgc2-storage ]] || { echo "Installed /usr/bin/xgc2-storage is required." >&2; exit 1; }
 [[ -f /usr/lib/xgc2/node_modules/@xgc2/xrpc/package.json ]] || { echo "Installed Node xRPC SDK is required." >&2; exit 1; }
-for prerequisite in openssl curl; do
+for prerequisite in curl; do
   command -v "${prerequisite}" >/dev/null || { echo "Installed smoke requires ${prerequisite}." >&2; exit 1; }
 done
 
@@ -37,14 +44,15 @@ cleanup() {
 trap cleanup EXIT
 
 "${node}" "${fixture}" prepare "${smoke_dir}"
-"${launcher}" --bootstrap-input "${smoke_dir}/bootstrap.json" \
+"${launcher}" --startup-input "${smoke_dir}/startup-input.json" \
+  --control-socket "${smoke_dir}/control.sock" \
   --host 127.0.0.1 --port 0 --control-plane-url ws://127.0.0.1:9 \
   >"${smoke_dir}/server.log" 2>&1 &
 server_pid=$!
 "${node}" "${fixture}" verify-web "${smoke_dir}" "${smoke_dir}/server.log"
 origin="$(cat "${smoke_dir}/origin")"
 port="${origin##*:}"
-cat "${smoke_dir}/actual-service-ref.json"
+cat "${smoke_dir}/actual-describe.json"
 printf '\n'
 
 curl --fail --silent --show-error "http://127.0.0.1:${port}/healthz" \
@@ -80,4 +88,4 @@ server_pid=""
 "${node}" "${fixture}" verify-closed "${smoke_dir}"
 "${node}" "${fixture}" stop "${smoke_dir}"
 
-echo "xgc2-lichtblick-web installed Bootstrap, mTLS, gateway FULL/restart and shutdown smoke passed on port ${port}."
+echo "xgc2-lichtblick-web installed startup input, control socket, desired view, gateway FULL/restart and shutdown smoke passed on port ${port}."

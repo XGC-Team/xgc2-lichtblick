@@ -43,32 +43,56 @@ immutable Yarn dependencies.
 ```bash
 corepack yarn install --immutable
 ./xgc2/scripts/build-web.sh
-./xgc2/scripts/run-web.sh --bootstrap-input /absolute/private/lichtblick-input.json --port 8080 \
+./xgc2/scripts/run-web.sh --startup-input /absolute/private/startup-input.json \
+  --control-socket /absolute/private/runtime/control.sock --port 8080 \
   --control-plane-url ws://127.0.0.1:8765
 ```
 
 The source-owned launcher provides the same-origin WebSocket proxy, Origin and
 CSP controls, `/healthz`, and `/version`. Local development uses
 `web/.webpack` and `web/build-info.json` from this working tree. The production
-process definition runs the packaged `/usr/bin/xgc2-lichtblick-web` launcher.
+process definition, [process-definitions/xgc2-lichtblick-web.json](process-definitions/xgc2-lichtblick-web.json),
+runs the packaged `/usr/bin/xgc2-lichtblick-web` launcher and is installed to
+`/usr/share/xgc2/process-definitions` for XGC Core.
 
-Both web and desktop require an explicit SDK BootstrapInput file from the owning
-deployment. Its Lichtblick application payload declares a live storage reference,
-scope, separate asset grant and access mode, and the operator time zone; see
-[the persistence contract](contracts/persistence-v1.md) and
-[application schema](contracts/bootstrap-application.schema.json).
-The native application owns its HTTPS RPC endpoint and prints the actual
-ServiceRef after startup. A read-write asset root permits one live writer;
-independent read-only grants can load immutable archives. Linux `util-linux`
-provides the bounded startup `flock` helper. Browser caches and former Electron
-datastores are never read as persistent state.
+Both web and desktop require one private startup input file from the owning
+deployment. It declares a live storage reference, scope (and, for the web
+launcher, the scope of the desired view), the file that holds its credential, a
+separate asset grant and access mode, and the operator time zone;
+see [the persistence contract](contracts/persistence-v1.md) and
+[startup input schema](contracts/startup-input.schema.json).
+The web launcher hosts the XRPC service `xgc2.lichtblick.v1` on the Unix socket
+given by `--control-socket`: describe with readiness, document persistence,
+extension assets and the desired view of the pages. See the
+[control service](contracts/control-service-v1.md) and
+[desired view](contracts/view-v1.md) contracts. The desktop hosts no service.
+A read-write asset root permits one live writer; independent read-only grants can
+load immutable archives. Linux `util-linux` provides the bounded startup `flock`
+helper. Browser caches and former Electron datastores are never read as
+persistent state.
 
 ## Focused checks
 
 ```bash
-node --test xgc2/tests/test_lichtblick_web.js
+NODE_PATH=/usr/lib/xgc2/node_modules node --test xgc2/tests/test_lichtblick_web.js \
+  xgc2/tests/test_view_state.cjs xgc2/tests/test_startup_input.cjs \
+  xgc2/tests/test_control_service.cjs xgc2/tests/test_launcher_view.cjs \
+  xgc2/tests/test_launcher_drain.cjs xgc2/tests/test_process_definition.cjs
+corepack yarn test packages/suite-base/src/components/EmbeddedDesiredView.test.ts \
+  packages/suite-base/src/components/EmbeddedWorkspaceBridge.test.tsx --runInBand
 corepack yarn test packages/suite-base/src/panels/ThreeDeeRender/transforms/TransformTree.test.ts --runInBand
 ```
+
+The storage-backed tests (`test_storage_native.cjs`, `test_view_native.cjs`,
+`test_browser_native.cjs`) also need `XGC2_STORAGE_TEST_BINARY` (a built
+`xgc2-storage`); the browser test needs a built web bundle
+(`XGC2_LICHTBLICK_TEST_WEB_ROOT`), `playwright` and an installed browser
+(`XGC2_BROWSER_TEST_BINARY`).
+
+## Design notes
+
+- [Automatic view control](docs/automatic-view-control.md): how Core could change
+  the desired view on its own (design only, not implemented).
 
 ## Debian build
 
