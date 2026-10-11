@@ -4,14 +4,14 @@
 import { LayoutID } from "../../context/CurrentLayoutContext";
 import { UserProfile } from "../../context/UserProfileStorageContext";
 import { ILayoutStorage, Layout, LayoutPutOptions } from "../ILayoutStorage";
-import { ManagedChange, ManagedDocumentStore } from "./ManagedDocumentStore";
+import type { ManagedChange, ManagedDocumentStorage } from "./ManagedDocumentStore.types";
 import { getManagedDocumentStore } from "./ManagedPersistence";
 
 export function managedLayoutKey(namespace: string, id: LayoutID): string {
   return JSON.stringify([namespace, id])!;
 }
 export class ManagedLayoutStorage implements ILayoutStorage {
-  public constructor(private store: ManagedDocumentStore = getManagedDocumentStore()) {}
+  public constructor(private store: ManagedDocumentStorage = getManagedDocumentStore()) {}
   public async list(namespace: string): Promise<readonly Layout[]> {
     return this.#list(namespace);
   }

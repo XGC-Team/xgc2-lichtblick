@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
-import { ManagedDocumentStore } from "./ManagedDocumentStore";
+import type { ManagedDocumentStorage } from "./ManagedDocumentStore.types";
 import { getManagedDocumentStore } from "./ManagedPersistence";
 import {
   AppConfigurationValue,
@@ -13,7 +13,7 @@ export class ManagedAppConfiguration implements IAppConfiguration {
   #listeners = new Map<string, Set<ChangeHandler>>();
   #observed = new Map<string, AppConfigurationValue>();
   public constructor(
-    private store: ManagedDocumentStore = getManagedDocumentStore(),
+    private store: ManagedDocumentStorage = getManagedDocumentStore(),
     private defaults: Record<string, AppConfigurationValue> = {},
   ) {
     store.subscribe(() => {
