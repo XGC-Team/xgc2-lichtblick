@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
-// Test-only: the actual launcher process over the fake storage.
+// Test-only: the actual launcher process with one high-level view input.
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { rawCall } = require("./control_fixture.cjs");
-const { startStorage } = require("./storage_fixture.cjs");
-const { writeStartupInput } = require("./input_fixture.cjs");
 
 const LAUNCHER = path.resolve(__dirname, "../launcher/xgc2-lichtblick-web.js");
 const ORIGIN = "http://studio.test";
@@ -22,33 +21,34 @@ function writeWebRoot(root) {
 }
 
 /**
- * Starts the launcher with a fresh private directory, a fake storage and a control socket.
+ * Starts the launcher with a fresh private directory and a control socket.
  * `prepare({web, root})` may add files to the web root first; `stdin` is written to the
  * launcher as the high-level view input; `arguments` replaces the whole command
- * line, either as a list or as a function of the `{root, input, socketPath}` the fixture allocated.
+ * line, either as a list or as a function of the `{root, socketPath}` the fixture allocated.
  */
-async function startLauncher(t, { storage: storageOptions, arguments: extra, environment, controlPlane = "ws://127.0.0.1:9", allowedOrigins = [ORIGIN],
+async function startLauncher(t, { arguments: extra, environment, controlPlane = "ws://127.0.0.1:9", allowedOrigins = [ORIGIN],
   frameAncestors = "'self'", stdin = JSON.stringify(require("../launcher/testdata/frozen-layouts.json")[0].input), prepare } = {}) {
-  const base = await startStorage(t, { ...storageOptions, client: false });
-  const { root, assets, storage, scope, viewScope } = base;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lichtblick-launcher-"));
   const { web, buildInfo } = writeWebRoot(root);
   prepare?.({ web, root });
   const socketPath = path.join(root, "control.sock");
-  const input = writeStartupInput(root, { reference: storage.reference, scope, viewScope, assets });
-  const args = (typeof extra === "function" ? extra({ root, input, socketPath }) : extra) ?? ["--startup-input", input, "--control-socket", socketPath, "--host", "127.0.0.1", "--port", "0",
+  const args = (typeof extra === "function" ? extra({ root, socketPath }) : extra) ?? ["--control-socket", socketPath, "--host", "127.0.0.1", "--port", "0",
     "--control-plane-url", controlPlane, "--frame-ancestors", frameAncestors, ...allowedOrigins.flatMap((origin) => ["--allowed-origin", origin]),
     "--view-input-stdin"];
   const child = spawn(process.execPath, [LAUNCHER, ...args], {
     env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: web, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "absent.env"), ALLOWED_ORIGINS: "", FRAME_ANCESTORS: "", ...environment },
-    stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
-  if (stdin !== undefined) child.stdin.end(stdin);
-  const launcher = { child, output: "", errors: "", socketPath, input, port: undefined, base: undefined };
+  child.stdin.on("error", () => {});
+  child.stdin.end(stdin);
+  const launcher = { child, output: "", errors: "", socketPath, port: undefined, base: undefined };
   child.stdout.on("data", (chunk) => { launcher.output += chunk; });
   child.stderr.on("data", (chunk) => { launcher.errors += chunk; });
-  launcher.exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  launcher.exited = new Promise((resolve) => child.once("close", (code, signal) => resolve({ code, signal })));
   t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await launcher.exited; }
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
+    try { await launcher.exited; } finally { clearTimeout(timer); fs.rmSync(root, { recursive: true, force: true }); }
   });
   launcher.waitForPort = async (milliseconds = 8000) => {
     const deadline = Date.now() + milliseconds;
@@ -75,7 +75,7 @@ async function startLauncher(t, { storage: storageOptions, arguments: extra, env
     }
   };
   launcher.stop = async (signal = "SIGTERM") => { child.kill(signal); return await launcher.exited; };
-  return { ...base, launcher, web, buildInfo, socketPath, input };
+  return { root, launcher, web, buildInfo, socketPath };
 }
 
 module.exports = { LAUNCHER, ORIGIN, startLauncher, writeWebRoot };

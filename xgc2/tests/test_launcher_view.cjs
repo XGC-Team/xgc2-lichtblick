@@ -7,7 +7,7 @@ const http = require("node:http");
 const test = require("node:test");
 const { setTimeout: delay } = require("node:timers/promises");
 const { ORIGIN, startLauncher } = require("./launcher_fixture.cjs");
-const { normalizeView } = require("../launcher/view-state.cjs");
+const { EMPTY_VIEW, ViewStore, normalizeView } = require("../launcher/view-state.cjs");
 
 const view = { layoutId: "camera-ar", followRobot: "uav1", perspective: false, visibleSurfaces: ["topics"] };
 
@@ -47,7 +47,9 @@ test("pages read the desired view and hear changes over the same-origin gateway"
   const control = await launcher.control();
   assert.equal(control.described.ready, true, "ready once the page listener is up");
   assert.equal(control.described.facts.http_port, launcher.port);
-  assert.equal(control.described.facts.storage, "ready");
+  assert.deepEqual(control.described.facts.capabilities, ["view.v1"]);
+  assert.equal(control.described.facts.storage, undefined);
+  assert.equal(control.described.facts.assets, undefined);
   // The state a page finds when it connects: nothing stated yet.
   let page = await get(launcher.base, "/xgc2/view");
   assert.equal(page.status, 200);
@@ -88,7 +90,7 @@ test("pages read the desired view and hear changes over the same-origin gateway"
 });
 
 test("only a page of an allowed origin reads the view, and nothing from a page writes it", async (t) => {
-  const { launcher, storage } = await startLauncher(t);
+  const { launcher } = await startLauncher(t);
   await launcher.waitForPort();
   assert.equal((await get(launcher.base, "/xgc2/view", { Origin: "http://evil.test" })).status, 403);
   assert.equal((await get(launcher.base, "/xgc2/view", {})).status, 403);
@@ -101,40 +103,24 @@ test("only a page of an allowed origin reads the view, and nothing from a page w
     const response = await fetch(`${launcher.base}/xgc2/view`, { method, headers: { Origin: ORIGIN, "Content-Type": "application/json" }, body: method === "DELETE" ? undefined : JSON.stringify({ view }) });
     assert.equal(response.status, 400, method);
   }
-  // The document gateway refuses the view family altogether, but serves the others.
-  const documents = (body) => fetch(`${launcher.base}/xgc2/storage`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  for (const body of [{ operation: "snapshot", keys: [{ family: "view", key: "desired" }] }, { operation: "snapshot", families: ["view"] },
-    { operation: "batch", expected: { database_id: "x", schema: "x", revision: "0" }, requestId: "page-writes-view", changes: [{ family: "view", key: "desired", expectedVersion: "0", value: {} }] }]) {
-    const response = await documents(body);
-    assert.equal(response.status, 403);
-    assert.equal((await response.json()).code, "permission_denied");
-  }
-  assert.equal(storage.document("view", "desired"), undefined);
-  assert.equal((await documents({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] })).status, 200);
+  for (const route of ["/xgc2/storage", "/xgc2/extensions/assets", "/xgc2/extensions/assets/archive"])
+    for (const method of ["GET", "POST"])
+      assert.equal((await fetch(`${launcher.base}${route}`, { method, headers: { Origin: ORIGIN } })).status, 404, `${method} ${route}`);
 });
 
-test("the desired view survives a launcher restart and a new page finds it", async (t) => {
+test("a restarted launcher starts with revision zero and no desired view", async (t) => {
   const first = await startLauncher(t);
   await first.launcher.waitForPort();
   const stated = await (await first.launcher.control()).call("PUT", "/v1/view", { body: { view } });
+  assert.equal(stated.json.revision, "1");
   assert.deepEqual(await first.launcher.stop(), { code: 0, signal: null });
   assert.equal(fs.existsSync(first.socketPath), false);
-  // A second launcher over the same storage.
-  const { spawn } = require("node:child_process");
-  const { LAUNCHER } = require("./launcher_fixture.cjs");
-  const child = spawn(process.execPath, [LAUNCHER, "--startup-input", first.input, "--control-socket", first.socketPath, "--host", "127.0.0.1", "--port", "0", "--allowed-origin", ORIGIN],
-    { env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: first.web, XGC2_LICHTBLICK_WEB_BUILD_INFO: first.buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: "/nonexistent.env", FRAME_ANCESTORS: "'self'" }, stdio: ["ignore", "pipe", "pipe"] });
-  t.after(() => child.kill("SIGKILL"));
-  let output = "";
-  child.stdout.on("data", (chunk) => { output += chunk; });
-  const deadline = Date.now() + 8000;
-  let port;
-  while (!port && Date.now() < deadline) { port = /on http:\/\/127\.0\.0\.1:(\d+)/.exec(output)?.[1]; await delay(20); }
-  assert.ok(port, output);
-  const page = await get(`http://127.0.0.1:${port}`, "/xgc2/view");
-  assert.deepEqual(page.json, { revision: stated.json.revision, view: normalizeView(view) });
-  child.kill("SIGTERM");
-  await new Promise((resolve) => child.once("exit", resolve));
+  const second = await startLauncher(t);
+  await second.launcher.waitForPort();
+  const page = await get(second.launcher.base, "/xgc2/view");
+  assert.deepEqual(page.json, { revision: "0", view: EMPTY_VIEW });
+  const next = await (await second.launcher.control()).call("PUT", "/v1/view", { body: { view, expectedRevision: "0" } });
+  assert.equal(next.json.revision, "1");
 });
 
 test("SIGTERM ends the streams and drains; the socket goes with the process", async (t) => {
@@ -149,9 +135,39 @@ test("SIGTERM ends the streams and drains; the socket goes with the process", as
   assert.equal(fs.existsSync(launcher.socketPath), false);
 });
 
-test("a launcher without a view scope in its startup input does not start", async (t) => {
-  const { launcher } = await startLauncher(t, { storage: { withViewScope: false } });
-  const exit = await launcher.exited;
-  assert.equal(exit.code, 1);
-  assert.match(launcher.output + launcher.errors, /storage\.view_scope/);
+test("the page gateway permits at most sixteen view streams", async (t) => {
+  const { launcher } = await startLauncher(t);
+  await launcher.waitForPort();
+  const streams = [];
+  t.after(() => { for (const stream of streams) stream.close(); });
+  for (let i = 0; i < 16; i++) streams.push(await openStream(launcher.base, "/xgc2/view/events"));
+  const overflow = await get(launcher.base, "/xgc2/view/events");
+  assert.equal(overflow.status, 503);
+  assert.equal(overflow.json.code, "resource_exhausted");
+  assert.equal((await launcher.control()).described.facts.pages.view_streams, 16);
+});
+
+test("idle view streams receive heartbeat comments", async (t) => {
+  const { createViewGateway } = require("../launcher/view-gateway.cjs");
+  const gateway = createViewGateway(new ViewStore(), { heartbeatMs: 20 });
+  const server = http.createServer((request, response) => gateway.events(request, response));
+  t.after(async () => { gateway.close(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const stream = await openStream(`http://127.0.0.1:${server.address().port}`, "/events");
+  t.after(() => stream.close());
+  await stream.until((s) => s.frames.length >= 2);
+  assert.equal(stream.frames[0].event, "view");
+  assert.equal(stream.frames[1].comment, true);
+  assert.match(stream.text, /: hb/);
+});
+
+test("the launcher refuses a missing view input switch and invalid stdin", async (t) => {
+  const missing = await startLauncher(t, { arguments: ({ socketPath }) => ["--control-socket", socketPath, "--port", "0"] });
+  assert.equal((await missing.launcher.exited).code, 1);
+  assert.match(missing.launcher.errors, /--view-input-stdin is required/);
+  for (const stdin of ["", "[]", JSON.stringify({ layoutMode: "3d", runMode: "simulation", robots: [], visualizationTopics: [], startupInputPath: "retired" })]) {
+    const { launcher } = await startLauncher(t, { stdin });
+    assert.equal((await launcher.exited).code, 1);
+    assert.match(launcher.errors, /cannot prepare web entrypoint/);
+  }
 });

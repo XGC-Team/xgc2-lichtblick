@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
-// Test-only: the control service over the fake storage, and a minimal caller of it.
+// Test-only: the control service and a minimal caller of its private socket.
 const http = require("node:http");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const { randomUUID } = require("node:crypto");
 const { createControlService } = require("../launcher/control-service.cjs");
 const { ViewStore } = require("../launcher/view-state.cjs");
-const { startStorage } = require("./storage_fixture.cjs");
 
 /** One HTTP call to a Unix socket; `instance` adds the fence header, `timeoutMs` the call budget. */
 function rawCall(socketPath, method, target, { instance, body, headers = {}, timeoutMs = 3000 } = {}) {
@@ -35,23 +36,15 @@ function rawCall(socketPath, method, target, { instance, body, headers = {}, tim
   });
 }
 
-/** The check a launcher uses: the smallest read of the pages' scope, so a replaced or stopped storage rejects it. */
-function storageCheck(client) {
-  return async () => { await client.request({ operation: "snapshot", keys: [{ family: "profile", key: "user" }] }, { timeoutMs: 1000 }); };
-}
-
-async function startControl(t, { ready = true, access, monitor } = {}) {
-  const base = await startStorage(t, { access });
-  const viewStore = new ViewStore(base.client);
-  await viewStore.load();
-  const socketPath = path.join(base.root, "control.sock");
-  const changes = [];
-  const dependency = monitor ? { check: storageCheck(base.client), intervalMs: monitor, onChange: (change) => changes.push(change) } : undefined;
-  const control = createControlService(base.client, { socketPath, viewStore, dependency, facts: () => ({ http_port: 18081 }) });
+async function startControl(t, { ready = true } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lichtblick-control-"));
+  const viewStore = new ViewStore();
+  const socketPath = path.join(root, "control.sock");
+  const control = createControlService({ socketPath, viewStore, facts: () => ({ http_port: 18081 }) });
+  t.after(async () => { await control.close(); fs.rmSync(root, { recursive: true, force: true }); });
   await control.start();
-  t.after(() => control.close());
   if (ready) control.markReady();
-  return { ...base, viewStore, control, socketPath, changes, call: (method, target, options = {}) => rawCall(socketPath, method, target, { instance: method === "GET" && target.split("?", 1)[0] === "/v1/describe" ? undefined : control.instanceId, ...options }) };
+  return { root, viewStore, control, socketPath, call: (method, target, options = {}) => rawCall(socketPath, method, target, { instance: method === "GET" && target.split("?", 1)[0] === "/v1/describe" ? undefined : control.instanceId, ...options }) };
 }
 
 module.exports = { rawCall, startControl };

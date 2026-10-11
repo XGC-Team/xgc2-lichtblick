@@ -61,7 +61,6 @@ test("parses the browser server command line", () => {
       allowedOrigins: ["https://xgc.example", "http://127.0.0.1:5173"],
       frameAncestors: "'self' https://xgc.example",
       assetUrlPrefix: null,
-      startupInput: null,
       controlSocket: null,
       shutdownMs: null,
       showHelp: false,
@@ -70,12 +69,11 @@ test("parses the browser server command line", () => {
   );
 });
 
-test("parses the startup input and the control socket exactly once each", () => {
+test("parses the view input switch and the control socket exactly once each", () => {
   assert.deepEqual(
     {
       ...parseArgs([
-        "--startup-input",
-        "/run/xgc2/input.json",
+        "--view-input-stdin",
         "--control-socket",
         "/run/xgc2/sockets/lichtblick.sock",
       ]),
@@ -88,22 +86,20 @@ test("parses the startup input and the control socket exactly once each", () => 
       allowedOrigins: [],
       frameAncestors: null,
       assetUrlPrefix: null,
-      startupInput: "/run/xgc2/input.json",
       controlSocket: "/run/xgc2/sockets/lichtblick.sock",
       shutdownMs: null,
       showHelp: false,
-      viewInputStdin: false,
+      viewInputStdin: true,
     },
   );
   for (const argv of [
-    ["--startup-input", "a", "--startup-input", "b"],
     ["--control-socket", "a", "--control-socket", "b"],
-    ["--startup-input"],
+    ["--control-socket"],
     ["--control-socket", "--port"],
-    ["--startup-input", "--control-socket", "x"],
   ]) {
-    assert.throws(() => parseArgs(argv), /explicit --(startup-input|control-socket)/);
+    assert.throws(() => parseArgs(argv), /explicit --control-socket/);
   }
+  assert.throws(() => parseArgs(["--view-input-stdin", "--view-input-stdin"]), /occurs more than once/);
 });
 
 test("the drain budget is a bounded millisecond count", () => {
@@ -114,13 +110,13 @@ test("the drain budget is a bounded millisecond count", () => {
 });
 
 test("the retired bootstrap input and per-launch TLS options are gone", () => {
-  for (const flag of ["--bootstrap-input", "--tls-cert", "--rpc-token"]) {
+  for (const flag of ["--bootstrap-input", "--startup-input", "--layout-stdin", "--tls-cert", "--rpc-token"]) {
     assert.throws(() => parseArgs([flag, "value"]), /unknown option/);
   }
 });
 
 test("rejects the retired XGC layout flags", () => {
-  // Layout is prepared once by the owning product and passed as a single document.
+  // Layout options arrive together in the single high-level view input.
   for (const flag of [
     "--initial-view",
     "--ar-visible",

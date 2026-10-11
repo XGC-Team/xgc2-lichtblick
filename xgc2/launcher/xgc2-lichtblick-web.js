@@ -22,17 +22,9 @@ const fs = require("node:fs");
 const { createHTTPHost, proxyWebSocket, Diagnostics } = require("@xgc2/xrpc");
 const path = require("node:path");
 const url = require("node:url");
-const {
-  MAX_WIRE_BYTES,
-  MAX_ASSET_BYTES,
-  SHUTDOWN_MS,
-  PersistenceError,
-  createManagedDomainClientFromInput,
-} = require("./managed-storage.cjs");
-const { createControlService } = require("./control-service.cjs");
-const { loadStartupInput, checkUnixAddress } = require("./startup-input.cjs");
+const { MAX_BODY_BYTES, SHUTDOWN_MS, createControlService } = require("./control-service.cjs");
 const { mapViewInput, prepareLayout, readJSONInput } = require("./prepare-layout.cjs");
-const { ViewStore } = require("./view-state.cjs");
+const { ViewError, ViewStore } = require("./view-state.cjs");
 const { createViewGateway } = require("./view-gateway.cjs");
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -86,7 +78,6 @@ function parseArgs(argv) {
     allowedOrigins: [],
     frameAncestors: null,
     assetUrlPrefix: null,
-    startupInput: null,
     controlSocket: null,
     shutdownMs: null,
     showHelp: false,
@@ -132,15 +123,6 @@ function parseArgs(argv) {
         break;
       case "--asset-url-prefix":
         opts.assetUrlPrefix = argv[++i];
-        break;
-      case "--startup-input":
-        if (
-          opts.startupInput != null ||
-          !argv[i + 1] ||
-          argv[i + 1].startsWith("--")
-        )
-          throw new Error("one explicit --startup-input file is required");
-        opts.startupInput = argv[++i];
         break;
       case "--shutdown-ms":
         opts.shutdownMs = Number.parseInt(argv[++i], 10);
@@ -194,8 +176,6 @@ function printHelp() {
       "                                   Env: FRAME_ANCESTORS.",
       `                                   Default: ${DEFAULT_FRAME_ANCESTORS}`,
       "  --asset-url-prefix <path>      Stable same-origin hashed-asset path. Env: ASSET_URL_PREFIX.",
-      "  --startup-input <file>         Required private input granted by the process owner:",
-      "                                   storage reference, scope, credential and asset grant.",
       "  --control-socket <path>        Required absolute Unix socket path of the xgc2.lichtblick.v1",
       "                                   service, inside the owner's private runtime directory.",
       "  --shutdown-ms <ms>             How long a Stop waits for admitted work (1..60000).",
@@ -702,7 +682,6 @@ function buildRequestListener(
   transformedIndex,
   buildInfo,
   responseSecurityHeaders,
-  persistence,
   originAllowed = () => false,
   initialLayout,
   viewGateway,
@@ -734,19 +713,19 @@ function buildRequestListener(
       // The desired view is stated through the control service; pages read it.
       try {
         if (!originAllowed(declaredOrigin(true)))
-          throw new PersistenceError(
+          throw new ViewError(
             "permission_denied",
             "view origin is not allowed",
             403,
           );
         if (!viewGateway)
-          throw new PersistenceError(
+          throw new ViewError(
             "unavailable",
             "the desired view is not configured",
             503,
           );
         if (req.method !== "GET")
-          throw new PersistenceError("invalid_argument", "GET required", 400);
+          throw new ViewError("invalid_argument", "GET required", 400);
         if (viewState) viewGateway.state(res, responseSecurityHeaders);
         else viewGateway.events(req, res, responseSecurityHeaders);
       } catch (error) {
@@ -757,7 +736,7 @@ function buildRequestListener(
             {
               code: error.code ?? "unavailable",
               message:
-                error instanceof PersistenceError
+                error instanceof ViewError
                   ? error.message
                   : "the desired view is unavailable",
             },
@@ -766,122 +745,9 @@ function buildRequestListener(
       }
       return;
     }
-    const documentRoute = requestUrl.pathname === `${base}/xgc2/storage`;
-    const assetRoute = requestUrl.pathname === `${base}/xgc2/extensions/assets`;
-    const assetRead = requestUrl.pathname.startsWith(
-      `${base}/xgc2/extensions/assets/`,
-    );
-    if (documentRoute || assetRoute || assetRead) {
-      let input;
-      try {
-        // Require a declared browser Origin on every persistence route. The
-        // desktop bridge calls the domain client inside the main process.
-        if (!originAllowed(declaredOrigin(assetRead)))
-          throw new PersistenceError(
-            "permission_denied",
-            "persistence origin is not allowed",
-            403,
-          );
-        if (!persistence)
-          throw new PersistenceError(
-            "unavailable",
-            "managed persistence is not configured",
-            503,
-          );
-        if (documentRoute) {
-          if (
-            req.method !== "POST" ||
-            req.headers["content-type"]?.split(";")[0] !== "application/json"
-          )
-            throw new PersistenceError(
-              "invalid_argument",
-              "JSON POST required",
-              400,
-            );
-          input = JSON.parse(
-            (await readBoundedBody(req, MAX_WIRE_BYTES)).toString("utf8"),
-          );
-          writeJson(
-            res,
-            200,
-            await persistence.request(input),
-            responseSecurityHeaders,
-          );
-        } else if (assetRoute) {
-          if (
-            req.method !== "POST" ||
-            req.headers["content-type"] !== "application/octet-stream"
-          )
-            throw new PersistenceError(
-              "invalid_argument",
-              "binary archive POST required",
-              400,
-            );
-          const bytes = await readBoundedBody(req, MAX_ASSET_BYTES);
-          const asset = await persistence.publish(bytes, {
-            id: requestUrl.searchParams.get("name"),
-            version: requestUrl.searchParams.get("version"),
-          });
-          writeJson(res, 200, asset, responseSecurityHeaders);
-        } else {
-          if (req.method !== "GET")
-            throw new PersistenceError(
-              "invalid_argument",
-              "archive GET required",
-              400,
-            );
-          const rawBytes = requestUrl.searchParams.get("bytes");
-          if (!/^[1-9][0-9]{0,7}$/.test(rawBytes ?? ""))
-            throw new PersistenceError(
-              "invalid_argument",
-              "canonical archive length required",
-              400,
-            );
-          const bytes = await persistence.load({
-            owner: "lichtblick",
-            asset_id: decodeURIComponent(
-              requestUrl.pathname.slice(
-                `${base}/xgc2/extensions/assets/`.length,
-              ),
-            ),
-            sha256: requestUrl.searchParams.get("sha256"),
-            bytes: Number(rawBytes),
-          });
-          res.writeHead(200, {
-            "Content-Type": "application/octet-stream",
-            "Content-Length": bytes.byteLength,
-            "Cache-Control": "no-store",
-            ...responseSecurityHeaders,
-          });
-          res.end(bytes);
-        }
-      } catch (error) {
-        if (!res.destroyed && !res.headersSent)
-          writeJson(
-            res,
-            error.status ??
-              (error instanceof SyntaxError || error instanceof URIError
-                ? 400
-                : 503),
-            {
-              code:
-                error.code ??
-                (error instanceof SyntaxError
-                  ? "invalid_argument"
-                  : "unavailable"),
-              message:
-                error instanceof PersistenceError ||
-                error instanceof SyntaxError
-                  ? error.message
-                  : "managed persistence operation failed",
-              ...(error.outcome ? { outcome: error.outcome } : {}),
-              ...(error.requestId || input?.requestId
-                ? { requestId: error.requestId ?? input.requestId }
-                : {}),
-            },
-            responseSecurityHeaders,
-          );
-      }
+    if (requestUrl.pathname.startsWith(`${base}/xgc2/`)) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", ...responseSecurityHeaders });
+      res.end("not found");
       return;
     }
     if (isWebSocketPath(req.url)) {
@@ -922,32 +788,6 @@ function buildRequestListener(
 }
 
 // ---- Entry point -----------------------------------------------------------
-
-async function readBoundedBody(request, limit) {
-  const length = request.headers["content-length"];
-  if (
-    length !== undefined &&
-    (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) > limit)
-  )
-    throw new PersistenceError(
-      "resource_exhausted",
-      "request body exceeds product limit",
-      413,
-    );
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of request) {
-    size += chunk.length;
-    if (size > limit)
-      throw new PersistenceError(
-        "resource_exhausted",
-        "request body exceeds product limit",
-        413,
-      );
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks, size);
-}
 
 async function main() {
   loadEnvFile(ENV_FILE);
@@ -1040,7 +880,6 @@ async function main() {
 
   const responseSecurityHeaders = securityHeaders(validatedFrameAncestors);
   const shutdownMs = opts.shutdownMs ?? SHUTDOWN_MS;
-  let persistence;
   let control;
   let views;
   let hostRuntime;
@@ -1050,7 +889,6 @@ async function main() {
   let closing;
   const close = () => {
     if (!closing) {
-      persistence?.beginDrain();
       closing = (async () => {
         control?.markNotReady("stopping");
         views?.close();
@@ -1060,7 +898,6 @@ async function main() {
         ]);
         const failure = results.find((result) => result.status === "rejected");
         if (failure) throw failure.reason;
-        await persistence?.close();
         await diagnostics?.close({ timeoutMs: shutdownMs });
       })().catch((error) => {
         closing = undefined;
@@ -1075,7 +912,7 @@ async function main() {
       () => process.exit(0),
       (error) => {
         logError(
-          `shutdown incomplete; owner retains resources: ${error.message}`,
+          `shutdown incomplete: ${error.message}`,
         );
         process.exitCode = 1;
       },
@@ -1084,51 +921,27 @@ async function main() {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   try {
-    if (!opts.startupInput)
-      throw new Error("--startup-input is required");
     if (!opts.controlSocket)
       throw new Error("--control-socket is required");
-    checkUnixAddress(opts.controlSocket, "--control-socket");
-    const input = loadStartupInput(opts.startupInput);
     diagnostics = new Diagnostics({
       sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
     });
-    if (!input.storage.viewScope)
-      throw new Error(
-        "the startup input needs storage.view_scope for the desired view",
-      );
-    persistence = createManagedDomainClientFromInput(input, { diagnostics });
     const viewStore = new ViewStore();
     views = createViewGateway(viewStore);
     // The service listens first, so its owner can wait on describe while the
-    // storage and the page listener come up; it is ready when the pages are.
-    control = createControlService(persistence, {
+    // page listener comes up; it is ready when the pages are.
+    control = createControlService({
       socketPath: opts.controlSocket,
       viewStore,
       diagnostics,
       shutdownMs,
-      dependency: {
-        // The smallest read of the pages' scope that proves the bound storage instance answers.
-        check: async () => {
-          await persistence.request(
-            { operation: "snapshot", keys: [{ family: "profile", key: "user" }] },
-            { timeoutMs: 3000 },
-          );
-        },
-        onChange: ({ ready, reason }) => {
-          if (ready) logInfo("storage answers again");
-          else logWarn(reason);
-        },
-      },
       facts: () => ({
-        assets: input.assets.access,
         control_plane: `${targetWs.protocol}//${targetWs.hostname}:${targetWs.port}${targetWs.path}`,
         pages: { view_streams: views.streamCount },
         ...(listenPort ? { http_port: listenPort } : {}),
       }),
     });
     await control.start();
-    await persistence.ready;
     hostRuntime = createHTTPHost(
       buildRequestListener(
         targetWs,
@@ -1136,8 +949,7 @@ async function main() {
         loadIndex,
         buildInfo,
         responseSecurityHeaders,
-        persistence,
-        (origin) => websocketOriginAllowed(origin, allowedOrigins),
+              (origin) => websocketOriginAllowed(origin, allowedOrigins),
         initialLayout,
         views,
       ),
@@ -1145,7 +957,7 @@ async function main() {
         diagnostics,
         maxConnections: 64,
         maxInFlight: 64,
-        maxBodyBytes: MAX_ASSET_BYTES,
+        maxBodyBytes: MAX_BODY_BYTES,
         maxResponseBytes: 64 * 1024 * 1024,
         shutdownMs,
       },
@@ -1230,7 +1042,7 @@ async function main() {
         },
         (drainError) => {
           logError(
-            `shutdown incomplete; owner retains resources: ${drainError.message}`,
+            `shutdown incomplete: ${drainError.message}`,
           );
           process.exitCode = 1;
         },
