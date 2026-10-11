@@ -226,7 +226,9 @@ docker run "${docker_run_args[@]}" \
       "${tests}/test_lichtblick_web.js" "${tests}/test_view_state.cjs" \
       "${tests}/test_control_service.cjs" "${tests}/test_launcher_view.cjs" \
       "${tests}/test_prepared_layout.cjs" \
-      "${tests}/test_process_definition.cjs"
+      "${tests}/test_process_definition.cjs" \
+      /workspace/source/xgc2/desktop/tests/test_startup_input.cjs \
+      /workspace/source/xgc2/desktop/tests/test_asset_lease.cjs
     /workspace/source/.xgc2/scripts/smoke_test_installed.sh
     /workspace/source/.xgc2/scripts/smoke_test_web_installed.sh
     apt-get purge -y xgc2-lichtblick xgc2-lichtblick-web

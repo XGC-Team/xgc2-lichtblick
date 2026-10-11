@@ -78,9 +78,10 @@ the page takes its time zone from settings.
 This launcher cutover is intentionally not releasable until the later page
 migration lands after Core's UI document API exists. Page persistence still
 requests removed routes in this intermediate tree. The product version remains
-unchanged. Desktop source is unchanged and retains its own startup input and
-managed persistence contract. Its existing imports of the deleted shared launcher
-modules also need separate resolution before a desktop build.
+unchanged. The desktop retains its own startup input and managed persistence
+contract: the Storage client and the startup input parser it uses live in
+`xgc2/desktop/` (moved out of the web launcher, with their tests) and are imported
+only by `packages/suite-desktop`.
 
 [The persistence contract](contracts/persistence-v1.md),
 [startup input schema](contracts/startup-input.schema.json) and

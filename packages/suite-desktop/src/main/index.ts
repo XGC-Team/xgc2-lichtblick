@@ -31,8 +31,8 @@ import {
   createManagedDomainClientFromInput,
   ManagedDomainClient,
   SHUTDOWN_MS,
-} from "../../../../xgc2/launcher/managed-storage.cjs";
-import { loadStartupInput } from "../../../../xgc2/launcher/startup-input.cjs";
+} from "../../../../xgc2/desktop/managed-storage.cjs";
+import { loadStartupInput } from "../../../../xgc2/desktop/startup-input.cjs";
 import {
   LICHTBLICK_PRODUCT_HOMEPAGE,
   LICHTBLICK_PRODUCT_NAME,

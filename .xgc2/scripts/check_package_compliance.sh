@@ -27,6 +27,7 @@ required_files=(
   xgc2/launcher/reverse-proxy-examples.md xgc2/launcher/xgc2-lichtblick-web
   xgc2/launcher/xgc2-lichtblick-web.js xgc2/launcher/prepare-layout.cjs
   xgc2/launcher/control-service.cjs xgc2/launcher/view-state.cjs
+  xgc2/desktop/managed-storage.cjs xgc2/desktop/startup-input.cjs
   xgc2/launcher/view-gateway.cjs xgc2/process-definitions/xgc2-lichtblick-web.json
   xgc2/contracts/startup-input.schema.json xgc2/contracts/view-v1.md
   xgc2/tests/test_prepared_layout.cjs xgc2/launcher/testdata/frozen-layouts.json

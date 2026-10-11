@@ -13,8 +13,8 @@ import { createNewWindow } from "./createNewWindow";
 import { getFilesToOpen } from "./getFilesToOpen";
 import { main } from "./index";
 import { initializeAppSettings } from "./settings";
-import { createManagedDomainClientFromInput } from "../../../../xgc2/launcher/managed-storage.cjs";
-import { loadStartupInput } from "../../../../xgc2/launcher/startup-input.cjs";
+import { createManagedDomainClientFromInput } from "../../../../xgc2/desktop/managed-storage.cjs";
+import { loadStartupInput } from "../../../../xgc2/desktop/startup-input.cjs";
 
 jest.mock("electron", () => ({
   app: {
@@ -87,11 +87,11 @@ jest.mock("../common/webpackDefines", () => ({
   LICHTBLICK_PRODUCT_VERSION: "1.0.0",
   LICHTBLICK_PRODUCT_HOMEPAGE: "https://example.test",
 }));
-jest.mock("../../../../xgc2/launcher/managed-storage.cjs", () => ({
+jest.mock("../../../../xgc2/desktop/managed-storage.cjs", () => ({
   createManagedDomainClientFromInput: jest.fn(),
   SHUTDOWN_MS: 16000,
 }));
-jest.mock("../../../../xgc2/launcher/startup-input.cjs", () => ({
+jest.mock("../../../../xgc2/desktop/startup-input.cjs", () => ({
   loadStartupInput: jest.fn(),
 }));
 

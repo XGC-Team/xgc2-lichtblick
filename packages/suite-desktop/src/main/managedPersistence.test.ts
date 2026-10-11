@@ -9,7 +9,7 @@ import { ipcMain } from "electron";
 
 import StudioWindow from "./StudioWindow";
 import { registerManagedPersistenceIPC } from "./managedPersistence";
-import type { ManagedDomainClient } from "../../../../xgc2/launcher/managed-storage.cjs";
+import type { ManagedDomainClient } from "../../../../xgc2/desktop/managed-storage.cjs";
 import type { ManagedIPCReply } from "../common/types";
 
 jest.mock("electron", () => ({ ipcMain: { handle: jest.fn() } }));

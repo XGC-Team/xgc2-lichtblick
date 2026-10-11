@@ -12,7 +12,7 @@ import { ManagedRequestError } from "../../../suite-base/src/services/persistenc
 
 import StudioWindow from "./StudioWindow";
 import { observeCommittedSettings } from "./settings";
-import type { ManagedDomainClient } from "../../../../xgc2/launcher/managed-storage.cjs";
+import type { ManagedDomainClient } from "../../../../xgc2/desktop/managed-storage.cjs";
 import { managedIPCFailure } from "../common/managedIPC";
 import type { ManagedIPCReply } from "../common/types";
 

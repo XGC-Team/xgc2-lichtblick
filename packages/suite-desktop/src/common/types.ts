@@ -10,7 +10,7 @@ import type {
   ManagedTransport,
 } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
-import type { ManagedAsset } from "../../../../xgc2/launcher/managed-storage.cjs";
+import type { ManagedAsset } from "../../../../xgc2/desktop/managed-storage.cjs";
 
 export type ManagedIPCReply<T> =
   | { ok: true; value: T }
