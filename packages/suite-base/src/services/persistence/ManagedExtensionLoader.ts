@@ -3,13 +3,10 @@
 
 import JSZip from "jszip";
 
-import { ManagedDocumentStore } from "./ManagedDocumentStore";
-import {
-  getManagedAssetTransport,
-  getManagedDocumentStore,
-  ManagedAssetReference,
-  ManagedAssetTransport,
-} from "./ManagedPersistence";
+import type { ManagedDocumentStorage } from "./ManagedDocumentStore.types";
+import { verifyManagedAsset } from "./ManagedAsset";
+import type { ManagedAssetReference, ManagedAssetTransport } from "./ManagedAsset";
+import { getManagedAssetTransport, getManagedDocumentStore } from "./ManagedPersistence";
 import { Namespace } from "../../types";
 import { ExtensionInfo } from "../../types/Extensions";
 import {
@@ -151,33 +148,11 @@ export async function unpackManagedExtension(bytes: Uint8Array): Promise<Record<
   }
   return files;
 }
-export async function verifyManagedAsset(
-  bytes: Uint8Array,
-  asset: ManagedAssetReference,
-): Promise<void> {
-  if (
-    (asset as { owner: string }).owner !== "lichtblick" ||
-    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(asset.asset_id) ||
-    !/^[a-f0-9]{64}$/.test(asset.sha256) ||
-    !Number.isSafeInteger(asset.bytes) ||
-    asset.bytes < 1 ||
-    asset.bytes > ARCHIVE_LIMIT ||
-    bytes.length !== asset.bytes
-  ) {
-    throw new Error("Invalid extension asset reference");
-  }
-  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  if (hash !== asset.sha256) {
-    throw new Error("Extension asset integrity check failed");
-  }
-}
 export class ManagedExtensionLoader implements IExtensionLoader {
   public readonly type = "browser" as const;
   public constructor(
     public readonly namespace: Namespace,
-    private store: ManagedDocumentStore = getManagedDocumentStore(),
+    private store: ManagedDocumentStorage = getManagedDocumentStore(),
     private assets: ManagedAssetTransport = getManagedAssetTransport(),
   ) {}
   #key(id: string): string {

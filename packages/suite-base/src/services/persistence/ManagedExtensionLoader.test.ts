@@ -4,7 +4,10 @@
 import JSZip from "jszip";
 import { createHash } from "node:crypto";
 
-import { ManagedDocumentStore } from "./ManagedDocumentStore";
+import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
+import { CoreUiDocumentClient, encodeCoreUiKey } from "./CoreUiDocumentClient";
+import { CoreUiDocumentAssets } from "./CoreUiDocumentAssets";
+import { CoreUiDocumentServer } from "./test/CoreUiDocumentServer";
 import { ManagedExtensionLoader, unpackManagedExtension } from "./ManagedExtensionLoader";
 import { ManagedAssetReference, ManagedAssetTransport } from "./ManagedPersistence";
 
@@ -20,23 +23,17 @@ async function archive(): Promise<Uint8Array> {
 function reference(bytes: Uint8Array): ManagedAssetReference {
   return {
     owner: "lichtblick",
-    asset_id: "tests.example-1.0.0-abc",
+    asset_id: encodeCoreUiKey('["tests.example","1.0.0"]'),
     sha256: createHash("sha256").update(bytes).digest("hex"),
     bytes: bytes.length,
   };
 }
-it("publishes verified immutable bytes before committing the installed pointer", async () => {
+it("publishes verified bytes before committing the installed pointer", async () => {
   const bytes = await archive();
   const events: string[] = [];
-  const store = new ManagedDocumentStore(jest.fn());
+  const store = new CoreUiDocumentStore();
   const commit = jest.spyOn(store, "commit").mockImplementation(async () => {
     events.push("commit");
-    return {
-      token: { database_id: "fixture", schema: "test", revision: "1" },
-      requestId: "save",
-      durability: "sqlite-full",
-      versions: [],
-    };
   });
   const assets: ManagedAssetTransport = {
     publish: async () => {
@@ -60,7 +57,7 @@ it("publishes verified immutable bytes before committing the installed pointer",
 });
 it("failed publication and checksum mismatch never switch installed metadata", async () => {
   const bytes = await archive();
-  const store = new ManagedDocumentStore(jest.fn());
+  const store = new CoreUiDocumentStore();
   const commit = jest.spyOn(store, "commit");
   const assets: ManagedAssetTransport = {
     publish: jest.fn().mockRejectedValue(new Error("disk full")),
@@ -74,6 +71,24 @@ it("failed publication and checksum mismatch never switch installed metadata", a
     new ManagedExtensionLoader("local", store, assets).installExtension({ foxeFileData: bytes }),
   ).rejects.toThrow("integrity");
   expect(commit).not.toHaveBeenCalled();
+});
+it("installs and restores an extension through Core and refuses corrupted archive bytes", async () => {
+  const server = new CoreUiDocumentServer();
+  const client = new CoreUiDocumentClient(server.fetch);
+  const store = new CoreUiDocumentStore(client);
+  await store.bootstrap();
+  const assets = new CoreUiDocumentAssets(client);
+  const loader = new ManagedExtensionLoader("local", store, assets);
+  const info = await loader.installExtension({ foxeFileData: await archive() });
+  const fresh = new CoreUiDocumentStore(client);
+  await fresh.bootstrap();
+  const restored = new ManagedExtensionLoader("local", fresh, assets);
+  expect(await restored.getExtensions()).toEqual([info]);
+  expect(await restored.loadExtension(info.id)).toEqual({ raw: "module.exports = {};" });
+  server.assets.values().next().value!.bytes[0] = 99;
+  await expect(restored.loadExtension(info.id)).rejects.toThrow("integrity check");
+  await restored.uninstallExtension(info.id);
+  expect(await restored.getExtensions()).toEqual([]);
 });
 it("expanded size and entry count are rejected before inflation", async () => {
   const bytes = await archive();
