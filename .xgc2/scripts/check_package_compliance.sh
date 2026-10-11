@@ -26,8 +26,7 @@ required_files=(
   xgc2/tests/test_lichtblick_web.js xgc2/launcher/lichtblick-web.env
   xgc2/launcher/reverse-proxy-examples.md xgc2/launcher/xgc2-lichtblick-web
   xgc2/launcher/xgc2-lichtblick-web.js xgc2/launcher/prepare-layout.cjs
-  xgc2/launcher/managed-storage.cjs xgc2/launcher/control-service.cjs
-  xgc2/launcher/startup-input.cjs xgc2/launcher/view-state.cjs
+  xgc2/launcher/control-service.cjs xgc2/launcher/view-state.cjs
   xgc2/launcher/view-gateway.cjs xgc2/process-definitions/xgc2-lichtblick-web.json
   xgc2/contracts/startup-input.schema.json xgc2/contracts/view-v1.md
   xgc2/tests/test_prepared_layout.cjs xgc2/launcher/testdata/frozen-layouts.json
@@ -197,6 +196,10 @@ validate_deb() {
   for dependency in ca-certificates libc6 libgcc-s1 libstdc++6; do
     [[ ",${value// /}," == *",${dependency},"* ]]
   done
+  if [[ ",${value// /}," == *",xgc2-storage,"* || ",${value// /}," == *",util-linux,"* ]]; then
+    echo "The web package must not depend on Storage or the asset lease helper." >&2
+    exit 1
+  fi
   value="$(dpkg-deb -f "${deb}" Recommends)"
   case "${distribution}" in
     focal) expected_bridge="ros-noetic-foxglove-bridge" ;;
@@ -214,7 +217,7 @@ validate_deb() {
   grep -Fq './usr/lib/xgc2/lichtblick-web/build-info.json' "${contents_file}"
   grep -Fq './etc/xgc2/lichtblick-web.env' "${contents_file}"
   grep -Fq './usr/share/xgc2/process-definitions/xgc2-lichtblick-web.json' "${contents_file}"
-  for module in managed-storage control-service startup-input view-state view-gateway prepare-layout; do
+  for module in control-service view-state view-gateway prepare-layout; do
     grep -Fq "./usr/lib/xgc2/lichtblick-web/${module}.cjs" "${contents_file}"
   done
   if grep -Fq 'managed-rpc' "${contents_file}"; then

@@ -16,9 +16,7 @@ apt:
   - xgc2-lichtblick
   depends:
   - ca-certificates
-  - util-linux
   - node-xgc2-xrpc (>= 0.2.0-1~)
-  - xgc2-storage
   - libc6
   - libgcc-s1
   - libstdc++6
@@ -43,8 +41,9 @@ usage:
     a desktop window. It recommends the release-matched Foxglove bridge (Noetic on
     focal, Humble on jammy, and Jazzy on noble) so standard installs add the live-data
     bridge automatically. It ships its process definition, hosts the xgc2.lichtblick.v1
-    control service on a private Unix socket, and takes its storage grant from one
-    private startup input file. The optional xgc2-lichtblick package retains Electron
+    control service on a private Unix socket, and builds the initial layout from one
+    high-level view input on stdin. Desired view state lives in memory; Core owns
+    Storage and browser UI document persistence. The optional xgc2-lichtblick package retains Electron
     desktop integration and disables its built-in updater; install upgrades through APT.
 conflicts:
   apt_packages:
@@ -75,7 +74,6 @@ release:
   workflow: apt-release.yml
   ci_workflow: apt-ci.yml
   dependency_policy:
-    xgc2-storage: verify
     xgc2-xrpc: rebuild
   apt_versions:
     focal: 1.27.0-38~focal

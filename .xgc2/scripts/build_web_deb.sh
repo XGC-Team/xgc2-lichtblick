@@ -73,7 +73,7 @@ install -m 0755 "${repo_root}/xgc2/launcher/xgc2-lichtblick-web" \
   "${pkg_root}/usr/bin/xgc2-lichtblick-web"
 install -m 0644 "${repo_root}/xgc2/launcher/xgc2-lichtblick-web.js" \
   "${pkg_root}/usr/lib/xgc2/lichtblick-web/xgc2-lichtblick-web.js"
-for module in managed-storage control-service startup-input view-state view-gateway prepare-layout; do
+for module in control-service view-state view-gateway prepare-layout; do
   install -m 0644 "${repo_root}/xgc2/launcher/${module}.cjs" \
     "${pkg_root}/usr/lib/xgc2/lichtblick-web/${module}.cjs"
 done
@@ -142,13 +142,13 @@ Section: web
 Priority: optional
 Architecture: ${target_arch}
 Maintainer: ${maintainer}
-Depends: ca-certificates, util-linux, libc6, libgcc-s1, libstdc++6, node-xgc2-xrpc (>= 0.2.0-1~), xgc2-storage
+Depends: ca-certificates, libc6, libgcc-s1, libstdc++6, node-xgc2-xrpc (>= 0.2.0-1~)
 Recommends: ${bridge_package}
 Description: XGC2 Lichtblick browser-based robotics visualization
  Serves the pinned Lichtblick web application from a command-line HTTP server,
- auto-connects through a same-origin WebSocket proxy, and leaves initial layout
- ownership to the embedding application. Hosts the xgc2.lichtblick.v1 control
- service (describe, persistence, extension assets and the desired view) on a
+ auto-connects through a same-origin WebSocket proxy, and builds its initial
+ layout from a high-level view input on stdin. Hosts the xgc2.lichtblick.v1 control
+ service (describe, health and the in-memory desired view) on a
  private Unix socket, and ships its process definition for XGC Core.
 EOF
 

@@ -3,24 +3,15 @@
   "definitions": [
     {
       "id": "lichtblick-web",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "label": "Lichtblick WebUI",
-      "description": "The Lichtblick browser server of one Run. It serves the viewer pages, proxies the live-data WebSocket and hosts xgc2.lichtblick.v1 (describe, persistence, extension assets and the desired view) on a Unix socket that the process creates in the private runtime directory its owner allocated. Its document storage, view scope, credential and asset grant arrive in one private startup input file that the owner writes.",
+      "description": "The Lichtblick browser server of one Run. It builds its initial layout from one high-level view input on stdin, serves the viewer pages, proxies the live-data WebSocket and hosts xgc2.lichtblick.v1 (describe, health and the in-memory desired view) on a Unix socket in the private runtime directory its owner allocated. Core alone owns Storage; pages persist UI documents through Core under the user's browser session.",
       "parameters": {
         "properties": {
           "socketPath": {
             "type": "string",
             "description": "Absolute path of the control socket, inside a private runtime directory allocated by the process owner.",
             "fixedOnly": true
-          },
-          "startupInputPath": {
-            "type": "string",
-            "description": "Private startup input file written by the process owner (mode 0600 in a directory with mode 0700): the document storage reference, its scope and the scope of the desired view, the file holding the credential for both, the extension asset grant and the operator time zone.",
-            "fixedOnly": true,
-            "x-xgc-path-kind": "file",
-            "x-xgc-file-extensions": [
-              ".json"
-            ]
           },
           "bridgePort": {
             "type": "integer",
@@ -36,15 +27,14 @@
             "minimum": 1,
             "maximum": 65535
           },
-          "layoutJson": {
+          "viewInputJson": {
             "type": "string",
-            "description": "Prepared native LayoutData passed unchanged on stdin."
+            "description": "One high-level view input JSON object on stdin (at most 8 MiB): layoutMode, runMode, optional worldBoundary and camera, frozen visualizationTopics and RobotFact rows, and optional viewer parameters."
           }
         },
         "required": [
           "socketPath",
-          "startupInputPath",
-          "layoutJson"
+          "viewInputJson"
         ]
       },
       "services": [
@@ -58,8 +48,6 @@
       "command": {
         "executable": "/usr/bin/xgc2-lichtblick-web",
         "args": [
-          "--startup-input",
-          "${startupInputPath}",
           "--control-socket",
           "${socketPath}",
           "--host",
@@ -70,12 +58,12 @@
           "ws://127.0.0.1:${bridgePort}",
           "--public-url-prefix",
           "/",
-          "--layout-stdin"
+          "--view-input-stdin"
         ],
         "env": {
           "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         },
-        "stdinParameter": "layoutJson"
+        "stdinParameter": "viewInputJson"
       },
       "readiness": {
         "kind": "describe",
