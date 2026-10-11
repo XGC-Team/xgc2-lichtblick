@@ -34,7 +34,7 @@ larger `TransformTree`.
 
 ## Build and run
 
-Install the formal `node-xgc2-xrpc` build/runtime dependency (at least `0.2.0-1`)
+Install the formal `node-xgc2-xrpc` build/runtime dependency (at least `0.2.0-1~`)
 first. Its installed types and Node library live at
 `/usr/lib/xgc2/node_modules/@xgc2/xrpc`; desktop keeps the whole SDK external so
 its diagnostic worker retains native paths.
