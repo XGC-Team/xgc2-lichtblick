@@ -1199,7 +1199,7 @@
     "name": "physical-usb-camera"
   },
   {
-    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/pose\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/consumer_status\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/pose\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
       "parameters": {
         "sceneNamespace": "/xgc/scene",
@@ -1735,7 +1735,7 @@
     "name": "scene-plot-palette"
   },
   {
-    "allowedTopics": "/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/usb_cam/camera_info\n/usb_cam/video_h264\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/tf\n/xgc/scene\n/xgc/scene/consumer_status\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "allowedTopics": "/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/usb_cam/camera_info\n/usb_cam/video_h264\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/tf\n/xgc/scene\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
       "parameters": {
         "sceneNamespace": "/xgc/scene",
@@ -3921,7 +3921,7 @@
     "name": "lidar-fleet"
   },
   {
-    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/pose\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/consumer_status\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
+    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/pose\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
       "parameters": {
         "sceneNamespace": "/xgc/scene",

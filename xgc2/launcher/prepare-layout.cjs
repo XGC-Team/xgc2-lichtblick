@@ -381,7 +381,6 @@ function prepareLayout(input) {
       "snapshot",
       "state",
       "document",
-      "consumer_status",
       "markers",
     ])
       allowed.add(`${p.sceneNamespace}/${suffix}`);
