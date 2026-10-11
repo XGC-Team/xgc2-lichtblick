@@ -73,7 +73,10 @@ release:
   ref: xgc2
   workflow: apt-release.yml
   ci_workflow: apt-ci.yml
+  requires:
+  - xgc2-storage
   dependency_policy:
+    xgc2-storage: verify
     xgc2-xrpc: rebuild
   apt_versions:
     focal: 1.27.0-39~focal
