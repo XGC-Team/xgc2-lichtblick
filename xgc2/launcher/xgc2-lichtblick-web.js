@@ -1111,8 +1111,20 @@ async function main() {
       viewStore,
       diagnostics,
       shutdownMs,
+      dependency: {
+        // The view document is the smallest read that proves the bound storage instance answers.
+        check: async () => {
+          await persistence.request(
+            { operation: "snapshot", keys: [{ family: "view", key: "desired" }] },
+            { timeoutMs: 3000 },
+          );
+        },
+        onChange: ({ ready, reason }) => {
+          if (ready) logInfo("storage answers again");
+          else logWarn(reason);
+        },
+      },
       facts: () => ({
-        storage: "ready",
         assets: input.assets.access,
         control_plane: `${targetWs.protocol}//${targetWs.hostname}:${targetWs.port}${targetWs.path}`,
         pages: { view_streams: views.streamCount },

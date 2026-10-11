@@ -8,6 +8,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { setTimeout: delay } = require("node:timers/promises");
 const { createControlService } = require("../launcher/control-service.cjs");
+const { createFakeStorage } = require("./fake_storage.cjs");
 const { ViewStore, normalizeView } = require("../launcher/view-state.cjs");
 const { rawCall, startControl } = require("./control_fixture.cjs");
 
@@ -184,4 +185,64 @@ test("the socket is private, a stale one is reclaimed and a live one is never ta
   assert.equal((await rawCall(socketPath, "GET", "/v1/view", { instance: first })).status, 409, "a caller of the previous process is fenced");
   assert.equal((await rawCall(socketPath, "GET", "/v1/view", { instance: next.instanceId })).status, 200);
   void storage;
+});
+
+async function untilDescribed(call, predicate, milliseconds = 4000) {
+  const deadline = Date.now() + milliseconds;
+  for (;;) {
+    const response = await call("GET", "/v1/describe");
+    if (predicate(response.json)) return response.json;
+    assert.ok(Date.now() < deadline, `describe never satisfied the condition: ${JSON.stringify(response.json)}`);
+    await delay(20);
+  }
+}
+
+test("a storage that stops answering makes the service not ready, and ready again when it answers", async (t) => {
+  const { storage, call, changes } = await startControl(t, { monitor: 30 });
+  assert.equal((await call("GET", "/v1/describe")).json.ready, true);
+  storage.state.failSnapshots = 100000;
+  const degraded = await untilDescribed(call, (document) => document.ready === false);
+  assert.equal(degraded.facts.storage, "unavailable");
+  assert.equal(degraded.facts.reason, "storage unavailable (unavailable)");
+  // Persistence is not refused by readiness: it fails by itself, with its own error.
+  assert.deepEqual(changes, [{ ready: false, reason: "storage unavailable (unavailable)" }]);
+  // One held describe is answered when the storage answers again, without polling by the caller.
+  const held = call("GET", "/v1/describe?wait_ready_ms=5000");
+  await delay(100);
+  storage.state.failSnapshots = 0;
+  const recovered = await held;
+  assert.equal(recovered.json.ready, true);
+  assert.equal(recovered.json.facts.storage, "ready");
+  assert.equal(recovered.json.facts.reason, undefined);
+  assert.deepEqual(changes.map((change) => change.ready), [false, true]);
+});
+
+test("a stopped or replaced storage is never rebound: the service stays not ready with the reason", async (t) => {
+  const { storage, call, scope } = await startControl(t, { monitor: 30 });
+  const { socketPath, token } = storage;
+  await storage.close();
+  const stopped = await untilDescribed(call, (document) => document.ready === false);
+  assert.match(stopped.facts.reason, /^storage unavailable \(/);
+  // Another storage instance at the same socket is a different environment for this binding.
+  const replacement = createFakeStorage({ socketPath, scope, token });
+  await replacement.start();
+  t.after(() => replacement.close());
+  await delay(300);
+  const after = (await call("GET", "/v1/describe")).json;
+  assert.equal(after.ready, false);
+  assert.match(after.facts.reason, /^storage unavailable \(/);
+  assert.equal(after.facts.storage, "unavailable");
+});
+
+test("the launcher's own state comes first, and closing stops asking the storage", async (t) => {
+  const { control, storage, call } = await startControl(t, { monitor: 30, ready: false });
+  storage.state.failSnapshots = 100000;
+  await delay(150);
+  const document = (await call("GET", "/v1/describe")).json;
+  assert.equal(document.ready, false);
+  assert.equal(document.facts.reason, "starting", "the launcher is not serving yet");
+  const before = storage.state.calls.filter((entry) => entry.route === "/v1/snapshot").length;
+  await control.close();
+  await delay(150);
+  assert.equal(storage.state.calls.filter((entry) => entry.route === "/v1/snapshot").length, before, "a closed service asks nothing");
 });

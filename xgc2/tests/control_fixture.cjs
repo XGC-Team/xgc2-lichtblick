@@ -35,16 +35,23 @@ function rawCall(socketPath, method, target, { instance, body, headers = {}, tim
   });
 }
 
-async function startControl(t, { ready = true, access } = {}) {
+/** The check a launcher uses: the smallest storage read, so a replaced or stopped storage rejects it. */
+function storageCheck(client) {
+  return async () => { await client.request({ operation: "snapshot", keys: [{ family: "view", key: "desired" }] }, { timeoutMs: 1000 }); };
+}
+
+async function startControl(t, { ready = true, access, monitor } = {}) {
   const base = await startStorage(t, { access });
   const viewStore = new ViewStore(base.client);
   await viewStore.load();
   const socketPath = path.join(base.root, "control.sock");
-  const control = createControlService(base.client, { socketPath, viewStore, facts: () => ({ storage: "ready", http_port: 18081 }) });
+  const changes = [];
+  const dependency = monitor ? { check: storageCheck(base.client), intervalMs: monitor, onChange: (change) => changes.push(change) } : undefined;
+  const control = createControlService(base.client, { socketPath, viewStore, dependency, facts: () => ({ http_port: 18081 }) });
   await control.start();
   t.after(() => control.close());
   if (ready) control.markReady();
-  return { ...base, viewStore, control, socketPath, call: (method, target, options = {}) => rawCall(socketPath, method, target, { instance: control.instanceId, ...options }) };
+  return { ...base, viewStore, control, socketPath, changes, call: (method, target, options = {}) => rawCall(socketPath, method, target, { instance: control.instanceId, ...options }) };
 }
 
 module.exports = { rawCall, startControl };

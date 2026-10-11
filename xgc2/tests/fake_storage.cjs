@@ -14,7 +14,7 @@ function createFakeStorage({ socketPath, scope, token = "explicit-test-storage-o
   const documents = new Map(); // key -> { version, data, deleted }
   const receipts = new Map();
   let revision = 0n;
-  const state = { calls: [], failNextBatch: undefined, beforeBatch: undefined };
+  const state = { calls: [], failNextBatch: undefined, beforeBatch: undefined, failSnapshots: 0 };
   const current = () => ({ database_id: databaseId, schema, revision: String(revision) });
   const reply = (response, status, value) => {
     const body = Buffer.from(JSON.stringify(value));
@@ -30,6 +30,7 @@ function createFakeStorage({ socketPath, scope, token = "explicit-test-storage-o
     if (JSON.stringify(body.scope) !== JSON.stringify(scope)) return fail(response, 403, "permission_denied", "scope rejected");
     state.calls.push({ route: request.url, body, requestId: context.requestId });
     if (request.url === "/v1/snapshot") {
+      if (state.failSnapshots > 0) { state.failSnapshots -= 1; return fail(response, 503, "unavailable", "injected failure"); }
       const query = body.queries[0];
       if (body.at && body.at.revision !== String(revision)) return fail(response, 409, "conflict", "snapshot revision is gone");
       let keys = query.keys;

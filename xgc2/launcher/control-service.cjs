@@ -9,6 +9,8 @@ const API_VERSION = "1";
 // Calls held by wait_ready_ms are bounded; a held call answers shortly before its own deadline.
 const MAX_DESCRIBE_WAITERS = 16;
 const DESCRIBE_MARGIN_MS = 100;
+// How often the launcher asks its storage whether it is still the one it was bound to.
+const DEPENDENCY_INTERVAL_MS = 5000;
 
 function json(response, status, value) {
   const body = Buffer.from(JSON.stringify(value));
@@ -40,19 +42,50 @@ function describeWait(search) {
  * launcher main: `start` binds the socket while the launcher is still starting,
  * `markReady` says the launcher serves its pages, `close` drains admitted work.
  * Nothing but the socket's directory authorizes a caller.
+ *
+ * The service is ready while the launcher serves its pages and its storage is the
+ * instance it was bound to. `dependency.check` (rejecting when the storage cannot be
+ * used) is asked every `intervalMs`; a storage that was replaced or stopped makes the
+ * service report ready:false with the reason instead of serving a stale binding, and a
+ * storage that answers again makes it ready.
  */
-function createControlService(client, { socketPath, viewStore, diagnostics, shutdownMs = SHUTDOWN_MS, facts = () => ({}) }) {
+function createControlService(client, { socketPath, viewStore, diagnostics, shutdownMs = SHUTDOWN_MS, facts = () => ({}), dependency }) {
   const instanceId = newInstanceId();
   const waiters = new Set();
-  let ready = false;
+  let launcherReady = false;
   let reason = "starting";
+  let storageReady = true;
+  let storageReason = "";
+  let closing = false;
+  let probing = false;
+  let timer;
+  const isReady = () => launcherReady && storageReady;
   const document = () => ({
-    service: SERVICE, api_version: API_VERSION, instance_id: instanceId, ready,
-    facts: { capabilities: ["persistence.v1", "extensions.assets.v1", "view.v1"], view_revision: viewStore.state.revision, ...facts(), ...(ready ? {} : { reason }) },
+    service: SERVICE, api_version: API_VERSION, instance_id: instanceId, ready: isReady(),
+    facts: {
+      capabilities: ["persistence.v1", "extensions.assets.v1", "view.v1"], view_revision: viewStore.state.revision,
+      storage: storageReady ? "ready" : "unavailable", ...facts(),
+      ...(isReady() ? {} : { reason: launcherReady ? storageReason : reason }),
+    },
   });
   const release = () => { for (const wake of [...waiters]) wake(); };
   const requireReady = () => {
-    if (!ready) throw new PersistenceError("unavailable", `the launcher is ${reason}`, 503);
+    if (!launcherReady) throw new PersistenceError("unavailable", `the launcher is ${reason}`, 503);
+  };
+  const probe = async () => {
+    if (probing || closing) return;
+    probing = true;
+    let failure;
+    try { await dependency.check(); } catch (error) { failure = error; }
+    probing = false;
+    if (closing) return;
+    const ok = failure === undefined;
+    const why = ok ? "" : `storage unavailable (${failure.code ?? "error"})`;
+    if (ok === storageReady && why === storageReason) return;
+    storageReady = ok;
+    storageReason = why;
+    dependency.onChange?.({ ready: ok, reason: why });
+    if (ok) release();
   };
   const waitReady = (milliseconds, context) => new Promise((resolve) => {
     const finish = () => { clearTimeout(timer); waiters.delete(finish); context.signal.removeEventListener("abort", finish); resolve(); };
@@ -68,7 +101,7 @@ function createControlService(client, { socketPath, viewStore, diagnostics, shut
       const route = `${request.method} ${url.pathname}`;
       if (route === "GET /v1/describe") {
         const wait = describeWait(url.search);
-        if (wait > 0 && !ready) {
+        if (wait > 0 && !isReady()) {
           if (waiters.size >= MAX_DESCRIBE_WAITERS) throw new PersistenceError("resource_exhausted", "describe waiter limit reached", 503);
           await waitReady(wait, context);
         }
@@ -119,14 +152,25 @@ function createControlService(client, { socketPath, viewStore, diagnostics, shut
 
   return {
     instanceId,
-    get ready() { return ready; },
+    get ready() { return isReady(); },
     /** Binds the socket. Calls to describe are answered from now on; everything else waits for markReady. */
-    async start() { await host.listen(); },
-    markReady() { ready = true; release(); },
+    async start() {
+      await host.listen();
+      if (dependency) {
+        timer = setInterval(() => { void probe(); }, dependency.intervalMs ?? DEPENDENCY_INTERVAL_MS);
+        timer.unref();
+      }
+    },
+    markReady() { launcherReady = true; release(); },
     /** The launcher no longer serves its pages; describe says why and held calls are answered. */
-    markNotReady(why) { ready = false; reason = why; release(); },
+    markNotReady(why) { launcherReady = false; reason = why; release(); },
     describe: document,
-    async close() { this.markNotReady("stopping"); await host.close(); },
+    async close() {
+      closing = true;
+      clearInterval(timer);
+      this.markNotReady("stopping");
+      await host.close();
+    },
   };
 }
 
