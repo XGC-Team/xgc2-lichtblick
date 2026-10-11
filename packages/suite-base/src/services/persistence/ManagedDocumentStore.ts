@@ -2,6 +2,15 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import { validateManagedLayout } from "./validateManagedLayout";
+import {
+  ManagedChange,
+  ManagedFamily,
+  ManagedKey,
+  ManagedRequestError,
+} from "./ManagedDocumentStore.types";
+
+export { ManagedRequestError } from "./ManagedDocumentStore.types";
+export type { ManagedChange, ManagedFamily, ManagedKey } from "./ManagedDocumentStore.types";
 
 export const MANAGED_FAMILIES = [
   "layouts",
@@ -11,16 +20,13 @@ export const MANAGED_FAMILIES = [
   "extensions",
   "desktop",
 ] as const;
-export type ManagedFamily = (typeof MANAGED_FAMILIES)[number];
 export type ManagedToken = { database_id: string; schema: string; revision: string };
-export type ManagedKey = { family: ManagedFamily; key: string };
 export type ManagedRecord = ManagedKey & {
   version: string;
   value?: unknown;
   missing?: boolean;
   deleted?: boolean;
 };
-export type ManagedChange = ManagedKey & { value?: unknown; delete?: boolean };
 export type ManagedBatchReceipt = {
   token: ManagedToken;
   requestId: string;
@@ -448,18 +454,6 @@ export class ManagedDocumentStore {
     this.#state = { pending: this.#state.pending };
     this.#notify();
     return receipt;
-  }
-}
-
-export class ManagedRequestError extends Error {
-  public constructor(
-    message: string,
-    public readonly code: string,
-    public readonly outcome?: string,
-    public readonly requestId?: string,
-  ) {
-    super(message);
-    this.name = "ManagedRequestError";
   }
 }
 
