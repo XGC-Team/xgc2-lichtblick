@@ -71,13 +71,13 @@ export class ManagedLayoutStorage implements ILayoutStorage {
   public async delete(namespace: string, id: LayoutID): Promise<void> {
     await this.store.commit(() => {
       const profile = this.store.get<UserProfile>("profile", "user") ?? {};
-      const changes: ManagedChange[] = [
-        { family: "layouts", key: managedLayoutKey(namespace, id), delete: true },
-      ];
+      const changes: ManagedChange[] = [];
       if (profile.currentLayoutId === id) {
         const { currentLayoutId: _removed, ...next } = profile;
         changes.push({ family: "profile", key: "user", value: next });
       }
+      // Clear the active pointer before deletion, since web batches can stop partway.
+      changes.push({ family: "layouts", key: managedLayoutKey(namespace, id), delete: true });
       return changes;
     });
   }
@@ -100,6 +100,7 @@ export class ManagedLayoutStorage implements ILayoutStorage {
       const names = new Map(target.map((layout) => [layout.name, layout]));
       const identities = new Set(target.map((layout) => layout.id));
       const changes: ManagedChange[] = [];
+      const deletions: ManagedChange[] = [];
       const profile = this.store.get<UserProfile>("profile", "user") ?? {};
       let nextProfile = profile;
       for (const layout of source) {
@@ -115,7 +116,7 @@ export class ManagedLayoutStorage implements ILayoutStorage {
           });
           names.set(layout.name, layout);
         }
-        changes.push({
+        deletions.push({
           family: "layouts",
           key: managedLayoutKey(fromNamespace, layout.id),
           delete: true,
@@ -125,7 +126,7 @@ export class ManagedLayoutStorage implements ILayoutStorage {
         }
       }
       changes.push({ family: "profile", key: "user", value: nextProfile });
-      return changes;
+      return [...changes, ...deletions];
     });
   }
 }

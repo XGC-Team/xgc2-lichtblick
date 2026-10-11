@@ -9,17 +9,19 @@
 
 import { render } from "@testing-library/react";
 
+import type { IAppConfiguration } from "@lichtblick/suite-base/context/AppConfigurationContext";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { WebRoot } from "./WebRoot";
 
 const mockSharedRootProps: Array<Record<string, unknown>> = [];
+const mockStore = { get: jest.fn(), subscribe: jest.fn(() => () => undefined) };
 
 jest.mock("@lichtblick/suite-base", () => {
   const Stub = jest.fn();
   return {
     __esModule: true,
-    AppSetting: { SHOW_DEBUG_PANELS: "showDebugPanels" },
+    AppSetting: { SHOW_DEBUG_PANELS: "showDebugPanels", TIMEZONE: "timezone" },
     ManagedExtensionLoader: Stub,
     FoxgloveWebSocketDataSourceFactory: Stub,
     McapLocalDataSourceFactory: Stub,
@@ -40,16 +42,15 @@ jest.mock("@lichtblick/suite-base/constants/config", () => ({
   APP_CONFIG: { apiUrl: undefined },
 }));
 
-jest.mock("@lichtblick/suite-base/services/persistence/ManagedAppConfiguration", () => ({
-  ManagedAppConfiguration: jest.fn(),
-}));
 jest.mock("@lichtblick/suite-base/services/persistence/ManagedPersistence", () => ({
-  getManagedDocumentStore: jest.fn(),
+  getManagedDocumentStore: () => mockStore,
 }));
 
 describe("WebRoot", () => {
   beforeEach(() => {
     mockSharedRootProps.length = 0;
+    mockStore.get.mockReset();
+    mockStore.subscribe.mockClear();
     globalThis.history.replaceState({}, "", "/");
   });
 
@@ -59,6 +60,23 @@ describe("WebRoot", () => {
         <div />
       </WebRoot>,
     );
+
+  it("initializes configuration from the loaded store with the browser's system time zone default", () => {
+    renderWebRoot();
+    const configuration = mockSharedRootProps[0]!.appConfiguration as IAppConfiguration;
+    expect(configuration.get("timezone")).toBe("system");
+    expect(mockStore.get).toHaveBeenCalledWith("configuration", "timezone");
+    expect(mockStore.subscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the operator time zone stored in Core's configuration family", () => {
+    mockStore.get.mockImplementation((family: string, key: string) =>
+      family === "configuration" && key === "timezone" ? "America/Los_Angeles" : undefined,
+    );
+    renderWebRoot();
+    const configuration = mockSharedRootProps[0]!.appConfiguration as IAppConfiguration;
+    expect(configuration.get("timezone")).toBe("America/Los_Angeles");
+  });
 
   it("maps the ?layout= query parameter to appParameters.defaultLayout", () => {
     const layout = BasicBuilder.string();

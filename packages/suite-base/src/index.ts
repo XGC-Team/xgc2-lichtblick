@@ -56,7 +56,8 @@ export { reportError, setReportErrorHandler } from "./reportError";
 export { makeWorkspaceContextInitialState } from "./providers/WorkspaceContextProvider";
 export type { AppBarProps } from "./components/AppBar";
 
-export * from "./services/persistence/ManagedDocumentStore";
+export * from "./services/persistence/ManagedDocumentStore.types";
+export { CoreUiDocumentStore } from "./services/persistence/CoreUiDocumentStore";
 export * from "./services/persistence/ManagedPersistence";
 export { ManagedAppConfiguration } from "./services/persistence/ManagedAppConfiguration";
 export { ManagedLayoutStorage } from "./services/persistence/ManagedLayoutStorage";

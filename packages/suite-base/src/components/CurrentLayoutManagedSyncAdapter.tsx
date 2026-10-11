@@ -11,6 +11,8 @@ import {
 import { useLayoutManager } from "@lichtblick/suite-base/context/LayoutManagerContext";
 import type { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
 import { isLayoutEqual } from "@lichtblick/suite-base/services/LayoutManager/utils/isLayoutEqual";
+import { CoreUiDocumentStore } from "@lichtblick/suite-base/services/persistence/CoreUiDocumentStore";
+import { ManagedRequestError } from "@lichtblick/suite-base/services/persistence/ManagedDocumentStore.types";
 import { getManagedDocumentStore } from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
 
 export function CurrentLayoutManagedSyncAdapter(): null {
@@ -94,12 +96,21 @@ export function CurrentLayoutManagedSyncAdapter(): null {
       return;
     }
     const guard = (event: BeforeUnloadEvent) => {
+      // A refused Core save reloads newer documents, including a partial batch.
+      if (
+        store instanceof CoreUiDocumentStore &&
+        store.state.pending === 0 &&
+        store.state.error instanceof ManagedRequestError &&
+        store.state.error.code === "conflict"
+      ) {
+        return;
+      }
       event.preventDefault();
     };
     window.addEventListener("beforeunload", guard);
     return () => {
       window.removeEventListener("beforeunload", guard);
     };
-  }, [dirty, unsubmitted, state.pending, state.error]);
+  }, [dirty, unsubmitted, state.pending, state.error, store]);
   return null;
 }

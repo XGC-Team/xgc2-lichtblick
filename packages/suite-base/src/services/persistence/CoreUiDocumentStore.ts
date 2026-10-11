@@ -42,6 +42,7 @@ function identity(key: ManagedKey): string {
 export class CoreUiDocumentStore implements ManagedDocumentStorage {
   #records = new Map<string, RecordValue>();
   #loaded = false;
+  #loading = false;
   #tail: Promise<unknown> = Promise.resolve();
   #listeners = new Set<() => void>();
   #state: ManagedCommitState = { pending: 0 };
@@ -87,7 +88,7 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
   public async bootstrap(
     families: readonly ManagedFamily[] = CORE_UI_DOCUMENT_FAMILIES,
   ): Promise<void> {
-    if (this.#state.pending > 0) {
+    if (this.#state.pending > 0 || this.#loading) {
       throw new Error("Cannot reload pending managed edits");
     }
     if (
@@ -97,48 +98,53 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
     ) {
       throw new Error("Invalid Core UI document families");
     }
-    const records = new Map<string, RecordValue>();
-    for (const family of families) {
-      let after = "";
-      const cursors = new Set<string>();
-      for (;;) {
-        const page = await this.client.list(family, after);
-        for (const item of page.items) {
-          const record = {
-            family,
-            key: item.body.key,
-            value: item.body.value,
-            version: item.revision,
-          };
-          if (records.has(identity(record))) {
-            throw new Error("Duplicate Core UI document");
+    this.#loading = true;
+    try {
+      const records = new Map<string, RecordValue>();
+      for (const family of families) {
+        let after = "";
+        const cursors = new Set<string>();
+        for (;;) {
+          const page = await this.client.list(family, after);
+          for (const item of page.items) {
+            const record = {
+              family,
+              key: item.body.key,
+              value: item.body.value,
+              version: item.revision,
+            };
+            if (records.has(identity(record))) {
+              throw new Error("Duplicate Core UI document");
+            }
+            if (family === "layouts") {
+              validateManagedLayout(record.value);
+            }
+            records.set(identity(record), structuredClone(record));
           }
-          if (family === "layouts") {
-            validateManagedLayout(record.value);
+          if (records.size > 1024) {
+            throw new Error("Core UI document count limit exceeded");
           }
-          records.set(identity(record), structuredClone(record));
+          if (page.next === "") {
+            break;
+          }
+          if (
+            page.items.length === 0 ||
+            cursors.has(page.next) ||
+            page.next !== page.items.at(-1)?.id
+          ) {
+            throw new Error("Invalid or repeated Core UI document cursor");
+          }
+          cursors.add(page.next);
+          after = page.next;
         }
-        if (records.size > 1024) {
-          throw new Error("Core UI document count limit exceeded");
-        }
-        if (page.next === "") {
-          break;
-        }
-        if (
-          page.items.length === 0 ||
-          cursors.has(page.next) ||
-          page.next !== page.items.at(-1)?.id
-        ) {
-          throw new Error("Invalid or repeated Core UI document cursor");
-        }
-        cursors.add(page.next);
-        after = page.next;
       }
+      this.#records = records;
+      this.#loaded = true;
+      this.#state = { pending: 0 };
+      this.#notify();
+    } finally {
+      this.#loading = false;
     }
-    this.#records = records;
-    this.#loaded = true;
-    this.#state = { pending: 0 };
-    this.#notify();
   }
 
   #prepareChanges(
@@ -186,7 +192,7 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
       }
       return changes;
     } catch (error) {
-      throw new ManagedValidationError(error instanceof Error ? error.message : String(error));
+      throw new Error(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -219,6 +225,9 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
     input: readonly ManagedChange[] | (() => readonly ManagedChange[]),
   ): Promise<void> {
     this.#assertLoaded();
+    if (this.#loading) {
+      throw new Error("Cannot save while reloading managed documents");
+    }
     if (this.#state.error) {
       throw this.#state.error;
     }
@@ -278,5 +287,3 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
     }
   }
 }
-
-class ManagedValidationError extends Error {}

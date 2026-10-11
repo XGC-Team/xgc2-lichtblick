@@ -3,9 +3,9 @@
 
 import JSZip from "jszip";
 
-import type { ManagedDocumentStorage } from "./ManagedDocumentStore.types";
 import { verifyManagedAsset } from "./ManagedAsset";
 import type { ManagedAssetReference, ManagedAssetTransport } from "./ManagedAsset";
+import type { ManagedDocumentStorage } from "./ManagedDocumentStore.types";
 import { getManagedAssetTransport, getManagedDocumentStore } from "./ManagedPersistence";
 import { Namespace } from "../../types";
 import { ExtensionInfo } from "../../types/Extensions";

@@ -48,6 +48,31 @@ it("preserves the loaded map on a failed reload and never enables an incomplete 
   );
 });
 
+it("refuses saves and concurrent reloads while list pages are loading", async () => {
+  const server = new CoreUiDocumentServer();
+  const client = new CoreUiDocumentClient(server.fetch);
+  const store = new CoreUiDocumentStore(client);
+  await store.bootstrap();
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const list = jest.spyOn(client, "list").mockImplementation(async () => {
+    await waiting;
+    return { items: [], next: "" };
+  });
+  const loading = store.bootstrap();
+  await expect(store.commit([{ family: "profile", key: "user", value: {} }])).rejects.toThrow(
+    "reloading",
+  );
+  await expect(store.bootstrap()).rejects.toThrow("reload pending");
+  finish();
+  await loading;
+  list.mockRestore();
+  await store.commit([{ family: "profile", key: "user", value: {} }]);
+  expect(store.state.pending).toBe(0);
+});
+
 it("rejects malformed documents and repeated cursors without enabling saves", async () => {
   const client = new CoreUiDocumentClient(
     async () =>

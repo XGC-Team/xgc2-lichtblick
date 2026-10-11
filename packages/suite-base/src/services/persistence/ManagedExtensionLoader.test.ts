@@ -4,12 +4,12 @@
 import JSZip from "jszip";
 import { createHash } from "node:crypto";
 
-import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
-import { CoreUiDocumentClient, encodeCoreUiKey } from "./CoreUiDocumentClient";
 import { CoreUiDocumentAssets } from "./CoreUiDocumentAssets";
-import { CoreUiDocumentServer } from "./test/CoreUiDocumentServer";
+import { CoreUiDocumentClient, encodeCoreUiKey } from "./CoreUiDocumentClient";
+import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
 import { ManagedExtensionLoader, unpackManagedExtension } from "./ManagedExtensionLoader";
 import { ManagedAssetReference, ManagedAssetTransport } from "./ManagedPersistence";
+import { CoreUiDocumentServer } from "./test/CoreUiDocumentServer";
 
 async function archive(): Promise<Uint8Array> {
   const zip = new JSZip();

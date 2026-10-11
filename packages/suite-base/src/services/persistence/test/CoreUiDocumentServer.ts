@@ -32,7 +32,10 @@ export class CoreUiDocumentServer {
   #revision = 0;
 
   public fetch: typeof fetch = async (input, options) => {
-    const url = new URL(String(input), "https://core.test");
+    if (typeof input !== "string") {
+      throw new Error("The fake Core server expects a string path");
+    }
+    const url = new URL(input, "https://core.test");
     this.requests.push({ url, options });
     if (options?.credentials !== "same-origin") {
       return error(403, "forbidden");
@@ -55,7 +58,7 @@ export class CoreUiDocumentServer {
     ) {
       return error(400, "invalid_input");
     }
-    const method = options?.method ?? "GET";
+    const method = options.method ?? "GET";
     if (id == undefined) {
       const limit = Number(url.searchParams.get("limit") ?? "100");
       const after = url.searchParams.get("after") ?? "";
@@ -115,15 +118,18 @@ export class CoreUiDocumentServer {
     if (method !== "PUT") {
       return error(400, "invalid_input");
     }
-    const media = new Headers(options?.headers).get("Content-Type");
+    const media = new Headers(options.headers).get("Content-Type");
     if (media !== (kind === "assets" ? "application/octet-stream" : "application/json")) {
       return error(415, "unsupported_media_type");
     }
-    const body = options?.body;
+    const body = options.body;
+    if (!(body instanceof Blob) && typeof body !== "string") {
+      return error(400, "invalid_input");
+    }
     const bytes =
       body instanceof Blob
         ? new Uint8Array(await body.arrayBuffer())
-        : new TextEncoder().encode(String(body));
+        : new TextEncoder().encode(body);
     if (bytes.length > (kind === "assets" ? 16 * 1024 * 1024 : CORE_UI_DOCUMENT_BYTES)) {
       return error(413, "too_large");
     }

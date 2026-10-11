@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
+import "@testing-library/jest-dom";
 import { act, fireEvent, render } from "@testing-library/react";
 
 import { CurrentLayoutManagedSyncAdapter } from "./CurrentLayoutManagedSyncAdapter";
+import { CoreUiDocumentStore } from "../services/persistence/CoreUiDocumentStore";
+import { ManagedRequestError } from "../services/persistence/ManagedDocumentStore.types";
 
 let mockCurrent = {
   id: "view",
@@ -65,6 +68,31 @@ beforeEach(() => {
 afterEach(() => {
   jest.useRealTimers();
   mockListeners.clear();
+  Object.setPrototypeOf(mockStore, Object.prototype);
+});
+it.each([
+  true,
+  false,
+])("permits the automatic conflict reload only for the Core web store: %s", async (core) => {
+  if (core) {
+    Object.setPrototypeOf(mockStore, CoreUiDocumentStore.prototype);
+  }
+  const view = render(<CurrentLayoutManagedSyncAdapter />);
+  await act(async () => {});
+  mockCurrent = {
+    ...mockCurrent,
+    data: { configById: { "3D!1": { cameraState: { distance: 7 } } } },
+  };
+  view.rerender(<CurrentLayoutManagedSyncAdapter />);
+  // Recovery can finish and initiate navigation before React rerenders the error.
+  mockState = {
+    pending: 0,
+    error: new ManagedRequestError("UI document revision conflict", "conflict"),
+  };
+  const unload = new Event("beforeunload", { cancelable: true });
+  fireEvent(window, unload);
+  expect(unload.defaultPrevented).toBe(!core);
+  expect(mockUpdate).not.toHaveBeenCalled();
 });
 it("pending debounce and unresolved receipt stay silent, and unload never flushes a network write", async () => {
   const view = render(<CurrentLayoutManagedSyncAdapter />);

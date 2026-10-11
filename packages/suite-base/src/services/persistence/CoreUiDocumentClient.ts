@@ -136,8 +136,8 @@ function parseResponse(bytes: Uint8Array): unknown {
       return value;
     },
   );
-  const metadata = object(parsed) && Array.isArray(parsed.items) ? parsed.items : [parsed];
-  for (const item of metadata) {
+  const metadataItems = object(parsed) && Array.isArray(parsed.items) ? parsed.items : [parsed];
+  for (const item of metadataItems) {
     if (object(item) && revisions.has(item)) {
       item.revision = revisions.get(item);
     }
@@ -156,8 +156,9 @@ function metadata(value: unknown, kind: string, id?: string): CoreUiMetadata {
     BigInt(value.revision) > 9223372036854775807n ||
     typeof value.updatedAt !== "string" ||
     !Number.isFinite(Date.parse(value.updatedAt)) ||
+    typeof value.size !== "number" ||
     !Number.isSafeInteger(value.size) ||
-    (value.size as number) < 0
+    value.size < 0
   ) {
     throw new Error("Invalid Core UI document metadata");
   }
@@ -177,7 +178,12 @@ function document(value: unknown, kind: string, id?: string): CoreUiDocument {
 }
 
 export class CoreUiDocumentClient {
-  public constructor(private fetcher: typeof fetch = (...args) => fetch(...args)) {}
+  public constructor(
+    private fetcher: (input: string, options?: RequestInit) => Promise<Response> = async (
+      input,
+      options,
+    ) => await fetch(input, options),
+  ) {}
 
   async #request(
     path: string,

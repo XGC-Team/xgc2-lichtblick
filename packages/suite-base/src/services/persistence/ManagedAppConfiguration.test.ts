@@ -1,118 +1,85 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
+import { CoreUiDocumentClient } from "./CoreUiDocumentClient";
+import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
 import { ManagedAppConfiguration } from "./ManagedAppConfiguration";
-import {
-  ManagedBatchReceipt,
-  ManagedDocumentStore,
-  ManagedRequest,
-  ManagedRequestError,
-} from "./ManagedDocumentStore";
+import { CoreUiDocumentServer } from "./test/CoreUiDocumentServer";
 
-it("settings and change listeners publish only after the FULL receipt", async () => {
-  const token = { database_id: "settings", schema: "v1", revision: "0" };
-  let send!: (request: Extract<ManagedRequest, { operation: "batch" }>) => void;
-  const sent = new Promise<Extract<ManagedRequest, { operation: "batch" }>>((resolve) => {
-    send = resolve;
-  });
-  let acknowledge!: (receipt: ManagedBatchReceipt) => void;
-  const receipt = new Promise<ManagedBatchReceipt>((resolve) => {
+it("settings and listeners publish only after Core acknowledges the document", async () => {
+  const server = new CoreUiDocumentServer();
+  let acknowledge!: () => void;
+  const acknowledged = new Promise<void>((resolve) => {
     acknowledge = resolve;
   });
-  const store = new ManagedDocumentStore(async (request) => {
-    if (request.operation === "snapshot") {
-      return {
-        token,
-        records:
-          "keys" in request
-            ? request.keys.map((key) => ({ ...key, version: "0", missing: true }))
-            : [],
-      };
-    }
-    if (request.operation === "batch") {
-      send(request);
-      return await receipt;
-    }
-    throw new Error("Unexpected receipt query");
+  let sent!: () => void;
+  const sending = new Promise<void>((resolve) => {
+    sent = resolve;
   });
+  const client = new CoreUiDocumentClient(async (input, options) => {
+    const response = await server.fetch(input, options);
+    if (options?.method === "PUT") {
+      sent();
+      await acknowledged;
+    }
+    return response;
+  });
+  const store = new CoreUiDocumentStore(client);
   await store.bootstrap(["configuration"]);
-  const configuration = new ManagedAppConfiguration(store, { language: "en" });
+  const configuration = new ManagedAppConfiguration(store, { language: "en", timezone: "system" });
   const changed = jest.fn();
   configuration.addChangeListener("language", changed);
   const saving = configuration.set("language", "de");
-  const request = await sent;
+  await sending;
   expect(configuration.get("language")).toBe("en");
   expect(changed).not.toHaveBeenCalled();
   expect(store.state.pending).toBe(1);
-  acknowledge({
-    token: { ...token, revision: "1" },
-    requestId: request.requestId,
-    durability: "sqlite-full",
-    versions: [{ family: "configuration", key: "language", version: "1" }],
-  });
+  acknowledge();
   await saving;
   expect(configuration.get("language")).toBe("de");
   expect(changed).toHaveBeenCalledWith("de");
+  configuration.removeChangeListener("language", changed);
+  await configuration.set("language", "fr");
+  expect(changed).toHaveBeenCalledTimes(1);
 });
-it("rejected setting changes retain the loaded setting and do not notify a saved value", async () => {
-  const token = { database_id: "settings", schema: "v1", revision: "1" };
-  const store = new ManagedDocumentStore(async (request) => {
-    if (request.operation === "snapshot") {
-      return {
-        token,
-        records: [{ family: "configuration", key: "language", value: "en", version: "1" }],
-      };
-    }
-    throw new ManagedRequestError(
-      "another window changed settings",
-      "conflict",
-      "application_rejected",
-    );
-  });
+
+it("a conflicting setting rereads the other page's value and never publishes the refused value", async () => {
+  const client = new CoreUiDocumentClient(new CoreUiDocumentServer().fetch);
+  await client.put("configuration", "language", "en", "0");
+  const store = new CoreUiDocumentStore(client);
   await store.bootstrap(["configuration"]);
   const configuration = new ManagedAppConfiguration(store);
   const changed = jest.fn();
   configuration.addChangeListener("language", changed);
-  await expect(configuration.set("language", "de")).rejects.toThrow("another window");
-  expect(configuration.get("language")).toBe("en");
-  expect(changed).not.toHaveBeenCalled();
-  expect(store.state.uncertainRequestId).toBeUndefined();
+  await client.put("configuration", "language", "fr", "1");
+  await expect(configuration.set("language", "de")).rejects.toMatchObject({ code: "conflict" });
+  expect(configuration.get("language")).toBe("fr");
+  expect(changed).toHaveBeenCalledTimes(1);
+  expect(changed).toHaveBeenCalledWith("fr");
 });
-it("a recovered receipt updates the setting mirror and subscribers without replaying the write", async () => {
-  const token = { database_id: "settings", schema: "v1", revision: "0" };
-  let committed: ManagedBatchReceipt | undefined;
-  let writes = 0;
-  const store = new ManagedDocumentStore(async (request) => {
-    if (request.operation === "snapshot") {
-      return {
-        token,
-        records:
-          "keys" in request
-            ? request.keys.map((key) => ({ ...key, version: "0", missing: true }))
-            : [],
-      };
-    }
-    if (request.operation === "receipt") {
-      return committed;
-    }
-    writes++;
-    committed = {
-      token: { ...token, revision: "1" },
-      requestId: request.requestId,
-      durability: "sqlite-full",
-      versions: [{ family: "configuration", key: "language", version: "1" }],
-    };
-    throw new ManagedRequestError("receipt lost", "unavailable", "outcome_unknown");
-  });
+
+it("a lost write response updates the setting mirror by rereading, without replaying or claiming success", async () => {
+  const server = new CoreUiDocumentServer();
+  const store = new CoreUiDocumentStore(new CoreUiDocumentClient(server.fetch));
   await store.bootstrap(["configuration"]);
   const configuration = new ManagedAppConfiguration(store, { language: "en" });
   const changed = jest.fn();
   configuration.addChangeListener("language", changed);
-  await expect(configuration.set("language", "de")).rejects.toThrow("receipt lost");
-  expect(configuration.get("language")).toBe("en");
-  expect(changed).not.toHaveBeenCalled();
-  await store.resolveReceipt();
+  server.loseNextWriteResponse = true;
+  await expect(configuration.set("language", "de")).rejects.toMatchObject({ code: "unavailable" });
   expect(configuration.get("language")).toBe("de");
   expect(changed).toHaveBeenCalledWith("de");
-  expect(writes).toBe(1);
+  expect(store.state.error).toBeDefined();
+  expect(server.requests.filter(({ options }) => options?.method === "PUT")).toHaveLength(1);
+});
+
+it("clearing a stored time zone deletes its document and restores the system default", async () => {
+  const store = new CoreUiDocumentStore(new CoreUiDocumentClient(new CoreUiDocumentServer().fetch));
+  await store.bootstrap(["configuration"]);
+  const configuration = new ManagedAppConfiguration(store, { timezone: "system" });
+  await configuration.set("timezone", "America/Los_Angeles");
+  expect(configuration.get("timezone")).toBe("America/Los_Angeles");
+  await configuration.set("timezone", undefined);
+  expect(configuration.get("timezone")).toBe("system");
+  expect(store.get("configuration", "timezone")).toBeUndefined();
 });

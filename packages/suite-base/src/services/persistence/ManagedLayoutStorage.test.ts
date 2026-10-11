@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
-import LayoutBuilder from "../../testing/builders/LayoutBuilder";
 import { CoreUiDocumentClient } from "./CoreUiDocumentClient";
 import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
 import { ManagedLayoutStorage, managedLayoutKey } from "./ManagedLayoutStorage";
 import { CoreUiDocumentServer } from "./test/CoreUiDocumentServer";
+import LayoutBuilder from "../../testing/builders/LayoutBuilder";
 
 it("restores the working camera and active layout from a fresh page store", async () => {
   const client = new CoreUiDocumentClient(new CoreUiDocumentServer().fetch);
@@ -94,4 +94,44 @@ it("completes scoped replacement, deletion and namespace imports in document ord
   await storage.delete("team", duplicate.id);
   expect(await storage.list("team")).toEqual([]);
   expect(store.get("profile", "user")).toEqual({});
+});
+
+it("keeps an active layout when clearing its profile pointer conflicts during deletion", async () => {
+  const client = new CoreUiDocumentClient(new CoreUiDocumentServer().fetch);
+  const store = new CoreUiDocumentStore(client);
+  await store.bootstrap();
+  const storage = new ManagedLayoutStorage(store);
+  const layout = LayoutBuilder.layout({ id: LayoutBuilder.layoutId("active") });
+  await storage.put("local", layout, { activate: true });
+  await client.put(
+    "profile",
+    "user",
+    { currentLayoutId: layout.id, name: "other page" },
+    store.records("profile")[0]!.version,
+  );
+  await expect(storage.delete("local", layout.id)).rejects.toMatchObject({ code: "conflict" });
+  expect(await storage.get("local", layout.id)).toBeDefined();
+  expect(store.get("profile", "user")).toEqual({ currentLayoutId: layout.id, name: "other page" });
+});
+
+it("retains source layouts when a namespace import's active-pointer update conflicts", async () => {
+  const client = new CoreUiDocumentClient(new CoreUiDocumentServer().fetch);
+  const store = new CoreUiDocumentStore(client);
+  await store.bootstrap();
+  const storage = new ManagedLayoutStorage(store);
+  const source = LayoutBuilder.layout({ id: LayoutBuilder.layoutId("source"), name: "view" });
+  const target = LayoutBuilder.layout({ id: LayoutBuilder.layoutId("target"), name: "view" });
+  await storage.put("local", source, { activate: true });
+  await storage.put("team", target);
+  await client.put(
+    "profile",
+    "user",
+    { currentLayoutId: source.id, name: "other page" },
+    store.records("profile")[0]!.version,
+  );
+  await expect(
+    storage.importLayouts({ fromNamespace: "local", toNamespace: "team" }),
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(await storage.get("local", source.id)).toBeDefined();
+  expect(store.get("profile", "user")).toEqual({ currentLayoutId: source.id, name: "other page" });
 });
