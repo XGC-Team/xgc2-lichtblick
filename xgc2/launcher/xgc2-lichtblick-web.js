@@ -31,7 +31,7 @@ const {
 } = require("./managed-storage.cjs");
 const { createControlService } = require("./control-service.cjs");
 const { loadStartupInput, checkUnixAddress } = require("./startup-input.cjs");
-const { readJSONInput } = require("./prepare-layout.cjs");
+const { mapViewInput, prepareLayout, readJSONInput } = require("./prepare-layout.cjs");
 const { ViewStore } = require("./view-state.cjs");
 const { createViewGateway } = require("./view-gateway.cjs");
 
@@ -90,16 +90,16 @@ function parseArgs(argv) {
     controlSocket: null,
     shutdownMs: null,
     showHelp: false,
-    layoutStdin: false,
+    viewInputStdin: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     switch (arg) {
-      case "--layout-stdin":
-        if (opts.layoutStdin)
-          throw new Error("--layout-stdin occurs more than once");
-        opts.layoutStdin = true;
+      case "--view-input-stdin":
+        if (opts.viewInputStdin)
+          throw new Error("--view-input-stdin occurs more than once");
+        opts.viewInputStdin = true;
         break;
       case "-h":
       case "--help":
@@ -200,7 +200,7 @@ function printHelp() {
       "                                   service, inside the owner's private runtime directory.",
       "  --shutdown-ms <ms>             How long a Stop waits for admitted work (1..60000).",
       `                                   Default: ${SHUTDOWN_MS}`,
-      "  --layout-stdin                 Read the prepared initial LayoutData from stdin.",
+      "  --view-input-stdin             Required high-level view input JSON on stdin (at most 8 MiB).",
       "  -h, --help                     Show this help and exit.",
       "",
       "Environment variables override compiled-in defaults but are themselves",
@@ -1013,16 +1013,9 @@ async function main() {
       STATIC_ROOT,
       opts.assetUrlPrefix ?? process.env.ASSET_URL_PREFIX ?? null,
     );
-    if (opts.layoutStdin) {
-      initialLayout = readJSONInput();
-      if (
-        !initialLayout ||
-        typeof initialLayout !== "object" ||
-        Array.isArray(initialLayout) ||
-        !initialLayout.configById ||
-        !initialLayout.layout
-      )
-        throw new Error("prepared LayoutData required");
+    if (!opts.viewInputStdin) throw new Error("--view-input-stdin is required");
+    {
+      initialLayout = prepareLayout(mapViewInput(readJSONInput())).layout;
       const sourceIndex = loadIndex;
       const json = JSON.stringify(initialLayout).replace(
         /[<>&\u2028\u2029]/g,

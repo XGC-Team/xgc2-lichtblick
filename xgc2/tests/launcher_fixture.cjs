@@ -24,11 +24,11 @@ function writeWebRoot(root) {
 /**
  * Starts the launcher with a fresh private directory, a fake storage and a control socket.
  * `prepare({web, root})` may add files to the web root first; `stdin` is written to the
- * launcher (with `layoutStdin` it is the prepared layout); `arguments` replaces the whole command
+ * launcher as the high-level view input; `arguments` replaces the whole command
  * line, either as a list or as a function of the `{root, input, socketPath}` the fixture allocated.
  */
 async function startLauncher(t, { storage: storageOptions, arguments: extra, environment, controlPlane = "ws://127.0.0.1:9", allowedOrigins = [ORIGIN],
-  frameAncestors = "'self'", stdin, layoutStdin = false, prepare } = {}) {
+  frameAncestors = "'self'", stdin = JSON.stringify(require("../launcher/testdata/frozen-layouts.json")[0].input), prepare } = {}) {
   const base = await startStorage(t, { ...storageOptions, client: false });
   const { root, assets, storage, scope, viewScope } = base;
   const { web, buildInfo } = writeWebRoot(root);
@@ -37,7 +37,7 @@ async function startLauncher(t, { storage: storageOptions, arguments: extra, env
   const input = writeStartupInput(root, { reference: storage.reference, scope, viewScope, assets });
   const args = (typeof extra === "function" ? extra({ root, input, socketPath }) : extra) ?? ["--startup-input", input, "--control-socket", socketPath, "--host", "127.0.0.1", "--port", "0",
     "--control-plane-url", controlPlane, "--frame-ancestors", frameAncestors, ...allowedOrigins.flatMap((origin) => ["--allowed-origin", origin]),
-    ...(layoutStdin ? ["--layout-stdin"] : [])];
+    "--view-input-stdin"];
   const child = spawn(process.execPath, [LAUNCHER, ...args], {
     env: { ...process.env, XGC2_LICHTBLICK_WEB_STATIC_ROOT: web, XGC2_LICHTBLICK_WEB_BUILD_INFO: buildInfo, XGC2_LICHTBLICK_WEB_ENV_FILE: path.join(root, "absent.env"), ALLOWED_ORIGINS: "", FRAME_ANCESTORS: "", ...environment },
     stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],

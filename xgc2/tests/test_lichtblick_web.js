@@ -65,7 +65,7 @@ test("parses the browser server command line", () => {
       controlSocket: null,
       shutdownMs: null,
       showHelp: false,
-      layoutStdin: false,
+      viewInputStdin: false,
     },
   );
 });
@@ -92,7 +92,7 @@ test("parses the startup input and the control socket exactly once each", () => 
       controlSocket: "/run/xgc2/sockets/lichtblick.sock",
       shutdownMs: null,
       showHelp: false,
-      layoutStdin: false,
+      viewInputStdin: false,
     },
   );
   for (const argv of [
@@ -263,12 +263,14 @@ test("reloads index.html after the webpack hash changes", () => {
   fs.rmSync(temporary, { recursive: true, force: true });
 });
 
-for (const withLayout of [false, true]) {
-  test(`serves source metadata and prepared layout=${withLayout} with WebSocket Origin`, async (t) => {
-    const layout = {
-      configById: { scene: { title: "</script><>&\u2028\u2029" } },
-      layout: "scene",
-    };
+for (const layoutMode of ["3d", "3d-above-camera-ar"]) {
+  test(`prepares ${layoutMode} and serves source metadata with WebSocket Origin`, async (t) => {
+    const input = structuredClone(require("../launcher/testdata/frozen-layouts.json")[0].input);
+    input.layoutMode = layoutMode;
+    const escapedModel = "</script><>&\u2028\u2029";
+    input.robots[0].asset.visualization.sceneModel = escapedModel;
+    const { mapViewInput, prepareLayout } = require("../launcher/prepare-layout.cjs");
+    const layout = prepareLayout(mapViewInput(input)).layout;
     const upstream = net.createServer((socket) => {
       let request = "";
       socket.on("data", (chunk) => {
@@ -296,8 +298,7 @@ for (const withLayout of [false, true]) {
     t.after(() => closeServer(upstream));
     const upstreamPort = upstream.address().port;
     const { launcher, web, buildInfo: buildInfoFile } = await startLauncher(t, {
-      stdin: withLayout ? JSON.stringify(layout) : undefined,
-      layoutStdin: withLayout,
+      stdin: JSON.stringify(input),
       controlPlane: `ws://127.0.0.1:${upstreamPort}`,
       frameAncestors: "'self' http://127.0.0.1:5173",
       allowedOrigins: ["http://127.0.0.1:5173"],
@@ -331,22 +332,19 @@ for (const withLayout of [false, true]) {
     const legacyLayout = await getText(port, "/xgc2-layout.json");
     assert.equal(legacyLayout.statusCode, 404);
     const index = await getText(port, "/");
-    if (withLayout) {
+    {
       assert.doesNotMatch(
         index.body,
         /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/,
       );
       assert.match(index.body, /\\u003c\\u002f?script|\\u003c/);
-      assert.ok(!index.body.includes(layout.configById.scene.title));
+      assert.ok(!index.body.includes(escapedModel));
       const injected =
         /globalThis\.LICHTBLICK_SUITE_DEFAULT_LAYOUT = \[(.*?)\]\[0\];/s.exec(
           index.body,
         )[1];
       assert.deepEqual(JSON.parse(injected), layout);
       assert.deepEqual((await getJson(port, "/layout.json")).body, layout);
-    } else {
-      assert.match(index.body, /LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER/);
-      assert.equal((await getText(port, "/layout.json")).statusCode, 404);
     }
     assert.match(index.body, /foxglove-websocket/);
 

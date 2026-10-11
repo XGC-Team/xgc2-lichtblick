@@ -1,10 +1,60 @@
 [
   {
-    "allowedTopics": "/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "3d-above-camera-ar",
+      "runMode": "simulation",
+      "camera": {
+        "imageTopic": "/xgc/camera/world/video_h264",
+        "infoTopic": "/xgc/camera/world/camera_info"
+      },
+      "visualizationTopics": [],
+      "robots": [
+        {
+          "slotId": "uav1",
+          "assetId": "fixture-uav1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav1",
+          "kind": "px4_multirotor",
+          "namespace": "/uav1",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav1",
+            "namespace": "/uav1",
+            "initialPose": {
+              "x": 0,
+              "y": 0,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav1",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/fs150_visual.urdf",
+              "descriptionPackage": "fs150_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        }
+      ],
       "parameters": {
-        "layoutMode": "3d-above-camera-ar",
-        "runMode": "simulation",
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -21,39 +71,8 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/xgc/camera/world/video_h264",
-        "cameraInfoTopic": "/xgc/camera/world/camera_info",
-        "visualizationTopics": [],
         "transformTopics": []
-      },
-      "robots": [
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 0,
-            "y": 0,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav1",
-          "namespace": "/uav1",
-          "visualization": {
-            "descriptionFile": "urdf/fs150_visual.urdf",
-            "descriptionPackage": "fs150_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        }
-      ]
+      }
     },
     "layout": {
       "configById": {
@@ -276,14 +295,136 @@
       },
       "userNodes": {}
     },
-    "name": "defaults-one-uav"
+    "name": "defaults-one-uav",
+    "layoutSha256": "ba02be6aa8b21ba73ca9539901cceae8074b44677c348f8e64376c84ce56d75b"
   },
   {
-    "allowedTopics": "/algorithm/tf\n/robot_0/graph\n/robot_0/grid\n/robot_0/plan\n/robot_0/plan_list\n/robot_0/poses\n/robot_0/private_map\n/robot_0/reference\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/venue/reference_cloud\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "3d-above-camera-ar",
+      "runMode": "simulation",
+      "camera": {
+        "imageTopic": "/xgc/camera/world/video_h264",
+        "infoTopic": "/xgc/camera/world/camera_info"
+      },
+      "visualizationTopics": [
+        {
+          "topic": "/venue/reference_cloud",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "semantic",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false
+        },
+        {
+          "topic": "/robot_0/private_map",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "obstacle",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#ff550099",
+          "pointSize": 0.1,
+          "pointSizeMode": "world",
+          "pointShape": "square"
+        },
+        {
+          "topic": "/robot_0/plan",
+          "messageType": "nav_msgs/Path",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": true
+        },
+        {
+          "topic": "/robot_0/reference",
+          "messageType": "nav_msgs/Path",
+          "role": "semantic",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#00ff00ff"
+        },
+        {
+          "topic": "/robot_0/plan_list",
+          "messageType": "visualization_msgs/Marker",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": true
+        },
+        {
+          "topic": "/robot_0/graph",
+          "messageType": "visualization_msgs/MarkerArray",
+          "role": "semantic",
+          "expectedFrame": "world",
+          "visible3d": false,
+          "visibleAr": true
+        },
+        {
+          "topic": "/robot_0/poses",
+          "messageType": "geometry_msgs/PoseArray",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#123456ff"
+        },
+        {
+          "topic": "/robot_0/grid",
+          "messageType": "nav_msgs/OccupancyGrid",
+          "role": "obstacle",
+          "expectedFrame": "map",
+          "visible3d": true,
+          "visibleAr": false
+        }
+      ],
+      "robots": [
+        {
+          "slotId": "uav1",
+          "assetId": "fixture-uav1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav1",
+          "kind": "px4_multirotor",
+          "namespace": "/uav1",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav1",
+            "namespace": "/uav1",
+            "initialPose": {
+              "x": 0,
+              "y": 0,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav1",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/fs150_visual.urdf",
+              "descriptionPackage": "fs150_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        }
+      ],
       "parameters": {
-        "layoutMode": "3d-above-camera-ar",
-        "runMode": "simulation",
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -300,112 +441,10 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/xgc/camera/world/video_h264",
-        "cameraInfoTopic": "/xgc/camera/world/camera_info",
-        "visualizationTopics": [
-          {
-            "topic": "/venue/reference_cloud",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "semantic",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false
-          },
-          {
-            "topic": "/robot_0/private_map",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "obstacle",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#ff550099",
-            "pointSize": 0.1,
-            "pointSizeMode": "world",
-            "pointShape": "square"
-          },
-          {
-            "topic": "/robot_0/plan",
-            "messageType": "nav_msgs/Path",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": true
-          },
-          {
-            "topic": "/robot_0/reference",
-            "messageType": "nav_msgs/Path",
-            "role": "semantic",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#00ff00ff"
-          },
-          {
-            "topic": "/robot_0/plan_list",
-            "messageType": "visualization_msgs/Marker",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": true
-          },
-          {
-            "topic": "/robot_0/graph",
-            "messageType": "visualization_msgs/MarkerArray",
-            "role": "semantic",
-            "expectedFrame": "world",
-            "visible3d": false,
-            "visibleAr": true
-          },
-          {
-            "topic": "/robot_0/poses",
-            "messageType": "geometry_msgs/PoseArray",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#123456ff"
-          },
-          {
-            "topic": "/robot_0/grid",
-            "messageType": "nav_msgs/OccupancyGrid",
-            "role": "obstacle",
-            "expectedFrame": "map",
-            "visible3d": true,
-            "visibleAr": false
-          }
-        ],
         "transformTopics": [
           "/algorithm/tf"
         ]
-      },
-      "robots": [
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 0,
-            "y": 0,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav1",
-          "namespace": "/uav1",
-          "visualization": {
-            "descriptionFile": "urdf/fs150_visual.urdf",
-            "descriptionPackage": "fs150_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        }
-      ]
+      }
     },
     "layout": {
       "configById": {
@@ -703,14 +742,215 @@
       },
       "userNodes": {}
     },
-    "name": "every-declared-type"
+    "name": "every-declared-type",
+    "layoutSha256": "90a5d2e1e988fd2fa6bd096ea8ee5281b01001766385096cc775af0ec6fd1a09"
   },
   {
-    "allowedTopics": "/robot_0/plan\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/usb_cam/camera_info\n/usb_cam/image_raw/compressed\n/venue/obstacles\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/tf\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "3d-camera-ar",
+      "runMode": "physical",
+      "camera": {
+        "imageTopic": "/usb_cam/image_raw/compressed",
+        "infoTopic": "/usb_cam/camera_info"
+      },
+      "visualizationTopics": [
+        {
+          "topic": "/venue/obstacles",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "obstacle",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false
+        },
+        {
+          "topic": "/robot_0/plan",
+          "messageType": "nav_msgs/Path",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": true
+        }
+      ],
+      "robots": [
+        {
+          "slotId": "uav1",
+          "assetId": "fixture-uav1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav1",
+          "kind": "px4_multirotor",
+          "namespace": "/uav1",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav1",
+            "namespace": "/uav1",
+            "initialPose": {
+              "x": -26,
+              "y": 2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav1",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav2",
+          "assetId": "fixture-uav2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav2",
+          "kind": "px4_multirotor",
+          "namespace": "/uav2",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav2",
+            "namespace": "/uav2",
+            "initialPose": {
+              "x": -26,
+              "y": -2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "physical",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav2",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv1",
+          "assetId": "fixture-ugv1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv1",
+          "kind": "scout_mini",
+          "namespace": "/ugv1",
+          "profile": {
+            "id": "fixture.scout_mini",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-scout_mini",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv1",
+            "namespace": "/ugv1",
+            "initialPose": {
+              "x": 3,
+              "y": 1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv1",
+            "kind": "scout_mini",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "history/path",
+              "robotStatePublisher": false,
+              "sceneClass": "scout",
+              "sceneModel": "field_scout",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv2",
+          "assetId": "fixture-ugv2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv2",
+          "kind": "mecanum_ugv",
+          "namespace": "/ugv2",
+          "profile": {
+            "id": "fixture.mecanum_ugv",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-mecanum_ugv",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv2",
+            "namespace": "/ugv2",
+            "initialPose": {
+              "x": 4,
+              "y": -1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv2",
+            "kind": "mecanum_ugv",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "mecanum",
+              "visuals": []
+            }
+          }
+        }
+      ],
       "parameters": {
-        "layoutMode": "3d-camera-ar",
-        "runMode": "physical",
         "gridVisible": false,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -727,135 +967,8 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/usb_cam/image_raw/compressed",
-        "cameraInfoTopic": "/usb_cam/camera_info",
-        "visualizationTopics": [
-          {
-            "topic": "/venue/obstacles",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "obstacle",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false
-          },
-          {
-            "topic": "/robot_0/plan",
-            "messageType": "nav_msgs/Path",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": true
-          }
-        ],
         "transformTopics": []
-      },
-      "robots": [
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": -26,
-            "y": 2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav1",
-          "namespace": "/uav1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "physical",
-          "initialPose": {
-            "x": -26,
-            "y": -2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav2",
-          "namespace": "/uav2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 3,
-            "y": 1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "scout_mini",
-          "name": "ugv1",
-          "namespace": "/ugv1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "history/path",
-            "robotStatePublisher": false,
-            "sceneClass": "scout",
-            "sceneModel": "field_scout",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 4,
-            "y": -1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "mecanum_ugv",
-          "name": "ugv2",
-          "namespace": "/ugv2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "mecanum",
-            "visuals": []
-          }
-        }
-      ]
+      }
     },
     "layout": {
       "configById": {
@@ -1196,19 +1309,213 @@
       },
       "userNodes": {}
     },
-    "name": "physical-usb-camera"
+    "name": "physical-usb-camera",
+    "layoutSha256": "d14c7126ec16aefc6bf3cc4adb0b999e0cfb8f2f92448b9cdb1959b9d547a1dd"
   },
   {
-    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/pose\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "3d-above-camera-ar-plot",
+      "runMode": "simulation",
+      "camera": {
+        "imageTopic": "/xgc/camera/world/video_h264",
+        "infoTopic": "/xgc/camera/world/camera_info"
+      },
+      "visualizationTopics": [
+        {
+          "topic": "/robot_0/private_map",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "obstacle",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#ff550099"
+        }
+      ],
+      "robots": [
+        {
+          "slotId": "uav1",
+          "assetId": "fixture-uav1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav1",
+          "kind": "px4_multirotor",
+          "namespace": "/uav1",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav1",
+            "namespace": "/uav1",
+            "initialPose": {
+              "x": -26,
+              "y": 2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav1",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav2",
+          "assetId": "fixture-uav2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav2",
+          "kind": "px4_multirotor",
+          "namespace": "/uav2",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav2",
+            "namespace": "/uav2",
+            "initialPose": {
+              "x": -26,
+              "y": -2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "physical",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav2",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv1",
+          "assetId": "fixture-ugv1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv1",
+          "kind": "scout_mini",
+          "namespace": "/ugv1",
+          "profile": {
+            "id": "fixture.scout_mini",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-scout_mini",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv1",
+            "namespace": "/ugv1",
+            "initialPose": {
+              "x": 3,
+              "y": 1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv1",
+            "kind": "scout_mini",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "history/path",
+              "robotStatePublisher": false,
+              "sceneClass": "scout",
+              "sceneModel": "field_scout",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv2",
+          "assetId": "fixture-ugv2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv2",
+          "kind": "mecanum_ugv",
+          "namespace": "/ugv2",
+          "profile": {
+            "id": "fixture.mecanum_ugv",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-mecanum_ugv",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv2",
+            "namespace": "/ugv2",
+            "initialPose": {
+              "x": 4,
+              "y": -1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv2",
+            "kind": "mecanum_ugv",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "mecanum",
+              "visuals": []
+            }
+          }
+        }
+      ],
       "parameters": {
         "sceneNamespace": "/xgc/scene",
         "uavPalette": [
           "#112233",
           "#445566"
         ],
-        "layoutMode": "3d-above-camera-ar-plot",
-        "runMode": "simulation",
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -1225,132 +1532,12 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/xgc/camera/world/video_h264",
-        "cameraInfoTopic": "/xgc/camera/world/camera_info",
-        "visualizationTopics": [
-          {
-            "topic": "/robot_0/private_map",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "obstacle",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#ff550099"
-          }
-        ],
         "transformTopics": [],
         "plotPaths": [
           "/uav1/pose.pose.position.x",
           "/robot_0/stats.solve_time"
         ]
-      },
-      "robots": [
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": -26,
-            "y": 2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav1",
-          "namespace": "/uav1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "physical",
-          "initialPose": {
-            "x": -26,
-            "y": -2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav2",
-          "namespace": "/uav2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 3,
-            "y": 1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "scout_mini",
-          "name": "ugv1",
-          "namespace": "/ugv1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "history/path",
-            "robotStatePublisher": false,
-            "sceneClass": "scout",
-            "sceneModel": "field_scout",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 4,
-            "y": -1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "mecanum_ugv",
-          "name": "ugv2",
-          "namespace": "/ugv2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "mecanum",
-            "visuals": []
-          }
-        }
-      ]
+      }
     },
     "layout": {
       "configById": {
@@ -1732,15 +1919,199 @@
       },
       "userNodes": {}
     },
-    "name": "scene-plot-palette"
+    "name": "scene-plot-palette",
+    "layoutSha256": "ff2067f4aa0202a39c4c2922ee1af5272eca1989789ea1bd85c5ef365fb7d661"
   },
   {
-    "allowedTopics": "/tf\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/usb_cam/camera_info\n/usb_cam/video_h264\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/tf\n/xgc/scene\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "camera-ar-3d",
+      "runMode": "simulation",
+      "camera": {
+        "imageTopic": "/usb_cam/video_h264",
+        "infoTopic": "/usb_cam/camera_info"
+      },
+      "visualizationTopics": [],
+      "robots": [
+        {
+          "slotId": "uav1",
+          "assetId": "fixture-uav1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav1",
+          "kind": "px4_multirotor",
+          "namespace": "/uav1",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav1",
+            "namespace": "/uav1",
+            "initialPose": {
+              "x": -26,
+              "y": 2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav1",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav2",
+          "assetId": "fixture-uav2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav2",
+          "kind": "px4_multirotor",
+          "namespace": "/uav2",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav2",
+            "namespace": "/uav2",
+            "initialPose": {
+              "x": -26,
+              "y": -2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "physical",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav2",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv1",
+          "assetId": "fixture-ugv1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv1",
+          "kind": "scout_mini",
+          "namespace": "/ugv1",
+          "profile": {
+            "id": "fixture.scout_mini",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-scout_mini",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv1",
+            "namespace": "/ugv1",
+            "initialPose": {
+              "x": 3,
+              "y": 1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv1",
+            "kind": "scout_mini",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "history/path",
+              "robotStatePublisher": false,
+              "sceneClass": "scout",
+              "sceneModel": "field_scout",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv2",
+          "assetId": "fixture-ugv2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv2",
+          "kind": "mecanum_ugv",
+          "namespace": "/ugv2",
+          "profile": {
+            "id": "fixture.mecanum_ugv",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-mecanum_ugv",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv2",
+            "namespace": "/ugv2",
+            "initialPose": {
+              "x": 4,
+              "y": -1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv2",
+            "kind": "mecanum_ugv",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "mecanum",
+              "visuals": []
+            }
+          }
+        }
+      ],
       "parameters": {
         "sceneNamespace": "/xgc/scene",
-        "layoutMode": "camera-ar-3d",
-        "runMode": "simulation",
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -1757,118 +2128,8 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/usb_cam/video_h264",
-        "cameraInfoTopic": "/usb_cam/camera_info",
-        "visualizationTopics": [],
         "transformTopics": []
-      },
-      "robots": [
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": -26,
-            "y": 2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav1",
-          "namespace": "/uav1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "physical",
-          "initialPose": {
-            "x": -26,
-            "y": -2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav2",
-          "namespace": "/uav2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 3,
-            "y": 1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "scout_mini",
-          "name": "ugv1",
-          "namespace": "/ugv1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "history/path",
-            "robotStatePublisher": false,
-            "sceneClass": "scout",
-            "sceneModel": "field_scout",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 4,
-            "y": -1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "mecanum_ugv",
-          "name": "ugv2",
-          "namespace": "/ugv2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "mecanum",
-            "visuals": []
-          }
-        }
-      ]
+      }
     },
     "layout": {
       "configById": {
@@ -2275,14 +2536,227 @@
       },
       "userNodes": {}
     },
-    "name": "replay-pixels"
+    "name": "replay-pixels",
+    "layoutSha256": "4c31cb06c9a0154e2f0826e8b919c787cb159f4ea890e86ca15afcf1c9360034"
   },
   {
-    "allowedTopics": "/robot_0/plan\n/robot_0/private_map\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/ugv1/history/path\n/ugv1/joint_states\n/ugv2/joint_states\n/ugv2/path\n/venue/reference_cloud\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "camera-ar-above-3d",
+      "runMode": "hybrid",
+      "camera": {
+        "imageTopic": "/xgc/camera/world/video_h264",
+        "infoTopic": "/xgc/camera/world/camera_info"
+      },
+      "visualizationTopics": [
+        {
+          "topic": "/venue/reference_cloud",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "semantic",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false
+        },
+        {
+          "topic": "/robot_0/private_map",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "obstacle",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#ff550099",
+          "pointSize": 0.1,
+          "pointSizeMode": "world",
+          "pointShape": "square"
+        },
+        {
+          "topic": "/robot_0/plan",
+          "messageType": "nav_msgs/Path",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": true
+        }
+      ],
+      "robots": [
+        {
+          "slotId": "uav1",
+          "assetId": "fixture-uav1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav1",
+          "kind": "px4_multirotor",
+          "namespace": "/uav1",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav1",
+            "namespace": "/uav1",
+            "initialPose": {
+              "x": -26,
+              "y": 2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav1",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav2",
+          "assetId": "fixture-uav2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav2",
+          "kind": "px4_multirotor",
+          "namespace": "/uav2",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav2",
+            "namespace": "/uav2",
+            "initialPose": {
+              "x": -26,
+              "y": -2,
+              "yaw": 0,
+              "z": 1
+            },
+            "hybridSource": "physical",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav2",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv1",
+          "assetId": "fixture-ugv1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv1",
+          "kind": "scout_mini",
+          "namespace": "/ugv1",
+          "profile": {
+            "id": "fixture.scout_mini",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-scout_mini",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv1",
+            "namespace": "/ugv1",
+            "initialPose": {
+              "x": 3,
+              "y": 1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv1",
+            "kind": "scout_mini",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "history/path",
+              "robotStatePublisher": false,
+              "sceneClass": "scout",
+              "sceneModel": "field_scout",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "ugv2",
+          "assetId": "fixture-ugv2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture ugv2",
+          "kind": "mecanum_ugv",
+          "namespace": "/ugv2",
+          "profile": {
+            "id": "fixture.mecanum_ugv",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-mecanum_ugv",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "ugv2",
+            "namespace": "/ugv2",
+            "initialPose": {
+              "x": 4,
+              "y": -1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": false
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture ugv2",
+            "kind": "mecanum_ugv",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "mecanum",
+              "visuals": []
+            }
+          }
+        }
+      ],
       "parameters": {
-        "layoutMode": "camera-ar-above-3d",
-        "runMode": "hybrid",
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -2299,147 +2773,8 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/xgc/camera/world/video_h264",
-        "cameraInfoTopic": "/xgc/camera/world/camera_info",
-        "visualizationTopics": [
-          {
-            "topic": "/venue/reference_cloud",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "semantic",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false
-          },
-          {
-            "topic": "/robot_0/private_map",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "obstacle",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#ff550099",
-            "pointSize": 0.1,
-            "pointSizeMode": "world",
-            "pointShape": "square"
-          },
-          {
-            "topic": "/robot_0/plan",
-            "messageType": "nav_msgs/Path",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": true
-          }
-        ],
         "transformTopics": []
-      },
-      "robots": [
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": -26,
-            "y": 2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav1",
-          "namespace": "/uav1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "physical",
-          "initialPose": {
-            "x": -26,
-            "y": -2,
-            "yaw": 0,
-            "z": 1
-          },
-          "kind": "px4_multirotor",
-          "name": "uav2",
-          "namespace": "/uav2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 3,
-            "y": 1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "scout_mini",
-          "name": "ugv1",
-          "namespace": "/ugv1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "history/path",
-            "robotStatePublisher": false,
-            "sceneClass": "scout",
-            "sceneModel": "field_scout",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": false
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 4,
-            "y": -1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "mecanum_ugv",
-          "name": "ugv2",
-          "namespace": "/ugv2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "mecanum",
-            "visuals": []
-          }
-        }
-      ]
+      }
     },
     "layout": {
       "configById": {
@@ -2862,14 +3197,532 @@
       },
       "userNodes": {}
     },
-    "name": "hybrid-mixed"
+    "name": "hybrid-mixed",
+    "layoutSha256": "055f2676906b70ab0b1ee86dd264c604cadee9263851fd781b0aa21ef88b09dc"
   },
   {
-    "allowedTopics": "/algorithm/tf\n/robot_0/graph\n/robot_0/grid\n/robot_0/plan\n/robot_0/plan_list\n/robot_0/poses\n/robot_0/private_map\n/robot_0/reference\n/tf_static\n/uav1/ar_path\n/uav1/joint_states\n/uav1/path\n/uav1/simple_lidar/points\n/uav10/ar_path\n/uav10/joint_states\n/uav10/path\n/uav10/simple_lidar/points\n/uav2/ar_path\n/uav2/joint_states\n/uav2/path\n/uav2/simple_lidar/points\n/uav3/ar_path\n/uav3/joint_states\n/uav3/path\n/uav3/simple_lidar/points\n/uav4/ar_path\n/uav4/joint_states\n/uav4/path\n/uav4/simple_lidar/points\n/uav5/ar_path\n/uav5/joint_states\n/uav5/path\n/uav5/simple_lidar/points\n/uav6/ar_path\n/uav6/joint_states\n/uav6/path\n/uav6/simple_lidar/points\n/uav7/ar_path\n/uav7/joint_states\n/uav7/path\n/uav7/simple_lidar/points\n/uav8/ar_path\n/uav8/joint_states\n/uav8/path\n/uav8/simple_lidar/points\n/uav9/ar_path\n/uav9/joint_states\n/uav9/path\n/uav9/simple_lidar/points\n/venue/reference_cloud\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "3d-above-camera-ar",
+      "runMode": "simulation",
+      "camera": {
+        "imageTopic": "/xgc/camera/world/video_h264",
+        "infoTopic": "/xgc/camera/world/camera_info"
+      },
+      "visualizationTopics": [
+        {
+          "topic": "/venue/reference_cloud",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "semantic",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false
+        },
+        {
+          "topic": "/robot_0/private_map",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "obstacle",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#ff550099",
+          "pointSize": 0.1,
+          "pointSizeMode": "world",
+          "pointShape": "square"
+        },
+        {
+          "topic": "/robot_0/plan",
+          "messageType": "nav_msgs/Path",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": true
+        },
+        {
+          "topic": "/robot_0/reference",
+          "messageType": "nav_msgs/Path",
+          "role": "semantic",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#00ff00ff"
+        },
+        {
+          "topic": "/robot_0/plan_list",
+          "messageType": "visualization_msgs/Marker",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": true
+        },
+        {
+          "topic": "/robot_0/graph",
+          "messageType": "visualization_msgs/MarkerArray",
+          "role": "semantic",
+          "expectedFrame": "world",
+          "visible3d": false,
+          "visibleAr": true
+        },
+        {
+          "topic": "/robot_0/poses",
+          "messageType": "geometry_msgs/PoseArray",
+          "role": "prediction",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#123456ff"
+        },
+        {
+          "topic": "/robot_0/grid",
+          "messageType": "nav_msgs/OccupancyGrid",
+          "role": "obstacle",
+          "expectedFrame": "map",
+          "visible3d": true,
+          "visibleAr": false
+        }
+      ],
+      "robots": [
+        {
+          "slotId": "uav1",
+          "assetId": "fixture-uav1",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav1",
+          "kind": "px4_multirotor",
+          "namespace": "/uav1",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav1",
+            "namespace": "/uav1",
+            "initialPose": {
+              "x": 0,
+              "y": 0,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav1",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav2",
+          "assetId": "fixture-uav2",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav2",
+          "kind": "px4_multirotor",
+          "namespace": "/uav2",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav2",
+            "namespace": "/uav2",
+            "initialPose": {
+              "x": 1,
+              "y": 1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav2",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav3",
+          "assetId": "fixture-uav3",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav3",
+          "kind": "px4_multirotor",
+          "namespace": "/uav3",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav3",
+            "namespace": "/uav3",
+            "initialPose": {
+              "x": 2,
+              "y": 2,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav3",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav4",
+          "assetId": "fixture-uav4",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav4",
+          "kind": "px4_multirotor",
+          "namespace": "/uav4",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav4",
+            "namespace": "/uav4",
+            "initialPose": {
+              "x": 3,
+              "y": 0,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav4",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav5",
+          "assetId": "fixture-uav5",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav5",
+          "kind": "px4_multirotor",
+          "namespace": "/uav5",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav5",
+            "namespace": "/uav5",
+            "initialPose": {
+              "x": 4,
+              "y": 1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav5",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav6",
+          "assetId": "fixture-uav6",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav6",
+          "kind": "px4_multirotor",
+          "namespace": "/uav6",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav6",
+            "namespace": "/uav6",
+            "initialPose": {
+              "x": 5,
+              "y": 2,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav6",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav7",
+          "assetId": "fixture-uav7",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav7",
+          "kind": "px4_multirotor",
+          "namespace": "/uav7",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav7",
+            "namespace": "/uav7",
+            "initialPose": {
+              "x": 6,
+              "y": 0,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav7",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav8",
+          "assetId": "fixture-uav8",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav8",
+          "kind": "px4_multirotor",
+          "namespace": "/uav8",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav8",
+            "namespace": "/uav8",
+            "initialPose": {
+              "x": 7,
+              "y": 1,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav8",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav9",
+          "assetId": "fixture-uav9",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav9",
+          "kind": "px4_multirotor",
+          "namespace": "/uav9",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav9",
+            "namespace": "/uav9",
+            "initialPose": {
+              "x": 8,
+              "y": 2,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav9",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        },
+        {
+          "slotId": "uav10",
+          "assetId": "fixture-uav10",
+          "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Fixture uav10",
+          "kind": "px4_multirotor",
+          "namespace": "/uav10",
+          "profile": {
+            "id": "fixture.px4_multirotor",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "providerDefinitionId": "fixture-px4_multirotor",
+            "parameters": {},
+            "channels": []
+          },
+          "binding": {
+            "id": "uav10",
+            "namespace": "/uav10",
+            "initialPose": {
+              "x": 9,
+              "y": 0,
+              "yaw": 0,
+              "z": 0
+            },
+            "hybridSource": "simulation",
+            "simulationSensors": {
+              "simpleLidar": {
+                "enabled": true
+              }
+            }
+          },
+          "asset": {
+            "name": "Fixture uav10",
+            "kind": "px4_multirotor",
+            "visualization": {
+              "descriptionFile": "urdf/robot_visual.urdf",
+              "descriptionPackage": "robot_description",
+              "jointStateTopic": "joint_states",
+              "pathTopic": "path",
+              "robotStatePublisher": false,
+              "sceneClass": "fs150",
+              "visuals": []
+            }
+          }
+        }
+      ],
       "parameters": {
-        "layoutMode": "3d-above-camera-ar",
-        "runMode": "simulation",
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -2886,346 +3739,10 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/xgc/camera/world/video_h264",
-        "cameraInfoTopic": "/xgc/camera/world/camera_info",
-        "visualizationTopics": [
-          {
-            "topic": "/venue/reference_cloud",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "semantic",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false
-          },
-          {
-            "topic": "/robot_0/private_map",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "obstacle",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#ff550099",
-            "pointSize": 0.1,
-            "pointSizeMode": "world",
-            "pointShape": "square"
-          },
-          {
-            "topic": "/robot_0/plan",
-            "messageType": "nav_msgs/Path",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": true
-          },
-          {
-            "topic": "/robot_0/reference",
-            "messageType": "nav_msgs/Path",
-            "role": "semantic",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#00ff00ff"
-          },
-          {
-            "topic": "/robot_0/plan_list",
-            "messageType": "visualization_msgs/Marker",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": true
-          },
-          {
-            "topic": "/robot_0/graph",
-            "messageType": "visualization_msgs/MarkerArray",
-            "role": "semantic",
-            "expectedFrame": "world",
-            "visible3d": false,
-            "visibleAr": true
-          },
-          {
-            "topic": "/robot_0/poses",
-            "messageType": "geometry_msgs/PoseArray",
-            "role": "prediction",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#123456ff"
-          },
-          {
-            "topic": "/robot_0/grid",
-            "messageType": "nav_msgs/OccupancyGrid",
-            "role": "obstacle",
-            "expectedFrame": "map",
-            "visible3d": true,
-            "visibleAr": false
-          }
-        ],
         "transformTopics": [
           "/algorithm/tf"
         ]
-      },
-      "robots": [
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 0,
-            "y": 0,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav1",
-          "namespace": "/uav1",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 1,
-            "y": 1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav2",
-          "namespace": "/uav2",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 2,
-            "y": 2,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav3",
-          "namespace": "/uav3",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 3,
-            "y": 0,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav4",
-          "namespace": "/uav4",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 4,
-            "y": 1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav5",
-          "namespace": "/uav5",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 5,
-            "y": 2,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav6",
-          "namespace": "/uav6",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 6,
-            "y": 0,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav7",
-          "namespace": "/uav7",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 7,
-            "y": 1,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav8",
-          "namespace": "/uav8",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 8,
-            "y": 2,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav9",
-          "namespace": "/uav9",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        },
-        {
-          "authoredSimulationSensors": {
-            "simpleLidar": {
-              "enabled": true
-            }
-          },
-          "hybridSource": "simulation",
-          "initialPose": {
-            "x": 9,
-            "y": 0,
-            "yaw": 0,
-            "z": 0
-          },
-          "kind": "px4_multirotor",
-          "name": "uav10",
-          "namespace": "/uav10",
-          "visualization": {
-            "descriptionFile": "urdf/robot_visual.urdf",
-            "descriptionPackage": "robot_description",
-            "jointStateTopic": "joint_states",
-            "pathTopic": "path",
-            "robotStatePublisher": false,
-            "sceneClass": "fs150",
-            "visuals": []
-          }
-        }
-      ]
+      }
     },
     "layout": {
       "configById": {
@@ -3918,19 +4435,35 @@
       },
       "userNodes": {}
     },
-    "name": "lidar-fleet"
+    "name": "lidar-fleet",
+    "layoutSha256": "774721ac5b682ced18f93993807e8e2a7695d1fe34c550fd0f43867e9eaff5e6"
   },
   {
-    "allowedTopics": "/robot_0/private_map\n/robot_0/stats\n/tf\n/tf_static\n/uav1/pose\n/xgc/aligned/scene\n/xgc/aligned/tf\n/xgc/aligned/xgc_tf\n/xgc/camera/world/camera_info\n/xgc/camera/world/tf\n/xgc/camera/world/video_h264\n/xgc/scene\n/xgc/scene/document\n/xgc/scene/markers\n/xgc/scene/snapshot\n/xgc/scene/state\n/xgc/scene_ar\n/xgc/tf\n/xgc/uav_height_projection\n/xgc/uav_height_projection_ar\n/xgc/world_boundary\n/xgc/world_boundary_ar\n/xgc/world_boundary_walls\n/xgc/world_boundary_walls_ar",
     "input": {
+      "layoutMode": "3d-above-camera-ar-plot",
+      "runMode": "simulation",
+      "camera": {
+        "imageTopic": "/xgc/camera/world/video_h264",
+        "infoTopic": "/xgc/camera/world/camera_info"
+      },
+      "visualizationTopics": [
+        {
+          "topic": "/robot_0/private_map",
+          "messageType": "sensor_msgs/PointCloud2",
+          "role": "obstacle",
+          "expectedFrame": "world",
+          "visible3d": true,
+          "visibleAr": false,
+          "color": "#ff550099"
+        }
+      ],
+      "robots": [],
       "parameters": {
         "sceneNamespace": "/xgc/scene",
         "uavPalette": [
           "#112233",
           "#445566"
         ],
-        "layoutMode": "3d-above-camera-ar-plot",
-        "runMode": "simulation",
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -3947,26 +4480,12 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "cameraImageTopic": "/xgc/camera/world/video_h264",
-        "cameraInfoTopic": "/xgc/camera/world/camera_info",
-        "visualizationTopics": [
-          {
-            "topic": "/robot_0/private_map",
-            "messageType": "sensor_msgs/PointCloud2",
-            "role": "obstacle",
-            "expectedFrame": "world",
-            "visible3d": true,
-            "visibleAr": false,
-            "color": "#ff550099"
-          }
-        ],
         "transformTopics": [],
         "plotPaths": [
           "/uav1/pose.pose.position.x",
           "/robot_0/stats.solve_time"
         ]
-      },
-      "robots": []
+      }
     },
     "layout": {
       "configById": {
@@ -4194,6 +4713,7 @@
       },
       "userNodes": {}
     },
-    "name": "obstacle-only"
+    "name": "obstacle-only",
+    "layoutSha256": "2565d6419abe7e8b8da390901689bac16577e323eb34d967001f5c36be35e11b"
   }
 ]

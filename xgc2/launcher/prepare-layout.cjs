@@ -36,6 +36,43 @@ const palettes = {
     "#90caf9",
   ],
 };
+// Viewer defaults formerly supplied by Core's Lichtblick provisioning. Keep the
+// complete table here; Run facts and camera topics have no defaults.
+const VIEWER_DEFAULTS = Object.freeze({
+  gridVisible: true,
+  gridColor: "#9e9e9e",
+  gridSize: 30,
+  gridDivisions: 30,
+  gridLineWidth: 1,
+  axesVisible: true,
+  axesScale: 1,
+  scoutModelScale: 1,
+  px4ModelScale: 2,
+  mecanumModelScale: 1,
+  worldBoundaryMode: "walls",
+  uavHeightProjection: true,
+  predictionLineWidth: 0.01,
+  predictionAxisScale: 0.15,
+  markerColor: "#00a2ff",
+  markerBackgroundColor: "#000000",
+  markerBackgroundVisible: false,
+  labelScaleInvariant: false,
+  labelFontSizeMeters: 0.24,
+  labelFontSizePixels: 16,
+  markerOpacity: 1,
+  uavLabelOffset: 0.55,
+  scoutLabelOffset: 0.65,
+  mecanumLabelOffset: 0.32,
+  uavPalette: palettes.px4_multirotor,
+  scoutPalette: palettes.scout_mini,
+  mecanumPalette: palettes.mecanum_ugv,
+  sceneNamespace: "",
+  transformTopics: [],
+  plotPaths: [],
+  simpleLidarMaxRateHz: 0,
+  simpleLidarMaxMessageBytes: 0,
+  frameWorldBoundary: false,
+});
 const topicPattern = /^\/[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*$/;
 const colorPattern = /^#[0-9a-fA-F]{6}$/;
 const relayTypes = new Set([
@@ -67,6 +104,68 @@ const display = (declared) =>
 const visible = (value = true) => ({ visible: value });
 const overlay = (value) => ({ visible: value, showOutlines: false });
 const slot = (name) => Number(/\d+$/.exec(name)?.[0] ?? 0);
+const object = (value) => value != null && typeof value === "object" && !array(value);
+
+/** Projects Core's frozen RobotFact without changing its binding or asset. */
+function mapRobotFact(fact) {
+  const identity = fact?.slotId ?? "(missing slotId)";
+  const check = (condition, message) => assert(condition, `robot slot ${identity}: ${message}`);
+  check(object(fact) && typeof fact.slotId === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,126}$/.test(fact.slotId), "valid slotId required");
+  check(object(fact.binding), "binding required");
+  check(object(fact.binding.initialPose), "binding.initialPose required");
+  check(object(fact.binding.simulationSensors), "binding.simulationSensors required");
+  check(fact.binding.scout === undefined || object(fact.binding.scout), "binding.scout must be an object");
+  check(object(fact.asset) && object(fact.asset.visualization), "asset.visualization required");
+  return {
+    slotId: fact.slotId,
+    namespace: fact.namespace,
+    kind: fact.kind,
+    // The layout uses the slot namespace, not the asset's human-readable name.
+    name: typeof fact.namespace === "string" ? fact.namespace.slice(1) : undefined,
+    initialPose: fact.binding.initialPose,
+    hybridSource: fact.binding.hybridSource,
+    authoredSimulationSensors: fact.binding.simulationSensors,
+    scout: fact.binding.scout,
+    visualization: fact.asset.visualization,
+  };
+}
+
+/** Maps the single high-level stdin document to prepareLayout's pure input. */
+function mapViewInput(input) {
+  assert(object(input), "view input must be one JSON object");
+  const allowed = ["layoutMode", "runMode", "worldBoundary", "camera", "visualizationTopics", "robots", "parameters"];
+  const unknown = Object.keys(input).filter((key) => !allowed.includes(key));
+  assert(unknown.length === 0, `unknown view input members: ${unknown.join(", ")}`);
+  for (const key of ["layoutMode", "runMode", "visualizationTopics", "robots"])
+    assert(Object.hasOwn(input, key), `missing view input member ${key}`);
+  assert(input.worldBoundary == null || object(input.worldBoundary), "worldBoundary must be an object or null");
+  assert(array(input.robots), "robots must be an array of frozen RobotFact rows");
+  assert(input.parameters === undefined || object(input.parameters), "parameters must be an object");
+  for (const key of Object.keys(input.parameters ?? {}))
+    assert(Object.hasOwn(VIEWER_DEFAULTS, key), `unknown viewer parameter ${key}`);
+  if (input.camera !== undefined) {
+    assert(object(input.camera), "camera must be an object");
+    for (const key of Object.keys(input.camera))
+      assert(["imageTopic", "infoTopic"].includes(key), `unknown camera member ${key}`);
+    assert(topic(input.camera.imageTopic) && topic(input.camera.infoTopic) && input.camera.imageTopic !== input.camera.infoTopic, "distinct explicit camera topics required");
+  }
+  assert(input.layoutMode === "3d" || input.camera !== undefined, "camera required for a layout containing a camera panel");
+  const robots = input.robots.map(mapRobotFact);
+  const slots = new Set();
+  const namespaces = new Set();
+  for (const robot of robots) {
+    assert(!slots.has(robot.slotId), `robot slot ${robot.slotId}: duplicate slotId`);
+    assert(!namespaces.has(robot.namespace), `robot slot ${robot.slotId}: duplicate namespace ${robot.namespace}`);
+    slots.add(robot.slotId);
+    namespaces.add(robot.namespace);
+  }
+  return {
+    parameters: { ...structuredClone(VIEWER_DEFAULTS), ...input.parameters, layoutMode: input.layoutMode, visualizationTopics: input.visualizationTopics },
+    context: { runMode: input.runMode, worldBoundary: input.worldBoundary },
+    camera: input.camera,
+    robots,
+  };
+}
 
 function prepareLayout(input) {
   assert(
@@ -78,22 +177,7 @@ function prepareLayout(input) {
   );
   assert(input.robots.length <= 256, "at most 256 robots");
   const p = {
-    axesVisible: true,
-    axesScale: 1,
-    scoutModelScale: 1,
-    px4ModelScale: 2,
-    mecanumModelScale: 1,
-    worldBoundaryMode: "walls",
-    uavHeightProjection: true,
-    predictionLineWidth: 0.01,
-    predictionAxisScale: 0.15,
-    markerBackgroundColor: "#000000",
-    markerBackgroundVisible: false,
-    sceneNamespace: "",
-    plotPaths: [],
-    simpleLidarMaxRateHz: 0,
-    simpleLidarMaxMessageBytes: 0,
-    frameWorldBoundary: false,
+    ...VIEWER_DEFAULTS,
     ...input.parameters,
   };
   if (input.camera) {
@@ -119,7 +203,7 @@ function prepareLayout(input) {
     ].includes(p.layoutMode),
     "invalid layoutMode",
   );
-  assert(
+  if (p.layoutMode !== "3d" || p.cameraImageTopic !== undefined || p.cameraInfoTopic !== undefined) assert(
     topic(p.cameraImageTopic) &&
       topic(p.cameraInfoTopic) &&
       p.cameraImageTopic !== p.cameraInfoTopic,
@@ -184,59 +268,64 @@ function prepareLayout(input) {
     );
   checkRate(p.simpleLidarMaxRateHz, p.simpleLidarMaxMessageBytes);
   const robots = input.robots.map((raw) => {
-    assert(
-      raw &&
-        topic(raw.namespace) &&
-        /^\/[A-Za-z_][A-Za-z0-9_]*$/.test(raw.namespace) &&
-        typeof raw.kind === "string",
-      "invalid frozen robot identity",
-    );
-    const r = {
-      ...raw,
-      name: raw.namespace.slice(1),
-      visualization: { ...raw.visualization },
-    };
-    assert(
-      r.initialPose &&
-        ["x", "y", "z", "yaw"].every((k) => Number.isFinite(r.initialPose[k])),
-      "finite initial pose required",
-    );
-    assert(
-      ["simulation", "physical"].includes(r.hybridSource),
-      "frozen hybridSource required",
-    );
-    assert(
-      raw.authoredSimulationSensors &&
-        typeof raw.authoredSimulationSensors === "object",
-      "authoredSimulationSensors required",
-    );
-    r.simpleLidar = raw.authoredSimulationSensors.simpleLidar?.enabled === true;
-    if (r.kind === "scout_mini" && raw.scout) {
-      const mocap = (raw.scout.mocapRigidBodyName || "").trim();
-      r.visualization.sceneModel =
-        mocap && mocap !== r.name && !r.name.startsWith("ugv") ? mocap : "";
-    }
-    for (const key of ["odometryTopic", "jointStateTopic", "pathTopic"])
-      if (r.visualization[key])
+    try {
+      assert(
+        raw &&
+          topic(raw.namespace) &&
+          /^\/[A-Za-z_][A-Za-z0-9_]*$/.test(raw.namespace) &&
+          typeof raw.kind === "string",
+        "invalid frozen robot identity",
+      );
+      const r = {
+        ...raw,
+        name: raw.namespace.slice(1),
+        visualization: { ...raw.visualization },
+      };
+      assert(
+        r.initialPose &&
+          ["x", "y", "z", "yaw"].every((k) => Number.isFinite(r.initialPose[k])),
+        "finite initial pose required",
+      );
+      assert(
+        ["simulation", "physical"].includes(r.hybridSource),
+        "frozen hybridSource required",
+      );
+      assert(
+        raw.authoredSimulationSensors &&
+          typeof raw.authoredSimulationSensors === "object",
+        "authoredSimulationSensors required",
+      );
+      r.simpleLidar = raw.authoredSimulationSensors.simpleLidar?.enabled === true;
+      if (r.kind === "scout_mini" && raw.scout) {
+        const mocap = (raw.scout.mocapRigidBodyName || "").trim();
+        r.visualization.sceneModel =
+          mocap && mocap !== r.name && !r.name.startsWith("ugv") ? mocap : "";
+      }
+      for (const key of ["odometryTopic", "jointStateTopic", "pathTopic"])
+        if (r.visualization[key])
+          assert(
+            topic(namespaced(r, r.visualization[key])),
+            "invalid robot topic",
+          );
+      assert(
+        array(r.visualization.visuals),
+        "frozen visualization visuals required",
+      );
+      if (r.visualization.initialCameraDistanceMeters != null)
         assert(
-          topic(namespaced(r, r.visualization[key])),
-          "invalid robot topic",
+          within(r.visualization.initialCameraDistanceMeters, 0.1, 100000),
+          "invalid camera distance",
         );
-    assert(
-      array(r.visualization.visuals),
-      "frozen visualization visuals required",
-    );
-    if (r.visualization.initialCameraDistanceMeters != null)
-      assert(
-        within(r.visualization.initialCameraDistanceMeters, 0.1, 100000),
-        "invalid camera distance",
-      );
-    if (r.visualization.pathLineWidthMeters != null)
-      assert(
-        within(r.visualization.pathLineWidthMeters, 0.001, 100),
-        "invalid path width",
-      );
-    return r;
+      if (r.visualization.pathLineWidthMeters != null)
+        assert(
+          within(r.visualization.pathLineWidthMeters, 0.001, 100),
+          "invalid path width",
+        );
+      return r;
+    } catch (error) {
+      if (raw?.slotId) error.message = `robot slot ${raw.slotId}: ${error.message}`;
+      throw error;
+    }
   });
   assert(
     new Set(robots.map((r) => r.name)).size === robots.length,
@@ -357,7 +446,8 @@ function prepareLayout(input) {
     }
     return s;
   };
-  const allowed = new Set([
+  // System topic names remain reserved for declaration collision checks.
+  const declaredNames = new Set([
     "/xgc/scene",
     "/xgc/scene_ar",
     "/xgc/world_boundary",
@@ -372,10 +462,10 @@ function prepareLayout(input) {
     "/xgc/aligned/tf",
     "/xgc/aligned/xgc_tf",
     "/xgc/camera/world/tf",
-    p.cameraImageTopic,
-    p.cameraInfoTopic,
   ]);
-  if (globalTF || p.sceneNamespace) allowed.add("/tf");
+  if (p.cameraImageTopic) declaredNames.add(p.cameraImageTopic);
+  if (p.cameraInfoTopic) declaredNames.add(p.cameraInfoTopic);
+  if (globalTF || p.sceneNamespace) declaredNames.add("/tf");
   if (p.sceneNamespace)
     for (const suffix of [
       "snapshot",
@@ -383,19 +473,19 @@ function prepareLayout(input) {
       "document",
       "markers",
     ])
-      allowed.add(`${p.sceneNamespace}/${suffix}`);
+      declaredNames.add(`${p.sceneNamespace}/${suffix}`);
   for (const r of robots) {
     for (const relative of [
       r.visualization.odometryTopic,
       r.visualization.jointStateTopic,
       r.visualization.pathTopic,
     ])
-      if (relative) allowed.add(namespaced(r, relative));
+      if (relative) declaredNames.add(namespaced(r, relative));
     if (r.visualization.sceneClass === "fs150")
-      allowed.add(namespaced(r, "ar_path"));
+      declaredNames.add(namespaced(r, "ar_path"));
   }
   for (const t of lidar) {
-    allowed.add(lidarDisplay(t));
+    declaredNames.add(lidarDisplay(t));
     threeTopics[lidarDisplay(t)] = {
       visible: true,
       pointSize: 2,
@@ -405,8 +495,6 @@ function prepareLayout(input) {
       colorField: "z",
     };
   }
-  const displayRelays = [],
-    declaredNames = new Set(allowed);
   for (const t of p.visualizationTopics) {
     assert(
       topic(t.topic) &&
@@ -435,11 +523,6 @@ function prepareLayout(input) {
         relayTypes.has(t.messageType),
         "incremental messages cannot be throttled",
       );
-      displayRelays.push({
-        source: t.topic,
-        topic: display(t),
-        messageType: t.messageType,
-      });
     }
     if (t.lineWidth != null)
       assert(within(t.lineWidth, 0.0001, 100), "invalid line width");
@@ -464,7 +547,6 @@ function prepareLayout(input) {
         !t.messageType.startsWith("visualization_msgs/"),
         "bound scene owns obstacle geometry",
       );
-    allowed.add(display(t));
     if (t.visible3d || t.role === "obstacle")
       threeTopics[display(t)] = declaredSettings(t);
     if (t.role === "obstacle") {
@@ -472,21 +554,12 @@ function prepareLayout(input) {
         arTopics[display(t)] = { ...declaredSettings(t), color: "#ff801a66" };
     } else if (t.visibleAr) arTopics[display(t)] = declaredSettings(t);
   }
-  if (p.simpleLidarMaxRateHz)
-    for (const t of lidar)
-      displayRelays.push({
-        source: t,
-        topic: lidarDisplay(t),
-        messageType: "sensor_msgs/PointCloud2",
-      });
-  displayRelays.sort((a, b) => (a.source < b.source ? -1 : 1));
   for (const t of p.transformTopics) {
     assert(
       topic(t) && !declaredNames.has(t),
       "invalid or colliding transform topic",
     );
     declaredNames.add(t);
-    allowed.add(t);
     threeTopics[t] = visible();
     arTopics[t] = visible();
   }
@@ -500,17 +573,7 @@ function prepareLayout(input) {
       "invalid Plot message path",
     );
     assert(!path.startsWith("/xgc/display/"), "Plot reads scientific sources");
-    allowed.add(path.split(".")[0]);
   }
-  assert(
-    [...allowed].every(topic) && allowed.size <= 1024,
-    "invalid or oversized topic allowlist",
-  );
-  const allowedTopics = [...allowed].sort().join("\n");
-  assert(
-    Buffer.byteLength(allowedTopics) <= 65536,
-    "oversized topic allowlist",
-  );
   const points = robots.map((r) => [
     r.initialPose.x,
     r.initialPose.y,
@@ -704,8 +767,6 @@ function prepareLayout(input) {
   return {
     schemaVersion: 5,
     parameters: p,
-    allowedTopics,
-    displayRelays,
     layout: {
       configById,
       globalVariables: {},
@@ -725,11 +786,11 @@ function readJSONInput() {
       count = fs.readSync(0, chunk, 0, chunk.length, null);
     if (!count) break;
     total += count;
-    assert(total <= 8 * 1024 * 1024, "layout input exceeds 8 MiB");
+    assert(total <= 8 * 1024 * 1024, "view input exceeds 8 MiB");
     chunks.push(chunk.subarray(0, count));
   }
   return JSON.parse(Buffer.concat(chunks, total).toString("utf8"));
 }
-module.exports = { prepareLayout, readJSONInput };
+module.exports = { VIEWER_DEFAULTS, mapRobotFact, mapViewInput, prepareLayout, readJSONInput };
 if (require.main === module)
-  process.stdout.write(JSON.stringify(prepareLayout(readJSONInput())));
+  process.stdout.write(JSON.stringify(prepareLayout(mapViewInput(readJSONInput()))));
