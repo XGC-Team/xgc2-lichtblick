@@ -84,7 +84,7 @@ test("missing or invalid robot layout facts name the offending slot", () => {
     (r) => delete r.binding.initialPose,
     (r) => (r.binding.initialPose.x = "bad"),
     (r) => delete r.binding.hybridSource,
-    (r) => delete r.binding.simulationSensors,
+    (r) => (r.binding.simulationSensors = 3),
     (r) => delete r.asset.visualization,
     (r) => delete r.asset.visualization.visuals,
     (r) => (r.namespace = "invalid"),
@@ -96,6 +96,14 @@ test("missing or invalid robot layout facts name the offending slot", () => {
   const input = structuredClone(fixtures[0].input);
   input.robots.push(input.robots[0]);
   assert.throws(() => mapViewInput(input), /robot slot uav1: duplicate slotId/);
+});
+
+test("an absent simulationSensors member is the empty authored selection", () => {
+  const withEmpty = structuredClone(fixtures[0].input);
+  for (const robot of withEmpty.robots) robot.binding.simulationSensors = {};
+  const absent = structuredClone(withEmpty);
+  for (const robot of absent.robots) delete robot.binding.simulationSensors;
+  assert.deepEqual(prepareLayout(mapViewInput(absent)), prepareLayout(mapViewInput(withEmpty)));
 });
 
 test("display budgets select display copies in the layout and Plot keeps scientific sources", () => {

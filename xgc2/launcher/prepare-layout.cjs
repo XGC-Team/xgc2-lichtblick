@@ -113,7 +113,8 @@ function mapRobotFact(fact) {
   check(object(fact) && typeof fact.slotId === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,126}$/.test(fact.slotId), "valid slotId required");
   check(object(fact.binding), "binding required");
   check(object(fact.binding.initialPose), "binding.initialPose required");
-  check(object(fact.binding.simulationSensors), "binding.simulationSensors required");
+  // Core omits a zero-valued simulationSensors member: absent means no authored sensors.
+  check(fact.binding.simulationSensors === undefined || object(fact.binding.simulationSensors), "binding.simulationSensors must be an object");
   check(fact.binding.scout === undefined || object(fact.binding.scout), "binding.scout must be an object");
   check(object(fact.asset) && object(fact.asset.visualization), "asset.visualization required");
   return {
@@ -124,7 +125,7 @@ function mapRobotFact(fact) {
     name: typeof fact.namespace === "string" ? fact.namespace.slice(1) : undefined,
     initialPose: fact.binding.initialPose,
     hybridSource: fact.binding.hybridSource,
-    authoredSimulationSensors: fact.binding.simulationSensors,
+    authoredSimulationSensors: fact.binding.simulationSensors ?? {},
     scout: fact.binding.scout,
     visualization: fact.asset.visualization,
   };
