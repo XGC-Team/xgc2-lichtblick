@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://xgc2.dev/contracts/lichtblick/startup-input-v1",
-  "title": "Lichtblick startup input v1",
-  "description": "The one private file (mode 0600, in a directory with mode 0700, at most 16 KiB) a launcher or desktop owner is started with: --startup-input <absolute path>.",
+  "title": "Lichtblick desktop startup input v1",
+  "description": "Desktop only. The one private file (mode 0600, in a directory with mode 0700, at most 16 KiB) a desktop owner is started with: --startup-input <absolute path>.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "operator_time_zone", "storage", "assets"],
@@ -82,7 +82,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["namespace", "user", "workspace"],
-          "description": "Optional (the web launcher requires it). A scope of its own that holds only the desired view, in the same namespace and a different user or workspace; the storage credential must authorize it too. Stating a view moves this scope's revision, never the one the pages' saves are fenced by.",
+          "description": "Retained optional desktop startup field. The web launcher does not read startup input or use a view scope; its desired view lives in memory.",
           "properties": {
             "namespace": {
               "const": "lichtblick"

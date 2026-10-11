@@ -1,8 +1,8 @@
 # Automatic view control (design note)
 
 Status: design only. Nothing in this note is implemented. This change delivers the
-mechanism Core would use: a desired view that Core states and the launcher stores,
-serves and streams ([view-v1.md](../contracts/view-v1.md),
+mechanism Core would use: a desired view that Core states and the launcher keeps
+in memory, serves and streams ([view-v1.md](../contracts/view-v1.md),
 [control-service-v1.md](../contracts/control-service-v1.md)).
 
 ## Problem
@@ -16,8 +16,8 @@ follows it. Today Core can state a view, but nothing decides when.
 ## Principles
 
 1. **Core owns the policy.** Only Core knows robots, phases, alerts and the
-   operator's selection. The launcher stays a store and relay and learns nothing
-   about robots or phases. No viewer page decides what the view is.
+   operator's selection. The launcher stores and relays the desired view without
+   choosing its policy. No viewer page decides what the view is.
 2. **One writer.** Within a Run, one Core component (the view controller, below)
    writes the view; manual statements through the same service from an
    administrative tool are the only other writers. Pages never write.
@@ -25,8 +25,8 @@ follows it. Today Core can state a view, but nothing decides when.
    leaves the camera alone. The controller must not reassert a view the operator
    just changed.
 4. **Writes are cheap, honest and rare.** An unchanged statement is a no-op that
-   keeps its revision; every real change is durable before it is acknowledged;
-   the controller coalesces bursts.
+   keeps its revision; every real change is applied in memory before it is
+   acknowledged; the controller coalesces bursts.
 
 ## Proposed shape
 
@@ -77,9 +77,9 @@ so releasing the hold applies the current desired view once, not the history.
 
 ### Run boundaries
 
-The stored view outlives the launcher and the Run. At Run start Core states a full
-view (every field set from the experiment's default, or `[]` for surfaces) so the
-previous Run's choices do not leak into the next; `null` fields leave a page
+A launcher restart clears the view and resets its revision to `"0"`. At Run start
+and after a launcher restart, Core states a full view (every field set from the
+experiment's default, or `[]` for surfaces) so the previous Run's choices do not leak into the next; `null` fields leave a page
 unchanged and are therefore not a reset.
 
 ## Why not elsewhere
@@ -112,13 +112,13 @@ unchanged and are therefore not a reset.
 - Which signals count as "critical alert" belongs to the robot status
   projection, not to this design.
 - Measuring end-to-end latency from signal to camera move (event, write with
-  durable receipt, stream, page apply). Expected in the low hundreds of
-  milliseconds; the durable write dominates.
+  in-memory acknowledgement, stream, page apply). Expected in the low hundreds
+  of milliseconds; measure the actual page and stream latency.
 
 ## Verification plan
 
 A fake Core writer test (launcher level) for rule evaluation against recorded
 signals; the existing browser harness for the page side (a stated view moves the
 camera, a manual change is not reverted until the next revision); one session
-level test with a real launcher and storage that follows an alert and honours an
+level test with a real launcher that follows an alert and honours an
 override.

@@ -3,9 +3,8 @@
 The desired view is what XGC Core wants the viewer pages to show: which layout,
 which robot to follow, perspective or orthographic projection, and which
 surfaces of the embedded workspace are open. Core states it once through the
-control service; the launcher stores it with the other managed documents and
-every page reads it when it connects and hears every later change. Pages never
-write it.
+control service; the launcher keeps it in memory. Every page reads it when it
+connects and hears every later change. Pages never write it.
 
 ## The document
 
@@ -25,50 +24,30 @@ that the page keeps its own choice for that field.
 | `visibleSurfaces` | distinct embed surfaces that are open, any of `3d-tools`, `obstacle-scene`, `panel-settings`, `alerts`, `topics`, `layouts`, `variables`, `panel-controls`; at most one of the four left-sidebar surfaces (`panel-settings`, `alerts`, `topics`, `layouts`); `[]` closes everything |
 
 The launcher canonicalizes a view (fields complete, surfaces in the order above)
-so equal views are equal documents. It stores the document in the managed
-documents, family `view`, key `desired`, of the **view scope**. Its revision is the
-storage version of that document, a decimal string, `"0"` before the first
-statement. A document of another shape is ignored and replaced by the next
-statement. The document outlives the launcher: a launcher that starts again
-serves the same view with the same revision.
-
-### The view scope
-
-The view lives in a scope of its own (`storage.view_scope` of the
-[startup input](startup-input.schema.json): the same namespace, a different user
-or workspace, authorized by the same credential). The reason is the revision
-fence of the pages: every save of a page is conditional on the revision of the
-document scope as the page last saw it, so a write of anything else into that
-scope would make the next save of every open page fail with a revision conflict.
-Revisions are per scope in the storage service, so stating a view never moves the
-revision the pages are fenced by, and a page save never disturbs a view write.
-
-The document client enforces the split: a request for the document scope that
-names the `view` family is refused with `403` (so a browser cannot read or write
-the view through the document gateway, and `POST /v1/persistence` cannot either),
-and a request for the view scope names only the `view` family. The web launcher
-does not start without a view scope. The owner of the storage grants the
-credential to both scopes.
+so equal views are equal documents. The document and its decimal-string revision
+live in launcher memory. Revision is `"0"` before the first statement; the first
+statement, including an empty view, has revision `"1"`. Each changed statement
+increments it by one; an equal statement changes nothing. A restarted launcher
+starts at revision `"0"` with no view (all four fields null). Core must restate
+any desired view after restart. There is no view scope or Storage binding.
 
 ## Stating the view (control service)
 
 - `GET /v1/view` returns `{"revision":"7","view":{…}}` with all four fields.
 - `PUT /v1/view` with `{"view":{…},"expectedRevision":"7"}` replaces the view.
   `expectedRevision` is optional and makes the write conditional: another
-  revision answers `409` (`conflict`). A view equal to the stored one changes
+  revision answers `409` (`conflict`). A view equal to the current one changes
   nothing and keeps its revision (`"unchanged":true`). The reply is
-  `{"revision":"8","view":{…},"unchanged":false}`; the write is acknowledged only
-  after the storage receipt, so a view the caller was told about survives a restart.
-- Writes are serialized, and a write that loses a race with another document of
-  the same scope is read again and retried, never replayed blindly.
-- A browser cannot write the view: the document gateway refuses every request
-  that names the `view` family (`403`); pages only read it, through the routes
-  below.
+  `{"revision":"8","view":{…},"unchanged":false}` after the in-memory change.
+- Writes are serialized. A stale `expectedRevision` is refused even when the
+  proposed view equals the current one; a conflict changes no state.
+- Pages only read the view through the routes below. They cannot write it through
+  the page listener.
 
 ## Reading the view (pages)
 
 Both routes are same-origin GET routes of the launcher, under the public URL
-prefix, and follow the Origin rules of the other gateways (a declared Origin
+prefix, and follow the Origin rules of the page gateway (a declared Origin
 must be allowed; a same-origin read without one is judged by its Referer).
 
 - `GET xgc2/view` returns the current `{revision, view}` with `Cache-Control: no-store`.
@@ -78,7 +57,7 @@ must be allowed; a same-origin read without one is judged by its Referer).
   receives no repeat when it is current. A heartbeat comment keeps idle streams
   open; at most 16 streams are open, and a stream whose peer stops reading is
   dropped. The launcher ends the streams when it stops and pages reconnect to
-  the next launcher.
+  the next launcher, whose state starts at revision `"0"`.
 
 ```
 id: 8

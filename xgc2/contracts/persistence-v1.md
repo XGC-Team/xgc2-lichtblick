@@ -1,15 +1,17 @@
-# Lichtblick managed persistence v1
+# Lichtblick desktop managed persistence v1
 
-The launcher owns the same-origin `POST xgc2/storage` product gateway. It binds
-one reviewed `lichtblick` user/workspace scope to an instance-bound XRPC storage
-reference; a browser cannot supply a scope, database path, collection, SQL or
-asset path. Desktop callers use the same domain operations through their
-preload bridge. Browser storage is not consulted during ordinary startup.
+This contract is **desktop only**. The web launcher has no Storage gateway;
+its desired view is in memory and browser UI documents belong to Core's generic
+UI document API. See [the README](../README.md).
+
+Desktop main binds one reviewed `lichtblick` user/workspace scope to an
+instance-bound XRPC storage reference. Renderer callers use the domain operations
+through the preload bridge; they cannot supply a scope, database path,
+collection, SQL or asset path. Browser caches are not consulted during ordinary
+startup.
 
 Families: `layouts`, `profile`, `configuration`, `workspace`, `extensions`,
-`desktop`. The family `view` (the desired view, see [view-v1.md](view-v1.md))
-belongs to a scope of its own and is refused here: the revision of this scope
-fences the pages' saves, so nothing but the pages' documents may be written to it.
+`desktop`. The reserved `view` family is excluded from desktop document operations.
 Keys are UTF-8 identifiers, at most 480 bytes; they are not paths.
 Layout keys retain namespace and layout identity. A layout value retains the
 existing baseline/working distinction and managed Core wiring import rules.
@@ -74,34 +76,31 @@ the former database is not a requirement for the new product.
 
 ## Native startup and ownership
 
-Web launcher and desktop main require `--startup-input <absolute-private-file>`.
+Desktop main requires `--startup-input <absolute-private-file>`.
 The file is written by the process owner, has mode `0600`, lies in a directory
 with mode `0700` owned by the same user, is a single-link regular file of at most
 16 KiB and is opened without following symbolic links. It is validated against
 [startup-input.schema.json](startup-input.schema.json): current schema, exact
-scope, the scope of the desired view (required by the web launcher), a live local
-storage-v1 reference bound to one storage instance, the private file that holds
+scope, a live local storage-v1 reference bound to one storage instance, the
+private file that holds
 the storage bearer token, explicit asset access, and the operator Settings time
 zone. There is no certificate, transport, scope or
 asset-root discovery from HOME, cwd or the environment, and no TLS or token
 material of the product's own.
 
-The web launcher hosts the [control service](control-service-v1.md) on the Unix
-socket named by `--control-socket`; its owner discovers it with `describe` and
-waits for readiness there. The desktop hosts no service and prints
-`{"type":"ready"}` once its first window has loaded. Both close admission before
-releasing storage and asset resources. Core does not start a sidecar or probe.
+The desktop hosts no service and prints `{"type":"ready"}` once its first window
+has loaded. It closes admission before releasing storage and asset resources.
 
 One SDK Diagnostics owner serves all role views; its bounded stderr worker closes
-after actual host and domain work drains. The supervisor owns log rotation. The
-web launcher and the desktop consume the installed Node SDK at
+after actual host and domain work drains. The supervisor owns log rotation.
+The desktop consumes the installed Node SDK at
 `/usr/lib/xgc2/node_modules/@xgc2/xrpc` as a whole external module, preserving
 the SDK's native worker and private dependency paths. Limits are plain options of
 each client and host: storage calls are limited to 15 seconds over at most 8
 connections, ordinary drain to 16 seconds. An incomplete drain retains its
 resources and refuses to claim exit; the owner can request drain again after
-actual work has quiesced. Public bundle responses allow up to 64 MiB; document
-requests/responses are limited to 4 MiB and extension archives to 8 MiB. The
+actual work has quiesced. Document requests/responses are limited to 4 MiB and
+extension archives to 8 MiB. The
 transport enforces these byte limits; route validation does not substitute for
 them.
 
@@ -111,8 +110,8 @@ parent holds the inherited open-file-description until actual work drains.
 Linux `util-linux` is an installation dependency. A second writer fails startup;
 there is no retry, alternate directory or quota reset. A read-only grant loads
 verified immutable references without taking the writer lease and rejects
-publication. Web and desktop sharing a writable root must send operations to
-its existing single asset owner. Directory descriptors anchor IO; path replacement
+publication. Desktop processes sharing a writable root must send operations
+to its existing single asset owner. Directory descriptors anchor IO; path replacement
 cannot redirect the grant. The fixed private lease file is control state, not a
 user archive. Publication names use the operator time zone, whole wall-clock
 seconds and a bounded short sequence; recorded instants use UTC.
