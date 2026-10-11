@@ -26,9 +26,9 @@ function writeWebRoot(root) {
  * launcher as the high-level view input; `arguments` replaces the whole command
  * line, either as a list or as a function of the `{root, socketPath}` the fixture allocated.
  */
-async function startLauncher(t, { arguments: extra, environment, controlPlane = "ws://127.0.0.1:9", allowedOrigins = [ORIGIN],
+async function startLauncher(t, { runtimeDirectory, arguments: extra, environment, controlPlane = "ws://127.0.0.1:9", allowedOrigins = [ORIGIN],
   frameAncestors = "'self'", stdin = JSON.stringify(require("../launcher/testdata/frozen-layouts.json")[0].input), prepare } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lichtblick-launcher-"));
+  const root = runtimeDirectory ?? fs.mkdtempSync(path.join(os.tmpdir(), "lichtblick-launcher-"));
   const { web, buildInfo } = writeWebRoot(root);
   prepare?.({ web, root });
   const socketPath = path.join(root, "control.sock");
@@ -48,7 +48,7 @@ async function startLauncher(t, { arguments: extra, environment, controlPlane = 
   t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
     const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
-    try { await launcher.exited; } finally { clearTimeout(timer); fs.rmSync(root, { recursive: true, force: true }); }
+    try { await launcher.exited; } finally { clearTimeout(timer); if (runtimeDirectory === undefined) fs.rmSync(root, { recursive: true, force: true }); }
   });
   launcher.waitForPort = async (milliseconds = 8000) => {
     const deadline = Date.now() + milliseconds;

@@ -115,12 +115,14 @@ test("a restarted launcher starts with revision zero and no desired view", async
   assert.equal(stated.json.revision, "1");
   assert.deepEqual(await first.launcher.stop(), { code: 0, signal: null });
   assert.equal(fs.existsSync(first.socketPath), false);
-  const second = await startLauncher(t);
+  const second = await startLauncher(t, { runtimeDirectory: first.root });
+  assert.equal(second.socketPath, first.socketPath);
   await second.launcher.waitForPort();
   const page = await get(second.launcher.base, "/xgc2/view");
   assert.deepEqual(page.json, { revision: "0", view: EMPTY_VIEW });
   const next = await (await second.launcher.control()).call("PUT", "/v1/view", { body: { view, expectedRevision: "0" } });
   assert.equal(next.json.revision, "1");
+  assert.deepEqual(await second.launcher.stop(), { code: 0, signal: null });
 });
 
 test("SIGTERM ends the streams and drains; the socket goes with the process", async (t) => {
@@ -170,4 +172,21 @@ test("the launcher refuses a missing view input switch and invalid stdin", async
     assert.equal((await launcher.exited).code, 1);
     assert.match(launcher.errors, /cannot prepare web entrypoint/);
   }
+});
+
+test("the layout and desired-view gateway use the configured public URL prefix", async (t) => {
+  const { launcher } = await startLauncher(t, {
+    arguments: ({ socketPath }) => ["--control-socket", socketPath, "--view-input-stdin", "--host", "127.0.0.1", "--port", "0", "--public-url-prefix", "/viewer", "--frame-ancestors", "'self'", "--allowed-origin", ORIGIN],
+  });
+  await launcher.waitForPort();
+  assert.equal((await get(launcher.base, "/viewer/layout.json")).json.layout.first, "3D!xgc2");
+  assert.deepEqual((await get(launcher.base, "/viewer/xgc2/view")).json, { revision: "0", view: EMPTY_VIEW });
+  const stream = await openStream(launcher.base, "/viewer/xgc2/view/events");
+  t.after(() => stream.close());
+  await stream.until((s) => s.frames.length === 1);
+  assert.equal(stream.frames[0].id, "0");
+  await (await launcher.control()).call("PUT", "/v1/view", { body: { view } });
+  await stream.until((s) => s.frames.length === 2);
+  assert.equal(stream.frames[1].id, "1");
+  assert.equal((await fetch(`${launcher.base}/viewer/xgc2/storage`, { method: "POST", headers: { Origin: ORIGIN } })).status, 404);
 });

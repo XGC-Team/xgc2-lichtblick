@@ -118,6 +118,17 @@ test("rejects colliding or incremental relay declarations", () => {
   }
 });
 
+test("the frozen world boundary participates in camera framing when requested", () => {
+  const input = structuredClone(fixtures[0].input);
+  input.parameters = { frameWorldBoundary: true };
+  input.worldBoundary = { controlBounds: { xMin: -100, xMax: 100, yMin: 20, yMax: 60, zMin: 0, zMax: 30 }, groundZ: 2 };
+  const three = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"];
+  assert.deepEqual(three.layers["xgc2-grid"].position, [0, 40, 2]);
+  assert.ok(three.cameraState.distance > 100, "the camera includes the large boundary, not just one robot");
+  input.worldBoundary = null;
+  assert.deepEqual(prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].layers["xgc2-grid"].position, [0, 0, 0]);
+});
+
 test("stdin is one JSON object of at most 8 MiB", () => {
   const program = path.resolve(__dirname, "../launcher/prepare-layout.cjs");
   const json = JSON.stringify(fixtures[0].input);

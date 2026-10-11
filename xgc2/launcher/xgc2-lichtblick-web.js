@@ -911,9 +911,7 @@ async function main() {
     void close().then(
       () => process.exit(0),
       (error) => {
-        logError(
-          `shutdown incomplete: ${error.message}`,
-        );
+        logError(`shutdown incomplete: ${error.message}`);
         process.exitCode = 1;
       },
     );
@@ -949,7 +947,7 @@ async function main() {
         loadIndex,
         buildInfo,
         responseSecurityHeaders,
-              (origin) => websocketOriginAllowed(origin, allowedOrigins),
+        (origin) => websocketOriginAllowed(origin, allowedOrigins),
         initialLayout,
         views,
       ),
@@ -1041,9 +1039,7 @@ async function main() {
           process.exitCode = 1;
         },
         (drainError) => {
-          logError(
-            `shutdown incomplete: ${drainError.message}`,
-          );
+          logError(`shutdown incomplete: ${drainError.message}`);
           process.exitCode = 1;
         },
       );
