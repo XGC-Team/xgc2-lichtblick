@@ -108,14 +108,19 @@ const client = {
   beginDrain: jest.fn(),
   close: jest.fn(async () => undefined),
 };
+let output: jest.SpyInstance;
 beforeEach(() => {
   jest.clearAllMocks();
+  output = jest.spyOn(process.stdout, "write").mockImplementation(() => true);
   (Diagnostics as unknown as jest.Mock).mockImplementation(() => diagnostics);
   diagnostics.close.mockResolvedValue(undefined);
   client.close.mockResolvedValue(undefined);
   (initializeAppSettings as jest.Mock).mockResolvedValue(undefined);
   (createManagedDomainClientFromInput as jest.Mock).mockReturnValue(client);
   (loadStartupInput as jest.Mock).mockReturnValue(input);
+});
+afterEach(() => {
+  output.mockRestore();
 });
 
 function deferred(): { promise: Promise<void>; release: () => void } {
@@ -155,7 +160,6 @@ it("opens the managed storage and loads managed settings before constructing a w
   (initializeAppSettings as jest.Mock).mockImplementationOnce(async () => {
     await loading.promise;
   });
-  const output = jest.spyOn(process.stdout, "write").mockImplementation(() => true);
   const initialized = main(startupOptions);
   await flush();
   expect(loadStartupInput).toHaveBeenCalledWith(startupOptions.startupInput);
@@ -171,7 +175,6 @@ it("opens the managed storage and loads managed settings before constructing a w
   await initialized;
   expect(StudioWindow).toHaveBeenCalledTimes(1);
   expect(output).toHaveBeenCalledWith(`${JSON.stringify({ type: "ready" })}\n`);
-  output.mockRestore();
 });
 
 it("drains storage before diagnostics and exits after both have drained", async () => {
@@ -231,7 +234,6 @@ it("rejects an invalid startup input before opening a client or window", async (
 });
 
 it("does not publish readiness when the initial renderer fails to load", async () => {
-  const output = jest.spyOn(process.stdout, "write").mockImplementation(() => true);
   (StudioWindow as unknown as jest.Mock).mockImplementationOnce(() => ({
     load: jest.fn(async () => {
       throw new Error("renderer unavailable");
@@ -240,7 +242,6 @@ it("does not publish readiness when the initial renderer fails to load", async (
   }));
   await expect(main(startupOptions)).rejects.toThrow("renderer unavailable");
   expect(output).not.toHaveBeenCalled();
-  output.mockRestore();
   quit();
   await flush();
   expect(client.close).toHaveBeenCalledTimes(1);
