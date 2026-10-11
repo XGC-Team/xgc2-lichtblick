@@ -3,13 +3,19 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 
+import {
+  useCurrentLayoutActions,
+  useCurrentLayoutSelector,
+} from "@lichtblick/suite-base/context/CurrentLayoutContext";
 import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
+import { useLayoutManager } from "@lichtblick/suite-base/context/LayoutManagerContext";
 import { useWorkspaceStore } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
 
 import EmbeddedWorkspaceBridge, {
+  EMBEDDED_3D_PANEL_ATTRIBUTE,
   EMBEDDED_NAVIGATION_EVENT,
   isEmbeddedNavigationCommand,
   isEmbeddedThemeCommand,
@@ -18,12 +24,39 @@ import EmbeddedWorkspaceBridge, {
   XGC2_EMBED_SURFACES,
   XGC2_EMBED_VERSION,
   XGC2_HOST_VISIBILITY_EVENT,
+  publishNavigationState,
   type Xgc2EmbeddedHostCommand,
 } from "./EmbeddedWorkspaceBridge";
 
+jest.mock("@lichtblick/suite-base/context/CurrentLayoutContext");
+jest.mock("@lichtblick/suite-base/context/LayoutManagerContext");
 jest.mock("@lichtblick/suite-base/context/Workspace/useWorkspaceActions");
 jest.mock("@lichtblick/suite-base/context/Workspace/WorkspaceContext");
 jest.mock("@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext");
+
+/** The event stream of the desired view, driven by the test. */
+class FakeEventSource {
+  public static instances: FakeEventSource[] = [];
+  private readonly listeners = new Map<string, Set<(event: Event) => void>>();
+  public closed = false;
+  public constructor(public readonly url: string) {
+    FakeEventSource.instances.push(this);
+  }
+  public addEventListener(type: string, listener: (event: Event) => void): void {
+    this.listeners.set(type, (this.listeners.get(type) ?? new Set()).add(listener));
+  }
+  public removeEventListener(type: string, listener: (event: Event) => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+  public close(): void {
+    this.closed = true;
+  }
+  public emit(type: string, data: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(new MessageEvent(type, { data: JSON.stringify(data) }));
+    }
+  }
+}
 
 const selectLeftItem = jest.fn();
 const selectRightItem = jest.fn();
@@ -32,6 +65,9 @@ const togglePanelControls = jest.fn();
 const toggleThreeDTools = jest.fn();
 const toggleObstacleScene = jest.fn();
 const setHostTheme = jest.fn();
+const setSelectedLayoutId = jest.fn();
+const getLayout = jest.fn();
+let selectedLayoutId: string | undefined;
 
 function mockControls(
   overrides: {
@@ -93,9 +129,25 @@ describe("EmbeddedWorkspaceBridge", () => {
         right: { selectItem: selectRightItem },
       },
     } as never);
+    selectedLayoutId = undefined;
+    jest.mocked(useCurrentLayoutActions).mockReturnValue({ setSelectedLayoutId } as never);
+    jest
+      .mocked(useCurrentLayoutSelector)
+      .mockImplementation((selector) =>
+        selector({ selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined } as never),
+      );
+    jest.mocked(useLayoutManager).mockReturnValue({ getLayout } as never);
+    FakeEventSource.instances = [];
+    Object.defineProperty(globalThis, "EventSource", {
+      configurable: true,
+      value: FakeEventSource,
+    });
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(globalThis, "EventSource");
+    setSelectedLayoutId.mockReset();
+    getLayout.mockReset();
     jest.restoreAllMocks();
     selectLeftItem.mockReset();
     selectRightItem.mockReset();
@@ -525,5 +577,198 @@ describe("EmbeddedWorkspaceBridge", () => {
     expect(receive).toHaveBeenCalledTimes(1);
     expect(receive.mock.calls[0]![0].detail).toEqual(message);
     panel.remove();
+  });
+});
+
+describe("EmbeddedWorkspaceBridge desired view", () => {
+  const PANEL_ID = "ThreeDeeRender!view";
+  let panel: HTMLElement;
+  type Command = { action: string; frameId?: string; panelId: string };
+  let commands: Command[];
+
+  function emitView(revision: string, view: Record<string, unknown>) {
+    act(() => {
+      FakeEventSource.instances[0]!.emit("view", { revision, view });
+    });
+  }
+
+  /** What the native 3D panel publishes about its navigation. */
+  function reportPanel(state: { available?: boolean; perspective?: boolean; followFrameId?: string }) {
+    act(() => {
+      publishNavigationState({
+        channel: XGC2_EMBED_CHANNEL,
+        version: XGC2_EMBED_VERSION,
+        sender: "lichtblick",
+        type: "navigation-state",
+        panelId: PANEL_ID,
+        available: state.available ?? true,
+        perspective: state.perspective ?? false,
+        canGoal: false,
+        goalActive: false,
+        followFrameId: state.followFrameId,
+      });
+    });
+  }
+
+  beforeEach(() => {
+    mockSidebars({ left: { open: false }, right: { open: false } });
+    jest.mocked(useEmbeddedWorkspaceControls).mockReturnValue(mockControls());
+    jest.mocked(useWorkspaceActions).mockReturnValue({
+      sidebarActions: {
+        left: { selectItem: selectLeftItem },
+        right: { selectItem: selectRightItem },
+      },
+    } as never);
+    selectedLayoutId = undefined;
+    jest.mocked(useCurrentLayoutActions).mockReturnValue({ setSelectedLayoutId } as never);
+    jest
+      .mocked(useCurrentLayoutSelector)
+      .mockImplementation((selector) =>
+        selector({ selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined } as never),
+      );
+    jest.mocked(useLayoutManager).mockReturnValue({ getLayout } as never);
+    getLayout.mockResolvedValue({ id: "camera-ar" });
+    FakeEventSource.instances = [];
+    Object.defineProperty(globalThis, "EventSource", {
+      configurable: true,
+      value: FakeEventSource,
+    });
+    jest.spyOn(window.parent, "postMessage").mockImplementation();
+    panel = document.createElement("div");
+    panel.setAttribute(EMBEDDED_3D_PANEL_ATTRIBUTE, PANEL_ID);
+    document.body.append(panel);
+    commands = [];
+    panel.addEventListener(EMBEDDED_NAVIGATION_EVENT, (event) => {
+      commands.push((event as CustomEvent<Command>).detail);
+    });
+  });
+
+  afterEach(() => {
+    panel.remove();
+    Reflect.deleteProperty(globalThis, "EventSource");
+    setSelectedLayoutId.mockReset();
+    getLayout.mockReset();
+    selectLeftItem.mockReset();
+    selectRightItem.mockReset();
+    toggleThreeDTools.mockReset();
+    jest.restoreAllMocks();
+  });
+
+  it("follows the stream of this origin for as long as the bridge is mounted", () => {
+    const { unmount } = render(<EmbeddedWorkspaceBridge />);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(FakeEventSource.instances[0]!.url).toBe(
+      new URL("xgc2/view/events", document.baseURI).href,
+    );
+    unmount();
+    expect(FakeEventSource.instances[0]!.closed).toBe(true);
+  });
+
+  it("selects the layout, shows the surfaces and steers the panel once the layout is shown", async () => {
+    const view = render(<EmbeddedWorkspaceBridge />);
+    reportPanel({ perspective: false });
+    emitView("3", {
+      layoutId: "camera-ar",
+      followRobot: "uav1",
+      perspective: true,
+      visibleSurfaces: ["topics", "3d-tools"],
+    });
+    await waitFor(() => {
+      expect(setSelectedLayoutId).toHaveBeenCalledWith("camera-ar");
+    });
+    expect(selectLeftItem).toHaveBeenCalledWith("topics");
+    expect(toggleThreeDTools).toHaveBeenCalledTimes(1);
+    // The panel shown belongs to the layout that is being replaced.
+    expect(commands).toEqual([]);
+
+    selectedLayoutId = "camera-ar";
+    act(() => {
+      view.rerender(<EmbeddedWorkspaceBridge />);
+    });
+    expect(commands).toEqual([
+      expect.objectContaining({
+        panelId: PANEL_ID,
+        action: "follow",
+        frameId: "xgc/robots/uav1/base_link",
+      }),
+      expect.objectContaining({ panelId: PANEL_ID, action: "perspective" }),
+    ]);
+
+    // The panel reports the new camera; the operator then changes it and is left alone.
+    reportPanel({ perspective: true, followFrameId: "xgc/robots/uav1/base_link" });
+    reportPanel({ perspective: false, followFrameId: "xgc/robots/uav1/base_link" });
+    expect(commands).toHaveLength(2);
+    expect(setSelectedLayoutId).toHaveBeenCalledTimes(1);
+    expect(toggleThreeDTools).toHaveBeenCalledTimes(1);
+
+    // The same revision is not applied again, a new revision is.
+    emitView("3", { perspective: true });
+    expect(commands).toHaveLength(2);
+    emitView("4", { perspective: true });
+    expect(commands).toHaveLength(3);
+    expect(commands[2]).toEqual(expect.objectContaining({ action: "perspective" }));
+  });
+
+  it("waits for the panel and applies the camera to the first one that appears", () => {
+    render(<EmbeddedWorkspaceBridge />);
+    emitView("1", { followRobot: "ugv2" });
+    expect(commands).toEqual([]);
+    reportPanel({ available: false });
+    expect(commands).toEqual([]);
+    reportPanel({ available: true });
+    expect(commands).toEqual([
+      expect.objectContaining({ action: "follow", frameId: "xgc/robots/ugv2/base_link" }),
+    ]);
+  });
+
+  it("does not steer when no panel, or more than one, can be navigated", () => {
+    render(<EmbeddedWorkspaceBridge />);
+    emitView("1", { perspective: true });
+    act(() => {
+      for (const panelId of [PANEL_ID, "ThreeDeeRender!other"]) {
+        publishNavigationState({
+          channel: XGC2_EMBED_CHANNEL,
+          version: XGC2_EMBED_VERSION,
+          sender: "lichtblick",
+          type: "navigation-state",
+          panelId,
+          available: true,
+          perspective: false,
+          canGoal: false,
+          goalActive: false,
+          followFrameId: undefined,
+        });
+      }
+    });
+    expect(commands).toEqual([]);
+  });
+
+  it("applies the rest of the view when the layout does not exist", async () => {
+    getLayout.mockResolvedValue(undefined);
+    render(<EmbeddedWorkspaceBridge />);
+    reportPanel({ perspective: true });
+    emitView("2", { layoutId: "gone", followRobot: "uav1" });
+    await waitFor(() => {
+      expect(commands).toEqual([
+        expect.objectContaining({ action: "follow", frameId: "xgc/robots/uav1/base_link" }),
+      ]);
+    });
+    expect(setSelectedLayoutId).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("does not exist: gone"));
+    (console.warn as jest.Mock).mockClear();
+  });
+
+  it("leaves the page alone for a view it cannot read and for fields it does not state", () => {
+    render(<EmbeddedWorkspaceBridge />);
+    reportPanel({ perspective: false });
+    act(() => {
+      FakeEventSource.instances[0]!.emit("view", { revision: "1", view: { unknown: 1 } });
+    });
+    emitView("2", {});
+    expect(selectLeftItem).not.toHaveBeenCalled();
+    expect(setSelectedLayoutId).not.toHaveBeenCalled();
+    expect(commands).toEqual([]);
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    (console.warn as jest.Mock).mockClear();
   });
 });

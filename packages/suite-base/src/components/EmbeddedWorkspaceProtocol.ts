@@ -8,6 +8,19 @@
 export const XGC2_EMBED_CHANNEL = "xgc2.lichtblick.embed";
 export const XGC2_EMBED_VERSION = 2;
 
+export const XGC2_EMBED_SURFACES = [
+  "3d-tools",
+  "obstacle-scene",
+  "panel-settings",
+  "alerts",
+  "topics",
+  "layouts",
+  "variables",
+  "panel-controls",
+] as const;
+
+export type Xgc2EmbeddedSurface = (typeof XGC2_EMBED_SURFACES)[number];
+
 /**
  * The host page may embed the viewer from a different site (loopback alias for
  * renderer-process isolation). It passes its origin as xgc2ParentOrigin; fall
@@ -61,3 +74,45 @@ export function isXgc2EmbeddedVisibilityMessage(
 
 /** Window event the bridge re-broadcasts host visibility as; every embedded 3D panel listens. */
 export const XGC2_HOST_VISIBILITY_EVENT = "xgc2.lichtblick.host-visibility";
+
+/** What an embedded native 3D panel reports about its navigation. */
+export type Xgc2EmbeddedNavigationState = {
+  channel: typeof XGC2_EMBED_CHANNEL;
+  version: typeof XGC2_EMBED_VERSION;
+  sender: "lichtblick";
+  type: "navigation-state";
+  panelId: string;
+  available: boolean;
+  perspective: boolean;
+  canGoal: boolean;
+  goalActive: boolean;
+  followFrameId: string | undefined;
+};
+
+/** Window event carrying the same state to the bridge of this page. */
+export const XGC2_NAVIGATION_STATE_EVENT = "xgc2.lichtblick.navigation-state";
+
+/** Tells the host, and the bridge in this page, the navigation state of one native 3D panel. */
+export function publishNavigationState(state: Xgc2EmbeddedNavigationState): void {
+  window.parent.postMessage(state, embeddedParentOrigin());
+  window.dispatchEvent(new CustomEvent(XGC2_NAVIGATION_STATE_EVENT, { detail: state }));
+}
+
+export function isXgc2EmbeddedNavigationState(
+  value: unknown,
+): value is Xgc2EmbeddedNavigationState {
+  if (typeof value !== "object" || value == undefined || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    record.channel === XGC2_EMBED_CHANNEL &&
+    record.version === XGC2_EMBED_VERSION &&
+    record.sender === "lichtblick" &&
+    record.type === "navigation-state" &&
+    typeof record.panelId === "string" &&
+    typeof record.available === "boolean" &&
+    typeof record.perspective === "boolean" &&
+    (record.followFrameId == undefined || typeof record.followFrameId === "string")
+  );
+}

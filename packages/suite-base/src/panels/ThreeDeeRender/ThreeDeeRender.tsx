@@ -40,6 +40,7 @@ import {
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_VERSION,
   embeddedParentOrigin,
+  publishNavigationState,
   type EmbeddedNavigationCommand,
   XGC2_HOST_VISIBILITY_EVENT,
 } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
@@ -1137,21 +1138,18 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     if (!embeddedPanelId || interfaceMode !== "3d" || window.parent === window) {
       return;
     }
-    window.parent.postMessage(
-      {
-        channel: XGC2_EMBED_CHANNEL,
-        version: XGC2_EMBED_VERSION,
-        sender: "lichtblick",
-        type: "navigation-state",
-        panelId: embeddedPanelId,
-        available: navigationAvailable,
-        perspective: config.cameraState.perspective,
-        canGoal: goalAvailable,
-        goalActive: publishActive && renderer?.publishClickTool.publishClickType === "pose",
-        followFrameId: config.followMode === "follow-none" ? undefined : config.followTf,
-      },
-      embeddedParentOrigin(),
-    );
+    publishNavigationState({
+      channel: XGC2_EMBED_CHANNEL,
+      version: XGC2_EMBED_VERSION,
+      sender: "lichtblick",
+      type: "navigation-state",
+      panelId: embeddedPanelId,
+      available: navigationAvailable,
+      perspective: config.cameraState.perspective,
+      canGoal: goalAvailable,
+      goalActive: publishActive && renderer?.publishClickTool.publishClickType === "pose",
+      followFrameId: config.followMode === "follow-none" ? undefined : config.followTf,
+    });
   }, [
     embeddedPanelId,
     interfaceMode,
@@ -1178,21 +1176,18 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
       ) {
         return;
       }
-      window.parent.postMessage(
-        {
-          channel: XGC2_EMBED_CHANNEL,
-          version: XGC2_EMBED_VERSION,
-          sender: "lichtblick",
-          type: "navigation-state",
-          panelId: embeddedPanelId,
-          available: false,
-          perspective: config.cameraState.perspective,
-          canGoal: false,
-          goalActive: false,
-          followFrameId: undefined,
-        },
-        embeddedParentOrigin(),
-      );
+      publishNavigationState({
+        channel: XGC2_EMBED_CHANNEL,
+        version: XGC2_EMBED_VERSION,
+        sender: "lichtblick",
+        type: "navigation-state",
+        panelId: embeddedPanelId,
+        available: false,
+        perspective: config.cameraState.perspective,
+        canGoal: false,
+        goalActive: false,
+        followFrameId: undefined,
+      });
     };
   }, [embeddedPanelId, interfaceMode, config.cameraState.perspective]);
   useEffect(() => {
