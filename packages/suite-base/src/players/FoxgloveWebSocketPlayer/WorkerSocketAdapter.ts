@@ -25,12 +25,21 @@ export default class WorkerSocketAdapter implements IWebSocket {
     this.#sendToWorker({ type: "open", data: { wsUrl, protocols } });
 
     this.#worker.onerror = (ev) => {
+      if (this.#connectionClosed) {
+        return;
+      }
       if (this.onerror) {
         this.onerror(ev);
       }
+      this.#connectionClosed = true;
+      this.#worker.terminate();
+      this.onclose?.({ code: 1006 });
     };
 
     this.#worker.onmessage = (event: MessageEvent<FromWorkerMessage>) => {
+      if (this.#connectionClosed) {
+        return;
+      }
       switch (event.data.type) {
         case "open":
           if (this.onopen) {

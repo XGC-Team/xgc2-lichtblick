@@ -229,6 +229,11 @@ docker run "${docker_run_args[@]}" \
       "${tests}/test_process_definition.cjs" \
       /workspace/source/xgc2/desktop/tests/test_startup_input.cjs \
       /workspace/source/xgc2/desktop/tests/test_asset_lease.cjs
+    # One CI cell runs the tagged sixty-second bridge outage check.
+    if [[ "${PACKAGE_DISTRIBUTION}" == noble && "${TARGET_ARCH}" == amd64 ]]; then
+      XGC2_RECONNECT_LONG_TEST=1 NODE_PATH=/usr/lib/xgc2/node_modules \
+        nice -n 19 node --test --test-concurrency=2 "${tests}/test_bridge_reconnect.cjs"
+    fi
     /workspace/source/.xgc2/scripts/smoke_test_installed.sh
     /workspace/source/.xgc2/scripts/smoke_test_web_installed.sh
     apt-get purge -y xgc2-lichtblick xgc2-lichtblick-web

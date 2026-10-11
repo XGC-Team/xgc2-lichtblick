@@ -83,6 +83,17 @@ describe("WorkerSocketAdapter", () => {
     }).toThrow("Can't send message over closed websocket connection");
   });
 
+  it("terminates a failed worker and reports one close so the player can reconnect", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    socket.onerror = jest.fn();
+    socket.onclose = jest.fn();
+    workerMock.onerror(new Error("worker failed"));
+    workerMock.onmessage?.({ data: { type: "close", data: { code: 1006 } } });
+    expect(socket.onerror).toHaveBeenCalledTimes(1);
+    expect(socket.onclose).toHaveBeenCalledTimes(1);
+    expect(workerMock.terminate).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     [
       {

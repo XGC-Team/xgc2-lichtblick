@@ -75,6 +75,18 @@ browser page will persist layouts, settings and extension assets through Core's
 The launcher serves no Storage gateway, extension archives or operator time zone;
 the page takes its time zone from settings.
 
+The launcher is ready as soon as its control socket and page listener are usable,
+even if the bridge at the pre-allocated `bridgePort` has not started. The XRPC
+proxy opens a fresh upstream only for a browser connection. A refused upstream
+ends the pending upgrade with HTTP 502; an established upstream close is relayed
+as a WebSocket close. The page auto-connects to its same-origin proxy URL and
+shows the existing reconnecting indicator during an outage. Its one retry timer
+uses exponential full jitter from 250 ms to a 30 second cap and resets on an
+upstream connection. Failure logs are limited to one line per ten seconds with
+suppressed counts. Subscriptions and publishers retain their latest local
+desired revision and are replayed once on a new connection; disconnected live
+messages are discarded.
+
 This launcher cutover is intentionally not releasable until the later page
 migration lands after Core's UI document API exists. Page persistence still
 requests removed routes in this intermediate tree. The product version remains
@@ -147,6 +159,26 @@ SDK path is absent, point `NODE_PATH` at a private directory containing
 `@xgc2/xrpc` linked to the SDK's `node` directory in the foundation or XRPC
 checkout. Keep that checkout read-only. Tests use temporary private sockets,
 random listener ports and stop and wait for the processes they start.
+
+The page/bridge reconnect checks additionally need TypeScript and the player's
+runtime dependencies from a Yarn install (or an isolated test prefix on
+`NODE_PATH`). They run the production player and browser worker in Node with
+the real Foxglove protocol client; only the logger and JSON schema codec are
+test doubles. Node 22.16+ is required for these checks.
+
+```bash
+NODE_PATH=/usr/lib/xgc2/node_modules nice -n 19 node --test --test-concurrency=2 \
+  xgc2/tests/test_bridge_reconnect.cjs
+XGC2_RECONNECT_LONG_TEST=1 NODE_PATH=/usr/lib/xgc2/node_modules \
+  nice -n 19 node --test --test-concurrency=2 xgc2/tests/test_bridge_reconnect.cjs
+```
+
+The first command skips the `[long]` test. The second holds the bridge down for
+60 seconds, measures page and launcher CPU, threads and file descriptors, limits
+attempts and log lines, then checks recovery and a single replay of the latest
+desired state. It uses a deterministic middle-of-range jitter draw; the fast
+decision test checks the full jitter range. The Noble amd64 APT CI cell runs the
+long command after package installation; other cells retain their fast checks.
 
 Browser behavior, bundles and actual Debian build/install checks are deferred
 until the page migration is ready. Desktop's installed smoke fixture remains

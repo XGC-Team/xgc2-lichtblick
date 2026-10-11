@@ -58,6 +58,7 @@ self.onmessage = (event: MessageEvent<ToWorkerMessage>) => {
           type: "error",
           error: err ?? { message: "Insecure WebSocket connection" },
         });
+        send({ type: "close", data: { code: 1006 } });
       }
       break;
     case "close":

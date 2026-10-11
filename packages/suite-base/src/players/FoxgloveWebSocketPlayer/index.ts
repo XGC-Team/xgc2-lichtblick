@@ -87,6 +87,7 @@ import {
   makeSceneLayerClearEvent,
   PARKED_FRAME_MAXIMUM_SIZE_BYTES,
 } from "./parkedParsePause";
+import { reconnectDelay } from "./reconnect";
 import {
   isDeferredSnapshotEvent,
   isSnapshotStateSchema,
@@ -156,6 +157,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #serverPublishesTime = false;
 
   #unresolvedSubscriptions = new Set<string>();
+  #subscriptionTopics = new Set<string>();
+  #subscriptionRevision = 0;
+  #appliedSubscriptionRevision?: number;
   #resolvedSubscriptionsByTopic = new Map<string, SubscriptionId>();
   #resolvedSubscriptionsById = new Map<SubscriptionId, ResolvedChannel>();
   #channelsByTopic = new Map<string, ResolvedChannel>();
@@ -164,9 +168,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #recentlyCanceledSubscriptions = new Set<SubscriptionId>();
   #parameters = new Map<string, ParameterValue>();
   #getParameterInterval?: ReturnType<typeof setInterval>;
-  #openTimeout?: ReturnType<typeof setInterval>;
-  #connectionAttemptTimeout?: ReturnType<typeof setInterval>;
-  #unresolvedPublications: AdvertiseOptions[] = [];
+  #openTimeout?: ReturnType<typeof setTimeout>;
+  #connectionAttemptTimeout?: ReturnType<typeof setTimeout>;
+  #reconnectAttempt = 0;
+  #lastReconnectLogAt?: number;
+  #suppressedReconnectFailures = 0;
+  #publishers: AdvertiseOptions[] = [];
+  #publisherRevision = 0;
+  #appliedPublisherRevision?: number;
   #publicationsByTopic = new Map<string, Publication>();
   #serviceCallEncoding?: string;
   #servicesByName = new Map<string, ResolvedService>();
@@ -212,37 +221,42 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   #open = (): void => {
-    if (this.#closed) {
+    this.#openTimeout = undefined;
+    if (this.#closed || this.#client != undefined) {
       return;
     }
-    if (this.#client != undefined) {
-      throw new Error(`Attempted to open a second Foxglove WebSocket connection`);
-    }
-    log.info(`Opening connection to ${this.#url}`);
-
-    // Set a timeout to abort the connection if we are still not connected by then.
-    // This will abort hanging connection attempts that can for whatever reason not
-    // establish a connection with the server.
-    this.#connectionAttemptTimeout = setTimeout(() => {
-      this.#client?.close();
-    }, 10000);
 
     const subprotocols = [FoxgloveClient.SUPPORTED_SUBPROTOCOL, "foxglove.sdk.v1"];
 
-    this.#client = new FoxgloveClient({
-      ws:
-        typeof Worker !== "undefined"
-          ? new WorkerSocketAdapter(this.#url, subprotocols)
-          : (new WebSocket(this.#url, subprotocols) as IWebSocket),
-    });
+    let client: FoxgloveClient;
+    try {
+      client = new FoxgloveClient({
+        ws:
+          typeof Worker !== "undefined"
+            ? new WorkerSocketAdapter(this.#url, subprotocols)
+            : (new WebSocket(this.#url, subprotocols) as IWebSocket),
+      });
+    } catch {
+      this.#reconnect();
+      return;
+    }
+    this.#client = client;
+    // A hung handshake must also release the worker and allow another attempt.
+    this.#connectionAttemptTimeout = setTimeout(() => {
+      if (this.#client === client) {
+        this.#reconnect();
+      }
+    }, 10000);
 
     this.#client.on("open", () => {
-      if (this.#closed) {
+      if (this.#closed || this.#client !== client) {
         return;
       }
       if (this.#connectionAttemptTimeout != undefined) {
         clearTimeout(this.#connectionAttemptTimeout);
+        this.#connectionAttemptTimeout = undefined;
       }
+      this.#reconnectAttempt = 0;
       this.#presence = PlayerPresence.PRESENT;
       this.#resetSessionState();
       this.#alerts.clear();
@@ -251,11 +265,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#servicesByName.clear();
       this.#serviceResponseCbs.clear();
       this.#publicationsByTopic.clear();
-      for (const topic of this.#resolvedSubscriptionsByTopic.keys()) {
-        this.#unresolvedSubscriptions.add(topic);
-      }
+      this.#appliedPublisherRevision = undefined;
+      this.#appliedSubscriptionRevision = undefined;
+      this.#unresolvedSubscriptions = new Set(this.#subscriptionTopics);
       this.#resolvedSubscriptionsById.clear();
       this.#resolvedSubscriptionsByTopic.clear();
+      this.#serverCapabilities = [];
+      this.#playerCapabilities = [];
+      this.#supportedEncodings = undefined;
 
       // Re-assign members that are emitted as player state
       this.#profile = undefined;
@@ -265,10 +282,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#datatypes = new Map();
       this.#parameters = new Map();
       this.#ishighFrequencyMessage = false;
+      this.#emitState();
     });
 
     this.#client.on("error", (err) => {
-      log.error(err);
+      if (this.#closed || this.#client !== client) {
+        return;
+      }
 
       if (
         (err as unknown as undefined | { message?: string })?.message != undefined &&
@@ -291,31 +311,10 @@ export default class FoxgloveWebSocketPlayer implements Player {
     // Note: We explicitly avoid clearing state like start/end times, datatypes, etc to preserve
     // this during a disconnect event. Any necessary state clearing is handled once a new connection
     // is established
-    this.#client.on("close", (event) => {
-      log.info("Connection closed:", event);
-      this.#presence = PlayerPresence.RECONNECTING;
-
-      if (this.#getParameterInterval != undefined) {
-        clearInterval(this.#getParameterInterval);
-        this.#getParameterInterval = undefined;
+    this.#client.on("close", () => {
+      if (this.#client === client) {
+        this.#reconnect();
       }
-      if (this.#connectionAttemptTimeout != undefined) {
-        clearTimeout(this.#connectionAttemptTimeout);
-      }
-
-      this.#client?.close();
-      this.#client = undefined;
-
-      this.#alerts.addAlert("ws:connection-failed", {
-        severity: "error",
-        message: "Connection failed",
-        tip: `Check that the WebSocket server at ${
-          this.#url
-        } is reachable and supports protocol version one of: ${subprotocols.join(", ")}.`,
-      });
-
-      this.#emitState();
-      this.#openTimeout = setTimeout(this.#open, 3000);
     });
 
     this.#client.on("serverInfo", (event) => {
@@ -992,6 +991,46 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#emitState();
   }
 
+  #reconnect(): void {
+    if (this.#closed || this.#openTimeout != undefined) {
+      return;
+    }
+    const client = this.#client;
+    this.#client = undefined;
+    client?.close();
+    if (this.#connectionAttemptTimeout != undefined) {
+      clearTimeout(this.#connectionAttemptTimeout);
+      this.#connectionAttemptTimeout = undefined;
+    }
+    if (this.#getParameterInterval != undefined) {
+      clearInterval(this.#getParameterInterval);
+      this.#getParameterInterval = undefined;
+    }
+    // Retain only the latest desired subscriptions, never disconnected message history.
+    this.#unresolvedSubscriptions = new Set(this.#subscriptionTopics);
+    this.#resolvedSubscriptionsById.clear();
+    this.#resolvedSubscriptionsByTopic.clear();
+    this.#parsedMessages.clear();
+    this.#presence = PlayerPresence.RECONNECTING;
+    // RECONNECTING drives the existing waiting indicator without a modal or per-attempt alert log.
+    this.#alerts.removeAlert("ws:connection-failed");
+    const now = Date.now();
+    if (this.#lastReconnectLogAt == undefined || now - this.#lastReconnectLogAt >= 10_000) {
+      log.warn(
+        `WebSocket ${this.#url} disconnected; retrying (${this.#suppressedReconnectFailures} suppressed failures)`,
+      );
+      this.#lastReconnectLogAt = now;
+      this.#suppressedReconnectFailures = 0;
+    } else {
+      this.#suppressedReconnectFailures++;
+    }
+    this.#emitState();
+    this.#openTimeout = setTimeout(
+      this.#open,
+      reconnectDelay(this.#reconnectAttempt++, Math.random()),
+    );
+  }
+
   // Update the message count for this topic. Count in place: #emitState
   // is debounced, so cloning the Map per message would almost always be
   // discarded. A fresh Map identity is minted only when state is emitted.
@@ -1100,6 +1139,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#unsubscribeParkedSignal?.();
     this.#unsubscribeParkedSignal = undefined;
     this.#client?.close();
+    this.#client = undefined;
+    if (this.#connectionAttemptTimeout != undefined) {
+      clearTimeout(this.#connectionAttemptTimeout);
+      this.#connectionAttemptTimeout = undefined;
+    }
     if (this.#openTimeout != undefined) {
       clearTimeout(this.#openTimeout);
       this.#openTimeout = undefined;
@@ -1113,8 +1157,15 @@ export default class FoxgloveWebSocketPlayer implements Player {
   public setSubscriptions(subscriptions: SubscribePayload[]): void {
     this.#snapshotCoalescingTopics = snapshotCoalescingTopics(subscriptions);
     const newTopics = new Set(subscriptions.map(({ topic }) => topic));
+    if (
+      newTopics.size !== this.#subscriptionTopics.size ||
+      [...newTopics].some((topic) => !this.#subscriptionTopics.has(topic))
+    ) {
+      this.#subscriptionTopics = newTopics;
+      this.#subscriptionRevision++;
+    }
 
-    if (!this.#client || this.#closed) {
+    if (!this.#client || this.#closed || this.#presence !== PlayerPresence.PRESENT) {
       // Remember requested subscriptions so we can retry subscribing when
       // the client is available.
       this.#unresolvedSubscriptions = newTopics;
@@ -1123,6 +1174,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
           this.#parkedSceneTopics.delete(topic);
         }
       }
+      return;
+    }
+    if (this.#appliedSubscriptionRevision === this.#subscriptionRevision) {
       return;
     }
 
@@ -1168,7 +1222,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   #processUnresolvedSubscriptions() {
-    if (!this.#client) {
+    if (!this.#client || this.#presence !== PlayerPresence.PRESENT) {
       return;
     }
 
@@ -1188,6 +1242,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#resolvedSubscriptionsByTopic.set(topic, subId);
         this.#resolvedSubscriptionsById.set(subId, chanInfo);
       }
+    }
+    if (this.#unresolvedSubscriptions.size === 0) {
+      this.#appliedSubscriptionRevision = this.#subscriptionRevision;
     }
   }
 
@@ -1282,14 +1339,21 @@ export default class FoxgloveWebSocketPlayer implements Player {
   public setPublishers(publishers: AdvertiseOptions[]): void {
     // Filter out duplicates.
     const uniquePublications = _.uniqWith(publishers, _.isEqual);
+    if (!_.isEqual(uniquePublications, this.#publishers)) {
+      this.#publishers = uniquePublications;
+      this.#publisherRevision++;
+    }
 
     // Save publications and return early if we are not connected or the advertise capability is missing.
     if (
       !this.#client ||
       this.#closed ||
+      this.#presence !== PlayerPresence.PRESENT ||
       !this.#playerCapabilities.includes(PLAYER_CAPABILITIES.advertise)
     ) {
-      this.#unresolvedPublications = uniquePublications;
+      return;
+    }
+    if (this.#appliedPublisherRevision === this.#publisherRevision) {
       return;
     }
 
@@ -1319,6 +1383,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     for (const publication of newPublications) {
       this.#advertiseChannel(publication);
     }
+    this.#appliedPublisherRevision = this.#publisherRevision;
 
     if (removedPublications.length > 0 || newPublications.length > 0) {
       this.#emitState();
@@ -1488,23 +1553,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   #setupPublishers(): void {
-    // This function will be called again once a connection is established
-    if (!this.#client || this.#closed) {
-      return;
-    }
-
-    if (this.#unresolvedPublications.length === 0) {
-      return;
-    }
-
     this.#alerts.removeAlerts((id) => id.startsWith("pub:"));
-
-    for (const publication of this.#unresolvedPublications) {
-      this.#advertiseChannel(publication);
-    }
-
-    this.#unresolvedPublications = [];
-    this.#emitState();
+    this.setPublishers(this.#publishers);
   }
 
   #advertiseChannel(publication: AdvertiseOptions) {

@@ -92,6 +92,8 @@ test("every other call needs a ready launcher and the live instance", async (t) 
   // The instance fence rejects a caller of another process before any dispatch.
   assert.equal((await rawCall(socketPath, "GET", "/v1/view")).status, 409);
   assert.equal((await rawCall(socketPath, "GET", "/v1/view", { instance: "previous-instance" })).status, 409);
+  assert.equal((await rawCall(socketPath, "GET", "/v1/describe?wait_ready_ms=5000")).status, 200);
+  // An explicitly supplied stale instance is fenced even on a discovery path.
   assert.equal((await call("GET", "/v1/describe?wait_ready_ms=5000", { instance: "previous-instance" })).status, 409);
   assert.equal((await call("GET", "/v1/nothing")).status, 404);
   assert.equal((await call("DELETE", "/v1/view")).status, 404);
