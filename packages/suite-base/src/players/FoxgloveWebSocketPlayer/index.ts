@@ -107,6 +107,7 @@ import {
 const log = Log.getLogger(__dirname);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const SUBPROTOCOLS = [FoxgloveClient.SUPPORTED_SUBPROTOCOL, "foxglove.sdk.v1"];
 
 export default class FoxgloveWebSocketPlayer implements Player {
   readonly #sourceId: string;
@@ -171,6 +172,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #openTimeout?: ReturnType<typeof setTimeout>;
   #connectionAttemptTimeout?: ReturnType<typeof setTimeout>;
   #reconnectAttempt = 0;
+  #connectionFailedShown = false;
   #lastReconnectLogAt?: number;
   #suppressedReconnectFailures = 0;
   #publishers: AdvertiseOptions[] = [];
@@ -226,7 +228,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       return;
     }
 
-    const subprotocols = [FoxgloveClient.SUPPORTED_SUBPROTOCOL, "foxglove.sdk.v1"];
+    const subprotocols = SUBPROTOCOLS;
 
     let client: FoxgloveClient;
     try {
@@ -260,6 +262,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#presence = PlayerPresence.PRESENT;
       this.#resetSessionState();
       this.#alerts.clear();
+      this.#connectionFailedShown = false;
       this.#channelsById.clear();
       this.#channelsByTopic.clear();
       this.#servicesByName.clear();
@@ -301,6 +304,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
             this.#url
           } is reachable and supports protocol version one of: ${subprotocols.join(", ")}.`,
         });
+        this.#connectionFailedShown = false;
         this.#emitState();
       }
     });
@@ -1012,8 +1016,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#resolvedSubscriptionsByTopic.clear();
     this.#parsedMessages.clear();
     this.#presence = PlayerPresence.RECONNECTING;
-    // RECONNECTING drives the existing waiting indicator without a modal or per-attempt alert log.
-    this.#alerts.removeAlert("ws:connection-failed");
+    // The alert stays up for the whole outage. Adding it logs, so it is added once per outage.
+    if (!this.#connectionFailedShown) {
+      this.#alerts.addAlert("ws:connection-failed", {
+        severity: "error",
+        message: "Connection failed",
+        tip: `Check that the WebSocket server at ${
+          this.#url
+        } is reachable and supports protocol version one of: ${SUBPROTOCOLS.join(", ")}.`,
+      });
+      this.#connectionFailedShown = true;
+    }
     const now = Date.now();
     if (this.#lastReconnectLogAt == undefined || now - this.#lastReconnectLogAt >= 10_000) {
       log.warn(

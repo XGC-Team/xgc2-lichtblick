@@ -100,6 +100,13 @@ test("the launcher is ready and safely refuses an early client, then proxies fre
   assert.equal(launcher.errors, "");
 });
 
+function assertConnectionFailedAlert(alerts, url) {
+  const failed = (alerts ?? []).filter((alert) => alert.message === "Connection failed");
+  assert.equal(failed.length, 1, "the unchanged Connection failed alert is shown during the outage");
+  assert.equal(failed[0].severity, "error");
+  assert.ok(failed[0].tip.startsWith(`Check that the WebSocket server at ${url} is reachable and supports protocol version one of: `));
+}
+
 for (const workers of [true, false]) test(`the page retries a late bridge and replays only the latest desired revision once per new connection (${workers ? "worker" : "native"} socket)`, async (t) => {
   const port = await unusedPort();
   const { launcher } = await startLauncher(t, { controlPlane: `ws://127.0.0.1:${port}` });
@@ -111,7 +118,7 @@ for (const workers of [true, false]) test(`the page retries a late bridge and re
   harness.player.setSubscriptions([{ topic: "/first" }]);
   harness.player.setPublishers([{ topic: "/publish-first", schemaName: "test.Value" }]);
   await until(() => harness.stats.latest?.presence === "RECONNECTING");
-  assert.equal(harness.stats.latest.alerts.length, 0);
+  assertConnectionFailedAlert(harness.stats.latest.alerts, `${launcher.base.replace("http:", "ws:")}/ws`);
   const first = await bridge(t, port);
   await until(() => first.received.length === 2, 5000, () => JSON.stringify({
     presence: harness.stats.latest?.presence, attempts: harness.stats.attempts, activeWorkers: harness.stats.activeWorkers,
@@ -119,6 +126,7 @@ for (const workers of [true, false]) test(`the page retries a late bridge and re
     logs: logs.slice(-6).map((entry) => `${entry.level}: ${entry.args.map(String).join(" ").slice(0, 160)}`),
   }));
   assert.equal(harness.stats.latest.presence, "PRESENT");
+  assert.ok(!(harness.stats.latest.alerts ?? []).some((alert) => alert.message === "Connection failed"), "the alert clears once connected");
   assert.equal(first.connections, 1);
   await first.stop();
   await until(() => harness.stats.latest?.presence === "RECONNECTING");
@@ -137,7 +145,9 @@ for (const workers of [true, false]) test(`the page retries a late bridge and re
   await delay(150);
   assert.equal(restarted.received.length, 2, "the same applied revision is not replayed again");
   assert.ok(harness.stats.maximumWorkers <= 1, "one attempt in flight");
-  assert.equal(logs.length, 1, "short outages share the ten-second log limit");
+  assert.deepEqual(logs.map((entry) => entry.level), ["error", "warn", "error"],
+    "each outage logs its alert once and short outages share one ten-second summary");
+  for (const entry of [logs[0], logs[2]]) assert.deepEqual(entry.args.slice(0, 2).map(String), ["Player alert", "ws:connection-failed"]);
   await harness.stop();
   const attempts = harness.stats.attempts;
   await delay(300);
@@ -162,7 +172,7 @@ test("constructor and worker failures release the worker and feed the same recon
   assert.equal(frames[1].data.code, 1006);
   await until(() => thrown >= 2);
   assert.equal(harness.stats.latest.presence, "RECONNECTING", "a direct constructor failure also retries");
-  assert.equal(harness.stats.latest.alerts.length, 0);
+  assertConnectionFailedAlert(harness.stats.latest.alerts, `ws://127.0.0.1:${port}`);
   let worker, terminated = 0, errors = 0, closed = 0;
   harness.context.Worker = class {
     constructor() { worker = this; }
@@ -244,7 +254,10 @@ test("[long] a bridge down for sixty seconds stays idle and bounded, then recove
   }
   assert.ok(stats.attempts <= 15, `bounded attempts: ${stats.attempts}`);
   assert.ok(stats.maximumWorkers <= 1);
-  const lines = errors.trim().split("\n").filter(Boolean);
+  const blocks = errors.trim().split(/\n(?=[^\s}])/).filter(Boolean);
+  const alertBlocks = blocks.filter((block) => block.startsWith("Player alert ws:connection-failed"));
+  const lines = blocks.filter((block) => !block.startsWith("Player alert ws:connection-failed"));
+  assert.equal(alertBlocks.length, 1, "the Connection failed alert is logged once for the whole outage");
   assert.ok(lines.length <= 7, `bounded outage logs: ${lines.length}`);
   assert.ok(lines.every((line) => line.includes("suppressed failures")), errors);
   assert.equal(output, "");
