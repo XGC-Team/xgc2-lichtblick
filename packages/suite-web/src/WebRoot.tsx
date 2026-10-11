@@ -40,7 +40,6 @@ export function WebRoot(props: {
     () =>
       new ManagedAppConfiguration(getManagedDocumentStore(), {
         [AppSetting.SHOW_DEBUG_PANELS]: isDevelopment,
-        [AppSetting.TIMEZONE]: "system",
       }),
     [],
   );

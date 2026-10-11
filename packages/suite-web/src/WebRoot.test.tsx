@@ -21,7 +21,7 @@ jest.mock("@lichtblick/suite-base", () => {
   const Stub = jest.fn();
   return {
     __esModule: true,
-    AppSetting: { SHOW_DEBUG_PANELS: "showDebugPanels", TIMEZONE: "timezone" },
+    AppSetting: { SHOW_DEBUG_PANELS: "showDebugPanels" },
     ManagedExtensionLoader: Stub,
     FoxgloveWebSocketDataSourceFactory: Stub,
     McapLocalDataSourceFactory: Stub,
@@ -61,10 +61,10 @@ describe("WebRoot", () => {
       </WebRoot>,
     );
 
-  it("initializes configuration from the loaded store with the browser's system time zone default", () => {
+  it("initializes configuration from the loaded store and leaves the time zone to browser detection", () => {
     renderWebRoot();
     const configuration = mockSharedRootProps[0]!.appConfiguration as IAppConfiguration;
-    expect(configuration.get("timezone")).toBe("system");
+    expect(configuration.get("timezone")).toBeUndefined();
     expect(mockStore.get).toHaveBeenCalledWith("configuration", "timezone");
     expect(mockStore.subscribe).toHaveBeenCalledTimes(1);
   });
