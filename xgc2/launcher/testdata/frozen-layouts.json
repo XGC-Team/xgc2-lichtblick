@@ -41,7 +41,9 @@
           },
           "asset": {
             "name": "Fixture uav1",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/fs150_visual.urdf",
               "descriptionPackage": "fs150_description",
@@ -411,7 +413,9 @@
           },
           "asset": {
             "name": "Fixture uav1",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/fs150_visual.urdf",
               "descriptionPackage": "fs150_description",
@@ -804,7 +808,9 @@
           },
           "asset": {
             "name": "Fixture uav1",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -848,7 +854,9 @@
           },
           "asset": {
             "name": "Fixture uav2",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -892,7 +900,9 @@
           },
           "asset": {
             "name": "Fixture ugv1",
-            "kind": "scout_mini",
+            "kind": "scout_mini"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -937,7 +947,9 @@
           },
           "asset": {
             "name": "Fixture ugv2",
-            "kind": "mecanum_ugv",
+            "kind": "mecanum_ugv"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -1364,7 +1376,9 @@
           },
           "asset": {
             "name": "Fixture uav1",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -1408,7 +1422,9 @@
           },
           "asset": {
             "name": "Fixture uav2",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -1452,7 +1468,9 @@
           },
           "asset": {
             "name": "Fixture ugv1",
-            "kind": "scout_mini",
+            "kind": "scout_mini"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -1497,7 +1515,9 @@
           },
           "asset": {
             "name": "Fixture ugv2",
-            "kind": "mecanum_ugv",
+            "kind": "mecanum_ugv"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -1964,7 +1984,9 @@
           },
           "asset": {
             "name": "Fixture uav1",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -2008,7 +2030,9 @@
           },
           "asset": {
             "name": "Fixture uav2",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -2052,7 +2076,9 @@
           },
           "asset": {
             "name": "Fixture ugv1",
-            "kind": "scout_mini",
+            "kind": "scout_mini"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -2097,7 +2123,9 @@
           },
           "asset": {
             "name": "Fixture ugv2",
-            "kind": "mecanum_ugv",
+            "kind": "mecanum_ugv"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -2610,7 +2638,9 @@
           },
           "asset": {
             "name": "Fixture uav1",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -2654,7 +2684,9 @@
           },
           "asset": {
             "name": "Fixture uav2",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -2698,7 +2730,9 @@
           },
           "asset": {
             "name": "Fixture ugv1",
-            "kind": "scout_mini",
+            "kind": "scout_mini"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -2743,7 +2777,9 @@
           },
           "asset": {
             "name": "Fixture ugv2",
-            "kind": "mecanum_ugv",
+            "kind": "mecanum_ugv"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3313,7 +3349,9 @@
           },
           "asset": {
             "name": "Fixture uav1",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3357,7 +3395,9 @@
           },
           "asset": {
             "name": "Fixture uav2",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3401,7 +3441,9 @@
           },
           "asset": {
             "name": "Fixture uav3",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3445,7 +3487,9 @@
           },
           "asset": {
             "name": "Fixture uav4",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3489,7 +3533,9 @@
           },
           "asset": {
             "name": "Fixture uav5",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3533,7 +3579,9 @@
           },
           "asset": {
             "name": "Fixture uav6",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3577,7 +3625,9 @@
           },
           "asset": {
             "name": "Fixture uav7",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3621,7 +3671,9 @@
           },
           "asset": {
             "name": "Fixture uav8",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3665,7 +3717,9 @@
           },
           "asset": {
             "name": "Fixture uav9",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",
@@ -3709,7 +3763,9 @@
           },
           "asset": {
             "name": "Fixture uav10",
-            "kind": "px4_multirotor",
+            "kind": "px4_multirotor"
+          },
+          "derived": {
             "visualization": {
               "descriptionFile": "urdf/robot_visual.urdf",
               "descriptionPackage": "robot_description",

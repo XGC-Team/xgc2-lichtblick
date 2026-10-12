@@ -27,7 +27,7 @@ test("RobotFact maps binding and asset fields and derives the slot name from its
     slotId: fact.slotId, namespace: fact.namespace, kind: fact.kind, name: "uav1",
     initialPose: fact.binding.initialPose, hybridSource: fact.binding.hybridSource,
     authoredSimulationSensors: fact.binding.simulationSensors, scout: fact.binding.scout,
-    visualization: fact.asset.visualization,
+    visualization: fact.derived.visualization,
   });
   assert.notEqual(fact.name, "uav1", "asset display name is not the ROS identity");
 });
@@ -85,10 +85,10 @@ test("missing or invalid robot layout facts name the offending slot", () => {
     (r) => (r.binding.initialPose.x = "bad"),
     (r) => delete r.binding.hybridSource,
     (r) => (r.binding.simulationSensors = 3),
-    (r) => delete r.asset.visualization,
-    (r) => delete r.asset.visualization.visuals,
+    (r) => delete r.derived.visualization,
+    (r) => delete r.derived.visualization.visuals,
     (r) => (r.namespace = "invalid"),
-    (r) => (r.asset.visualization.pathTopic = "invalid topic"),
+    (r) => (r.derived.visualization.pathTopic = "invalid topic"),
   ]) {
     const input = structuredClone(fixtures[0].input); edit(input.robots[0]);
     assert.throws(() => prepareLayout(mapViewInput(input)), /robot slot uav1:/);

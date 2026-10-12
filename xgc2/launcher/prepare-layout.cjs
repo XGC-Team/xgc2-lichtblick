@@ -110,13 +110,13 @@ const object = (value) => value != null && typeof value === "object" && !array(v
 function mapRobotFact(fact) {
   const identity = fact?.slotId ?? "(missing slotId)";
   const check = (condition, message) => assert(condition, `robot slot ${identity}: ${message}`);
-  check(object(fact) && typeof fact.slotId === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,126}$/.test(fact.slotId), "valid slotId required");
+  check(object(fact) && typeof fact.slotId === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(fact.slotId), "valid slotId required");
   check(object(fact.binding), "binding required");
   check(object(fact.binding.initialPose), "binding.initialPose required");
   // Core omits a zero-valued simulationSensors member: absent means no authored sensors.
   check(fact.binding.simulationSensors === undefined || object(fact.binding.simulationSensors), "binding.simulationSensors must be an object");
   check(fact.binding.scout === undefined || object(fact.binding.scout), "binding.scout must be an object");
-  check(object(fact.asset) && object(fact.asset.visualization), "asset.visualization required");
+  check(object(fact.derived) && object(fact.derived.visualization), "derived.visualization required");
   return {
     slotId: fact.slotId,
     namespace: fact.namespace,
@@ -127,7 +127,7 @@ function mapRobotFact(fact) {
     hybridSource: fact.binding.hybridSource,
     authoredSimulationSensors: fact.binding.simulationSensors ?? {},
     scout: fact.binding.scout,
-    visualization: fact.asset.visualization,
+    visualization: fact.derived.visualization,
   };
 }
 
