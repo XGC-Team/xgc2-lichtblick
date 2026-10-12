@@ -1087,6 +1087,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     renderer.updateConfig((draft) => {
       draft.cameraState = _.cloneDeep(overview);
     });
+    renderer.frameVisibleContent();
   }, [actionHandler, config.cameraState.perspective, overviewCameraState, renderer]);
 
   const onGoal = useCallback(() => {

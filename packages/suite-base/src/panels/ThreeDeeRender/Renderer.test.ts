@@ -29,6 +29,7 @@ import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
 import { RendererConfig } from "./IRenderer";
+import { SceneExtension } from "./SceneExtension";
 
 jest.mock("./Picker", () => {
   const actual = jest.requireActual("./Picker");
@@ -192,6 +193,82 @@ describe("3D Renderer", () => {
 
   it("constructs a renderer without error", () => {
     expect(() => new Renderer({ ...defaultRendererProps, canvas })).not.toThrow();
+  });
+
+  it("frames visible content once after native poses update and publishes the saved camera configuration", () => {
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      config: {
+        ...defaultRendererConfig,
+        followMode: "follow-none",
+        followTf: "world",
+        transforms: { "frame:world": { visible: true } },
+      },
+    });
+    renderer.input.canvasSize.set(1080, 1920);
+    const content = new SceneExtension("test-visible-content", renderer);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(55, 55, 3), new THREE.MeshBasicMaterial());
+    content.add(mesh);
+    content.startFrame = () => {
+      mesh.position.set(3, 4, 5);
+    };
+    renderer.sceneExtensions.set(content.extensionId, content);
+    const grid = new SceneExtension("foxglove.Grid", renderer);
+    grid.add(
+      new THREE.Mesh(new THREE.BoxGeometry(10000, 10000, 10000), new THREE.MeshBasicMaterial()),
+    );
+    renderer.sceneExtensions.set(grid.extensionId, grid);
+    const changed = jest.fn();
+    renderer.on("configChange", changed);
+    renderer.frameVisibleContent();
+    expect(renderer.config.cameraState.targetOffset).toEqual([0, 0, 0]);
+    renderer.animationFrame();
+    expect(renderer.config.cameraState.targetOffset).toEqual([3, 4, 5]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    const saved = renderer.config.cameraState;
+    content.startFrame = () => {
+      mesh.position.x = 1000;
+    };
+    renderer.animationFrame();
+    expect(renderer.config.cameraState).toBe(saved);
+    expect(changed).toHaveBeenCalledTimes(1);
+    renderer.dispose();
+  });
+
+  it.each([
+    "manual camera",
+    "follow selection",
+    "projection",
+  ])("lets a later %s supersede a pending Overview framing request", (change) => {
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      config: {
+        ...defaultRendererConfig,
+        followMode: "follow-none",
+        followTf: "world",
+        transforms: { "frame:world": { visible: true } },
+      },
+    });
+    const content = new SceneExtension("test-visible-content", renderer);
+    content.add(new THREE.Mesh(new THREE.BoxGeometry(55, 55, 3), new THREE.MeshBasicMaterial()));
+    renderer.sceneExtensions.set(content.extensionId, content);
+    renderer.input.canvasSize.set(1080, 1920);
+    renderer.frameVisibleContent();
+    renderer.updateConfig((draft) => {
+      if (change === "manual camera") {
+        draft.cameraState.targetOffset = [17, 18, 19];
+      } else if (change === "follow selection") {
+        draft.followMode = "follow-position";
+      } else {
+        draft.cameraState.perspective = false;
+      }
+    });
+    const superseding = renderer.config.cameraState;
+    renderer.animationFrame();
+    expect(renderer.config.cameraState).toBe(superseding);
+    renderer.dispose();
   });
 
   it("constructs a renderer in image interface mode", () => {

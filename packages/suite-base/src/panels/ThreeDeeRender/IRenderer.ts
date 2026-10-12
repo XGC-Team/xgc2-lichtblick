@@ -370,6 +370,9 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setCameraState(cameraState: CameraState): void;
 
+  /** Frame the currently visible 3D content once, after the next native pose update. */
+  frameVisibleContent(): void;
+
   setCustomCameraModels(newCameraModels: CameraModelsMap): void;
 
   getCameraState(): CameraState | undefined;

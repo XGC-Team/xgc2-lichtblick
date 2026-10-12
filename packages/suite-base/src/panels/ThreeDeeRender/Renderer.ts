@@ -78,6 +78,8 @@ import {
   normalizeTransformStamped,
 } from "./normalizeMessages";
 import { CameraStateSettings } from "./renderables/CameraStateSettings";
+import { FoxgloveGrid } from "./renderables/FoxgloveGrid";
+import { FrameAxes } from "./renderables/FrameAxes";
 import { ImageMode } from "./renderables/ImageMode/ImageMode";
 import { MeasurementTool } from "./renderables/MeasurementTool";
 import { PublishClickTool } from "./renderables/PublishClickTool";
@@ -102,6 +104,7 @@ import {
   Transform,
 } from "./transforms";
 import { InterfaceMode } from "./types";
+import { cameraStateForBounds, visibleContentBounds } from "./visibleContentBounds";
 
 const log = Logger.getLogger(__filename);
 
@@ -264,6 +267,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   // Assumed on screen until the owner reports otherwise (the offline renderer never does).
   #canvasVisibility: CanvasVisibility = "visible";
   #disposed = false;
+  #overviewCameraRequest: Immutable<CameraState> | undefined;
   #appliedCanvasSize = new THREE.Vector2();
   #drawingBufferSize = new THREE.Vector2();
   #canvasResizeTimer: number | undefined;
@@ -500,6 +504,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       return;
     }
     this.#disposed = true;
+    this.#overviewCameraRequest = undefined;
     // Stop queued and late async render requests before releasing GPU resources.
     this.#renderScheduler.dispose();
     window.clearTimeout(this.#canvasResizeTimer);
@@ -1070,6 +1075,51 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     return this.cameraHandler.getCameraState();
   }
 
+  public frameVisibleContent(): void {
+    if (this.#disposed || this.interfaceMode !== "3d") {
+      return;
+    }
+    this.#overviewCameraRequest = this.config.cameraState;
+    this.queueAnimationFrame();
+  }
+
+  #frameVisibleContent(): void {
+    const requested = this.#overviewCameraRequest;
+    this.#overviewCameraRequest = undefined;
+    // A later manual camera, projection, or follow selection supersedes the click.
+    if (
+      !requested ||
+      requested !== this.config.cameraState ||
+      this.config.followMode !== "follow-none" ||
+      !this.fixedFrameId ||
+      this.followFrameId !== this.fixedFrameId
+    ) {
+      return;
+    }
+    const content = Array.from(this.sceneExtensions.values()).filter(
+      (extension) =>
+        extension !== this.cameraHandler &&
+        extension !== this.measurementTool &&
+        extension !== this.publishClickTool &&
+        extension.extensionId !== FoxgloveGrid.extensionId &&
+        extension.extensionId !== FrameAxes.extensionId,
+    );
+    const bounds = visibleContentBounds(content);
+    const next = cameraStateForBounds(
+      bounds,
+      this.cameraHandler.getActiveCamera(),
+      requested,
+      this.input.canvasSize,
+    );
+    if (!next) {
+      return;
+    }
+    this.setCameraState(next);
+    this.updateConfig((draft) => {
+      draft.cameraState = next;
+    });
+  }
+
   public canResetView(): boolean {
     return this.#imageModeExtension?.hasModifiedView() ?? false;
   }
@@ -1434,6 +1484,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     for (const sceneExtension of this.sceneExtensions.values()) {
       sceneExtension.startFrame(currentTime, renderFrameId, fixedFrameId);
     }
+
+    this.#frameVisibleContent();
 
     // Models are expressed in the render frame (the optical frame in image mode).
     // Rotate the fixed-frame light with them so changing views preserves shading.

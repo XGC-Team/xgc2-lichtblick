@@ -62,6 +62,7 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
     handleAllFramesMessages: jest.fn(),
     addMessageEvent: jest.fn(),
     setCameraState: jest.fn(),
+    frameVisibleContent: jest.fn(),
     updateConfig: jest.fn(),
     getCameraState: jest.fn().mockReturnValue(undefined),
     animationFrame: jest.fn(),
@@ -341,6 +342,7 @@ describe("ThreeDeeRender", () => {
     expect(robotFollowFrames).not.toHaveBeenCalled();
     navigate("robot-frames");
     expect(robotFollowFrames).toHaveBeenCalledTimes(1);
+    expect(renderer.frameVisibleContent).not.toHaveBeenCalled();
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "robot-frames",
@@ -379,6 +381,7 @@ describe("ThreeDeeRender", () => {
       },
     });
     navigate("overview");
+    expect(renderer.frameVisibleContent).toHaveBeenCalledTimes(1);
     expect(renderer.settings.handleAction).toHaveBeenCalledWith({
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
@@ -462,6 +465,7 @@ describe("ThreeDeeRender", () => {
     act(() => {
       mockOverlayProps.onTogglePerspective();
     });
+    expect(renderer.frameVisibleContent).toHaveBeenCalledTimes(1);
     expect(renderer.config.followMode).toBe("follow-none");
     expect(renderer.config.cameraState.perspective).toBe(true);
     const beforeCancel = renderer.config;
