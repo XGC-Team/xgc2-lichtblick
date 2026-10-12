@@ -264,7 +264,7 @@ for (const layoutMode of ["3d", "3d-above-camera-ar"]) {
     const input = structuredClone(require("../launcher/testdata/frozen-layouts.json")[0].input);
     input.layoutMode = layoutMode;
     const escapedModel = "</script><>&\u2028\u2029";
-    input.robots[0].asset.visualization.sceneModel = escapedModel;
+    input.robots[0].derived.visualization.sceneModel = escapedModel;
     const { mapViewInput, prepareLayout } = require("../launcher/prepare-layout.cjs");
     const layout = prepareLayout(mapViewInput(input)).layout;
     const upstream = net.createServer((socket) => {
