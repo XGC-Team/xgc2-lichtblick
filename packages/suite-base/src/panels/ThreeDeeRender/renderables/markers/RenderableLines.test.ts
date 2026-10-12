@@ -18,7 +18,8 @@ import { RenderableMarker } from "./RenderableMarker";
 import { DynamicLineGeometry } from "../../DynamicLineGeometry";
 import type { IRenderer } from "../../IRenderer";
 import { Marker, MarkerType } from "../../ros";
-import type { LayerSettingsMarker } from "../TopicMarkers";
+import { TopicMarkers, MarkersNamespace, type LayerSettingsMarker } from "../TopicMarkers";
+import { TransformTree } from "../../transforms";
 
 type TestRenderer = Omit<IRenderer, "config"> & {
   config: Omit<IRenderer["config"], "topics"> & {
@@ -60,6 +61,42 @@ function makeRenderer(): TestRenderer {
 function geometryData(geometry: DynamicLineGeometry, name: string): THREE.InterleavedBuffer {
   return (geometry.getAttribute(name) as THREE.InterleavedBufferAttribute).data;
 }
+
+describe("trajectory sampling point visibility", () => {
+  it("hides sampling spheres while keeping the line and restores them without changing messages", () => {
+    const renderer = makeRenderer();
+    const tree = new TransformTree();
+    tree.getOrCreateFrame("map");
+    Object.assign(renderer, {
+      transformTree: tree,
+      settings: { errors: { removeFromTopic: jest.fn(), addToTopic: jest.fn(), clearTopic: jest.fn() } },
+    });
+    const settings = { visible: true, showPoints: false, namespaces: {}, color: undefined,
+      showOutlines: false, selectedIdVariable: undefined };
+    const line = makeMarker(MarkerType.LINE_STRIP, 4);
+    const points = makeMarker(MarkerType.SPHERE_LIST, 4);
+    points.id = 2;
+    const lineRenderable = new RenderableMarker("/prediction", line, 1n, renderer);
+    const pointsRenderable = new RenderableMarker("/prediction", points, 1n, renderer);
+    const topic = new TopicMarkers("/prediction", renderer, {
+      topic: "/prediction", receiveTime: 1n, messageTime: 1n, frameId: "map", pose: line.pose,
+      settingsPath: ["topics", "/prediction"], settings,
+    });
+    const ns = new MarkersNamespace("/prediction", line.ns, renderer);
+    ns.markersById.set(1, lineRenderable);
+    ns.markersById.set(2, pointsRenderable);
+    topic.namespaces.set(line.ns, ns);
+    topic.startFrame(2n, "map", "map");
+    expect(lineRenderable.visible).toBe(true);
+    expect(pointsRenderable.visible).toBe(false);
+    topic.userData.settings.showPoints = true;
+    topic.startFrame(3n, "map", "map");
+    expect(lineRenderable.visible).toBe(true);
+    expect(pointsRenderable.visible).toBe(true);
+    expect(pointsRenderable.userData.originalMarker).toBe(points);
+    expect(points.points).toHaveLength(4);
+  });
+});
 
 describe("line strip point comparison", () => {
   const base = [

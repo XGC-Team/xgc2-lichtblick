@@ -20,6 +20,8 @@ export type LayerSettingsMarker = BaseSettings & {
   markerScale?: number;
   /** Display-only width in meters for LINE_LIST and LINE_STRIP markers. */
   lineWidth?: number;
+  /** Show sampling points separately from line markers. Does not change the message. */
+  showPoints?: boolean;
   showOutlines: boolean | undefined;
   selectedIdVariable: string | undefined;
   namespaces: Record<string, LayerSettingsMarkerNamespace>;
@@ -115,7 +117,11 @@ export class TopicMarkers extends Renderable<MarkerTopicUserData> {
 
     for (const ns of this.namespaces.values()) {
       for (const renderable of ns.markersById.values()) {
-        renderable.visible = ns.settings.visible;
+        const markerType = renderable.userData.originalMarker.type;
+        const isPointList = markerType === MarkerType.POINTS ||
+          markerType === MarkerType.SPHERE_LIST || markerType === MarkerType.CUBE_LIST;
+        renderable.visible = ns.settings.visible &&
+          !(isPointList && this.userData.settings.showPoints === false);
         if (!renderable.visible) {
           continue;
         }

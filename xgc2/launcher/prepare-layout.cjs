@@ -477,13 +477,16 @@ function prepareLayout(input) {
         type: poseAxes ? "arrow" : "line",
         gradient: gradient(["#ffbf00ff", "#ffbf0040"]),
       });
-    if (
-      (t.messageType === "visualization_msgs/Marker" ||
-        t.messageType === "visualization_msgs/MarkerArray") &&
-      (t.color ||
-        (tint && (t.role === "prediction" || t.role === "obstacle" || alpha)))
-    )
-      s.color = t.color || tint + (alpha || "ff");
+    if (t.messageType === "visualization_msgs/Marker" ||
+        t.messageType === "visualization_msgs/MarkerArray") {
+      if (t.role === "prediction") {
+        s.lineWidth = p.predictionLineWidth;
+        s.showPoints = false;
+        s.showOutlines = false;
+      }
+      if (t.color || (tint && (t.role === "prediction" || t.role === "obstacle" || alpha)))
+        s.color = t.color || tint + (alpha || "ff");
+    }
     for (const k of ["lineWidth", "markerScale"]) if (t[k] != null) s[k] = t[k];
     if (t.color) {
       if (t.messageType === "sensor_msgs/PointCloud2") s.flatColor = t.color;

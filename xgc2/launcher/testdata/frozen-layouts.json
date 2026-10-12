@@ -535,7 +535,10 @@
               ]
             },
             "/xgc/display/robot_0/plan_list": {
-              "visible": true
+              "visible": true,
+              "lineWidth": 0.01,
+              "showPoints": false,
+              "showOutlines": false
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
@@ -687,7 +690,10 @@
               "axisScale": 0.15
             },
             "/xgc/display/robot_0/plan_list": {
-              "visible": true
+              "visible": true,
+              "lineWidth": 0.01,
+              "showPoints": false,
+              "showOutlines": false
             },
             "/robot_0/graph": {
               "visible": true
@@ -747,7 +753,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "f6c0bee7b61310cc490b8f9f74e9e766a00c9f1d619e05767a2283ea9d98aba5"
+    "layoutSha256": "d661c33585a293550bf5ea720e7deebf7129c16582aff27401f1914286d986ae"
   },
   {
     "input": {
@@ -4082,7 +4088,10 @@
               ]
             },
             "/xgc/display/robot_0/plan_list": {
-              "visible": true
+              "visible": true,
+              "lineWidth": 0.01,
+              "showPoints": false,
+              "showOutlines": false
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
@@ -4432,7 +4441,10 @@
               "axisScale": 0.15
             },
             "/xgc/display/robot_0/plan_list": {
-              "visible": true
+              "visible": true,
+              "lineWidth": 0.01,
+              "showPoints": false,
+              "showOutlines": false
             },
             "/robot_0/graph": {
               "visible": true
@@ -4492,7 +4504,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "20093cf1821d68bfcce6d0a07762810a31e303dcfea4371a3c649811b4941a23"
+    "layoutSha256": "a3a73d9495fad4ab8eb75a2b1e98c58cc8715754db3962b9dc1a0fbe8c942d4f"
   },
   {
     "input": {

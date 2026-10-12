@@ -784,13 +784,13 @@ describe("ThreeDeeRender", () => {
       controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
     });
     expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", "#ffffff");
-    expect(renderer.queueThrottledAnimationFrame).toHaveBeenCalled();
-    renderer.queueThrottledAnimationFrame.mockClear();
+    expect(renderer.animationFrame).toHaveBeenCalled();
+    renderer.animationFrame.mockClear();
     act(() => {
       controls.setHostTheme({ colorScheme: "dark", backgroundColor: "#161616" });
     });
     expect(renderer.setColorScheme).toHaveBeenLastCalledWith("dark", "#161616");
-    expect(renderer.queueThrottledAnimationFrame).toHaveBeenCalled();
+    expect(renderer.animationFrame).toHaveBeenCalled();
     act(() => {
       renderer.config = { ...renderer.config, scene: { backgroundColor: "#123456" } };
       renderer.emit("configChange", renderer);
@@ -825,10 +825,15 @@ describe("ThreeDeeRender", () => {
     });
     expect(renderer.setColorScheme).not.toHaveBeenCalled();
     expect(canvas).toHaveStyle({ visibility: "hidden" });
+    renderer.animationFrame.mockImplementationOnce(() => {
+      expect(canvas).toHaveStyle({ visibility: "hidden" });
+      expect(renderer.setColorScheme).toHaveBeenCalledWith("light", "#ffffff");
+    });
     act(() => {
       controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
     });
     expect(renderer.setColorScheme).toHaveBeenCalledWith("light", "#ffffff");
+    expect(renderer.animationFrame).toHaveBeenCalled();
     expect(canvas).toHaveStyle({ visibility: "visible" });
     act(() => {
       window.dispatchEvent(
@@ -838,6 +843,32 @@ describe("ThreeDeeRender", () => {
     expect(canvas).toHaveStyle({ visibility: "visible" });
     expect(canvas?.isConnected).toBe(true);
     expect(view.container.querySelector("canvas")).toBe(canvas);
+  });
+
+  it("paints replacement renderers with the host theme before exposing their canvas", () => {
+    const props = setup();
+    let controls!: ReturnType<typeof useEmbeddedWorkspaceControls>;
+    const view = render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <CaptureEmbeddedControls capture={(value) => (controls = value)} />
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    act(() => controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" }));
+    const first = mockedRenderer.mock.results[0]!.value;
+    act(() => {
+      first.config = { ...first.config, scene: { obstacleScene: { namespace: "/changed" } } };
+      first.emit("configChange", first);
+    });
+    const replacement = mockedRenderer.mock.results.at(-1)!.value;
+    expect(replacement).not.toBe(first);
+    expect(first.dispose).toHaveBeenCalled();
+    expect(replacement.setColorScheme).toHaveBeenCalledWith("light", "#ffffff");
+    expect(replacement.animationFrame).toHaveBeenCalled();
+    expect(replacement.setColorScheme.mock.invocationCallOrder[0]).toBeLessThan(
+      replacement.animationFrame.mock.invocationCallOrder[0],
+    );
+    expect(view.container.querySelector("canvas")).toHaveStyle({ visibility: "visible" });
   });
 
   it("retains standalone upstream background defaults despite an unused host theme", () => {

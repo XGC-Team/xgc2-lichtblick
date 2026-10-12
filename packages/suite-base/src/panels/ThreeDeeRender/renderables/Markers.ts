@@ -102,6 +102,12 @@ export class Markers extends SceneExtension<TopicMarkers> {
             input: "boolean",
             value: config.showOutlines ?? DEFAULT_SETTINGS.showOutlines,
           },
+          showPoints: {
+            label: "Show points",
+            input: "boolean",
+            value: config.showPoints ?? true,
+            help: "Show point, sphere and cube lists alongside trajectory lines.",
+          },
           selectedIdVariable: {
             label: t("threeDee:selectionVariable"),
             input: "string",

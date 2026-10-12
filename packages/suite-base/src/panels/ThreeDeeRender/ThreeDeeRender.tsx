@@ -151,7 +151,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   const obstacleSceneColor = config.scene.obstacleScene?.color?.join(",");
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | ReactNull>(ReactNull);
-  const [canvasReady, setCanvasReady] = useState(!embedded);
+  const [paintedRenderer, setPaintedRenderer] = useState<IRenderer | undefined>();
   const [renderer, setRenderer] = useState<IRenderer | undefined>(undefined);
   const rendererRef = useRef<IRenderer | undefined>(undefined);
 
@@ -164,7 +164,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     [enqueueSnackbarFromParent],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const newRenderer = canvas
       ? new Renderer({
           canvas,
@@ -773,14 +773,18 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
 
   // Embedded waits for the host theme, then paints. Once that theme is applied, parking
   // only pauses drawing; it does not hide or unmount the canvas. Standalone stays visible.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!renderer || !effectiveColorScheme) {
       return;
     }
     renderer.setColorScheme(effectiveColorScheme, backgroundColor);
-    renderRef.current.needsRender = true;
     if (embedded) {
-      setCanvasReady(true);
+      // Paint the themed drawing buffer before exposing it. Renderer recreation
+      // during layout import must not inherit the previous canvas's readiness.
+      renderer.animationFrame();
+      setPaintedRenderer(renderer);
+    } else {
+      renderRef.current.needsRender = true;
     }
   }, [backgroundColor, effectiveColorScheme, embedded, renderer]);
 
@@ -1274,7 +1278,8 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
             position: "absolute",
             top: 0,
             left: 0,
-            visibility: canvasReady ? "visible" : "hidden",
+            visibility: !embedded || (renderer != undefined && paintedRenderer === renderer)
+              ? "visible" : "hidden",
             ...((measureActive || publishActive) && { cursor: "crosshair" }),
           }}
         />
