@@ -14,10 +14,7 @@ import {
   type LayoutID,
   type LayoutState,
 } from "@lichtblick/suite-base/context/CurrentLayoutContext";
-import {
-  useEmbeddedWorkspaceControls,
-  type EmbeddedHostTheme,
-} from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
+import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
 import { useLayoutManager } from "@lichtblick/suite-base/context/LayoutManagerContext";
 import { useWorkspaceStore } from "@lichtblick/suite-base/context/Workspace/WorkspaceContext";
 import { useWorkspaceActions } from "@lichtblick/suite-base/context/Workspace/useWorkspaceActions";
