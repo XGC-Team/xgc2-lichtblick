@@ -23,7 +23,11 @@ import {
 import type { FollowMode, IRenderer } from "../IRenderer";
 import { SceneExtension } from "../SceneExtension";
 import { SettingsTreeEntry } from "../SettingsManager";
-import { CameraState, DEFAULT_CAMERA_STATE, DEFAULT_ORBIT_CONTROLS_CONFIG } from "../camera";
+import {
+  CameraState,
+  DEFAULT_CAMERA_STATE,
+  DEFAULT_ORBIT_CONTROLS_CONFIG,
+} from "../camera";
 import { PRECISION_DEGREES, PRECISION_DISTANCE } from "../settings";
 
 const DISPLAY_FRAME_NOT_FOUND = "DISPLAY_FRAME_NOT_FOUND";
@@ -40,7 +44,10 @@ const tempVec3 = new THREE.Vector3();
 const tempSpherical = new THREE.Spherical();
 const tempEuler = new THREE.Euler();
 const FOLLOW_TF_PATH = ["general", "followTf"];
-export class CameraStateSettings extends SceneExtension implements ICameraHandler {
+export class CameraStateSettings
+  extends SceneExtension
+  implements ICameraHandler
+{
   // The frameId's of the fixed and render frames used to create the current unfollowPoseSnapshot
   #unfollowSnapshotFrameIds:
     | {
@@ -69,7 +76,11 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
   #orthographicCamera: THREE.OrthographicCamera;
   #aspect: number;
 
-  public constructor(renderer: IRenderer, canvas: HTMLCanvasElement, aspect: number) {
+  public constructor(
+    renderer: IRenderer,
+    canvas: HTMLCanvasElement,
+    aspect: number,
+  ) {
     super("foxglove.CameraStateSettings", renderer);
 
     // for Frame settings, we need to listen to the transform tree to update settings when new possible display frames are present
@@ -91,9 +102,30 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     this.add(this.#cameraGroup);
 
     this.#controls = new OrbitControls(this.#perspectiveCamera, this.#canvas);
-    this.#controls.screenSpacePanning = DEFAULT_ORBIT_CONTROLS_CONFIG.screenSpacePanning;
-    this.#controls.mouseButtons.LEFT = DEFAULT_ORBIT_CONTROLS_CONFIG.mouseButtons.LEFT;
-    this.#controls.mouseButtons.RIGHT = DEFAULT_ORBIT_CONTROLS_CONFIG.mouseButtons.RIGHT;
+    // OrbitControls reads local camera coordinates but calls world-space lookAt.
+    // Its calculations must not include the parent transform that cancels the
+    // moving robot's rotation. Restore that transform before drawing the scene.
+    const updateControls = this.#controls.update.bind(this.#controls);
+    this.#controls.update = (...args) => {
+      const position = this.#cameraGroup.position.clone();
+      const orientation = this.#cameraGroup.quaternion.clone();
+      this.#cameraGroup.position.set(0, 0, 0);
+      this.#cameraGroup.quaternion.identity();
+      this.#cameraGroup.updateWorldMatrix(true, true);
+      try {
+        return updateControls(...args);
+      } finally {
+        this.#cameraGroup.position.copy(position);
+        this.#cameraGroup.quaternion.copy(orientation);
+        this.#cameraGroup.updateWorldMatrix(true, true);
+      }
+    };
+    this.#controls.screenSpacePanning =
+      DEFAULT_ORBIT_CONTROLS_CONFIG.screenSpacePanning;
+    this.#controls.mouseButtons.LEFT =
+      DEFAULT_ORBIT_CONTROLS_CONFIG.mouseButtons.LEFT;
+    this.#controls.mouseButtons.RIGHT =
+      DEFAULT_ORBIT_CONTROLS_CONFIG.mouseButtons.RIGHT;
     this.#controls.touches.ONE = DEFAULT_ORBIT_CONTROLS_CONFIG.touches.ONE;
     this.#controls.touches.TWO = DEFAULT_ORBIT_CONTROLS_CONFIG.touches.TWO;
     this.#controls.addEventListener("change", this.#onControlsChange);
@@ -153,7 +185,9 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
       path: ["cameraState"],
       node: {
         label: t("threeDee:view"),
-        actions: [{ type: "action", id: "reset-camera", label: t("threeDee:reset") }],
+        actions: [
+          { type: "action", id: "reset-camera", label: t("threeDee:reset") },
+        ],
         handler,
         fields: {
           syncCamera: {
@@ -237,14 +271,21 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
 
     // always show current config value if it exists
     const followTfValue = config.followTf ?? followFrameId;
-    if (followTfValue != undefined && !this.renderer.transformTree.hasFrame(followTfValue)) {
+    if (
+      followTfValue != undefined &&
+      !this.renderer.transformTree.hasFrame(followTfValue)
+    ) {
       followTfOptions = [
-        { label: CoordinateFrame.DisplayName(followTfValue), value: followTfValue },
+        {
+          label: CoordinateFrame.DisplayName(followTfValue),
+          value: followTfValue,
+        },
         ...followTfOptions,
       ];
     }
 
-    const followTfError = this.renderer.settings.errors.errors.errorAtPath(FOLLOW_TF_PATH);
+    const followTfError =
+      this.renderer.settings.errors.errors.errorAtPath(FOLLOW_TF_PATH);
 
     const followModeOptions = [
       { label: t("threeDee:pose"), value: "follow-pose" },
@@ -280,7 +321,10 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     };
   }
   public override handleSettingsAction = (action: SettingsTreeAction): void => {
-    if (action.action === "perform-node-action" && action.payload.id === "reset-camera") {
+    if (
+      action.action === "perform-node-action" &&
+      action.payload.id === "reset-camera"
+    ) {
       this.renderer.updateConfig((draft) => {
         draft.cameraState = _.cloneDeep(DEFAULT_CAMERA_STATE);
       });
@@ -332,7 +376,9 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
           // any follow -> stationary no clear
           // stationary -> any follow clear offset (center on frame)
           if (draft.followMode === "follow-none") {
-            draft.cameraState.targetOffset = [...DEFAULT_CAMERA_STATE.targetOffset];
+            draft.cameraState.targetOffset = [
+              ...DEFAULT_CAMERA_STATE.targetOffset,
+            ];
           }
           if (followMode === "follow-pose") {
             draft.cameraState.thetaOffset = DEFAULT_CAMERA_STATE.thetaOffset;
@@ -366,7 +412,11 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
       return;
     }
 
-    const poseSnapshot = this.#getUnfollowPoseSnapshot(fixedFrameId, renderFrameId, currentTime);
+    const poseSnapshot = this.#getUnfollowPoseSnapshot(
+      fixedFrameId,
+      renderFrameId,
+      currentTime,
+    );
 
     const transformTree = this.renderer.transformTree;
 
@@ -464,7 +514,8 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     const { transformTree } = this.renderer;
     this.#updateFollowTfError();
 
-    const followTfFrameExists = followTf != undefined && transformTree.hasFrame(followTf);
+    const followTfFrameExists =
+      followTf != undefined && transformTree.hasFrame(followTf);
     if (followTfFrameExists) {
       this.renderer.setFollowFrameId(followTf);
       return;
@@ -483,7 +534,10 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     if (followTf != undefined) {
       const followTfFrameExists = transformTree.hasFrame(followTf);
       if (followTfFrameExists) {
-        this.renderer.settings.errors.remove(FOLLOW_TF_PATH, DISPLAY_FRAME_NOT_FOUND);
+        this.renderer.settings.errors.remove(
+          FOLLOW_TF_PATH,
+          DISPLAY_FRAME_NOT_FOUND,
+        );
       } else {
         this.renderer.settings.errors.add(
           FOLLOW_TF_PATH,
@@ -509,7 +563,11 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
   };
 
   // Redefine follow pose snapshot whenever renderFrame or fixedFrame changes
-  #getUnfollowPoseSnapshot(fixedFrameId: string, renderFrameId: string, currentTime: bigint) {
+  #getUnfollowPoseSnapshot(
+    fixedFrameId: string,
+    renderFrameId: string,
+    currentTime: bigint,
+  ) {
     const transformTree = this.renderer.transformTree;
     if (
       this.#unfollowSnapshotFrameIds?.fixed !== fixedFrameId ||
@@ -533,7 +591,10 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     }
     // Position follow uses fixed-frame axes, including when changing robots or
     // leaving a stationary view. Never inherit the selected robot's heading.
-    if (this.unfollowPoseSnapshot && this.renderer.config.followMode === "follow-position") {
+    if (
+      this.unfollowPoseSnapshot &&
+      this.renderer.config.followMode === "follow-position"
+    ) {
       const orientation = this.unfollowPoseSnapshot.orientation;
       orientation.x = orientation.y = orientation.z = 0;
       orientation.w = 1;
@@ -547,7 +608,11 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
       : this.#orthographicCamera;
   }
 
-  public handleResize(width: number, height: number, _pixelRatio: number): void {
+  public handleResize(
+    width: number,
+    height: number,
+    _pixelRatio: number,
+  ): void {
     this.#aspect = width / height;
     this.setCameraState(this.renderer.config.cameraState);
   }
@@ -558,8 +623,14 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
       perspective: config.cameraState.perspective,
       distance: this.#controls.getDistance(),
       phi: THREE.MathUtils.radToDeg(this.#controls.getPolarAngle()),
-      thetaOffset: THREE.MathUtils.radToDeg(-this.#controls.getAzimuthalAngle()),
-      targetOffset: [this.#controls.target.x, this.#controls.target.y, this.#controls.target.z],
+      thetaOffset: THREE.MathUtils.radToDeg(
+        -this.#controls.getAzimuthalAngle(),
+      ),
+      targetOffset: [
+        this.#controls.target.x,
+        this.#controls.target.y,
+        this.#controls.target.z,
+      ],
       target: config.cameraState.target,
       targetOrientation: config.cameraState.targetOrientation,
       fovy: config.cameraState.fovy,
@@ -594,11 +665,15 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
 
     // Convert the camera spherical coordinates (radius, phi, theta) to Cartesian (X, Y, Z)
     tempSpherical.set(cameraState.distance, phi, theta);
-    this.#perspectiveCamera.position.setFromSpherical(tempSpherical).applyAxisAngle(UNIT_X, PI_2);
+    this.#perspectiveCamera.position
+      .setFromSpherical(tempSpherical)
+      .applyAxisAngle(UNIT_X, PI_2);
     this.#perspectiveCamera.position.add(targetOffset);
 
     // Convert the camera spherical coordinates (phi, theta) to a quaternion rotation
-    this.#perspectiveCamera.quaternion.setFromEuler(tempEuler.set(phi, 0, theta, "ZYX"));
+    this.#perspectiveCamera.quaternion.setFromEuler(
+      tempEuler.set(phi, 0, theta, "ZYX"),
+    );
     this.#perspectiveCamera.fov = cameraState.fovy;
     this.#perspectiveCamera.near = cameraState.near;
     this.#perspectiveCamera.far = cameraState.far;
@@ -614,12 +689,19 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     } else {
       // Lock the polar angle during 2D mode
       const curPolarAngle = THREE.MathUtils.degToRad(config.cameraState.phi);
-      this.#controls.minPolarAngle = this.#controls.maxPolarAngle = curPolarAngle;
+      this.#controls.minPolarAngle = this.#controls.maxPolarAngle =
+        curPolarAngle;
 
-      this.#orthographicCamera.position.set(targetOffset.x, targetOffset.y, cameraState.far / 2);
+      this.#orthographicCamera.position.set(
+        targetOffset.x,
+        targetOffset.y,
+        cameraState.far / 2,
+      );
       this.#orthographicCamera.quaternion.setFromAxisAngle(UNIT_Z, theta);
-      this.#orthographicCamera.left = (-cameraState.distance / 2) * this.#aspect;
-      this.#orthographicCamera.right = (cameraState.distance / 2) * this.#aspect;
+      this.#orthographicCamera.left =
+        (-cameraState.distance / 2) * this.#aspect;
+      this.#orthographicCamera.right =
+        (cameraState.distance / 2) * this.#aspect;
       this.#orthographicCamera.top = cameraState.distance / 2;
       this.#orthographicCamera.bottom = -cameraState.distance / 2;
       this.#orthographicCamera.near = cameraState.near;

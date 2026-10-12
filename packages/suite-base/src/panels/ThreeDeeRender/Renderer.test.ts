@@ -13,7 +13,10 @@ import * as THREE from "three";
 import { CameraModelsMap } from "@lichtblick/den/image/types";
 import { fromNanoSec, toNanoSec } from "@lichtblick/rostime";
 import { MessageEvent } from "@lichtblick/suite";
-import { Asset, DraggedMessagePath } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
+import {
+  Asset,
+  DraggedMessagePath,
+} from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import { Renderer } from "@lichtblick/suite-base/panels/ThreeDeeRender/Renderer";
 import { DEFAULT_SCENE_EXTENSION_CONFIG } from "@lichtblick/suite-base/panels/ThreeDeeRender/SceneExtensionConfig";
 import { DEFAULT_CAMERA_STATE } from "@lichtblick/suite-base/panels/ThreeDeeRender/camera";
@@ -24,7 +27,10 @@ import {
   PoseArrays,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PoseArrays";
 import { DEFAULT_PUBLISH_SETTINGS } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PublishSettings";
-import { NavPath, TFMessage } from "@lichtblick/suite-base/panels/ThreeDeeRender/ros";
+import {
+  NavPath,
+  TFMessage,
+} from "@lichtblick/suite-base/panels/ThreeDeeRender/ros";
 import IAnalytics from "@lichtblick/suite-base/services/IAnalytics";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
@@ -140,7 +146,10 @@ function createTFMessageEvent(
   };
 }
 
-const fetchAsset = async (uri: string, options?: { signal?: AbortSignal }): Promise<Asset> => {
+const fetchAsset = async (
+  uri: string,
+  options?: { signal?: AbortSignal },
+): Promise<Asset> => {
   const response = await fetch(uri, options);
   return {
     uri,
@@ -170,29 +179,47 @@ describe("3D Renderer", () => {
     (console.warn as jest.Mock).mockClear();
   });
 
-  it.each([
-    "3d",
-    "image",
-  ] as const)("preserves world lighting in a rotated %s frame", (interfaceMode) => {
-    const renderer = new Renderer({ ...defaultRendererProps, canvas, interfaceMode });
-    // A rotated optical frame and a distant origin must preserve the surface/light angle.
-    const rotation = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      Math.PI / 2,
-    );
-    renderer.addTransform("world", "optical", 0n, { x: 8, y: -3, z: 2 }, rotation);
-    renderer.setFollowFrameId("optical");
-    renderer.animationFrame();
-    const scene = jest.spyOn(renderer.gl, "render").mock.calls[0]![0];
-    const light = scene.children.find((item) => item instanceof THREE.DirectionalLight)!;
-    const worldNormal = new THREE.Vector3(0, 0, 1);
-    const opticalNormal = worldNormal.clone().applyQuaternion(rotation.clone().invert());
-    expect(opticalNormal.dot(light.position.clone().normalize())).toBeCloseTo(1 / Math.sqrt(3));
-    renderer.dispose();
-  });
+  it.each(["3d", "image"] as const)(
+    "preserves world lighting in a rotated %s frame",
+    (interfaceMode) => {
+      const renderer = new Renderer({
+        ...defaultRendererProps,
+        canvas,
+        interfaceMode,
+      });
+      // A rotated optical frame and a distant origin must preserve the surface/light angle.
+      const rotation = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1, 0, 0),
+        Math.PI / 2,
+      );
+      renderer.addTransform(
+        "world",
+        "optical",
+        0n,
+        { x: 8, y: -3, z: 2 },
+        rotation,
+      );
+      renderer.setFollowFrameId("optical");
+      renderer.animationFrame();
+      const scene = jest.spyOn(renderer.gl, "render").mock.calls[0]![0];
+      const light = scene.children.find(
+        (item) => item instanceof THREE.DirectionalLight,
+      )!;
+      const worldNormal = new THREE.Vector3(0, 0, 1);
+      const opticalNormal = worldNormal
+        .clone()
+        .applyQuaternion(rotation.clone().invert());
+      expect(opticalNormal.dot(light.position.clone().normalize())).toBeCloseTo(
+        1 / Math.sqrt(3),
+      );
+      renderer.dispose();
+    },
+  );
 
   it("constructs a renderer without error", () => {
-    expect(() => new Renderer({ ...defaultRendererProps, canvas })).not.toThrow();
+    expect(
+      () => new Renderer({ ...defaultRendererProps, canvas }),
+    ).not.toThrow();
   });
 
   it("frames visible content once after native poses update and publishes the saved camera configuration", () => {
@@ -208,7 +235,10 @@ describe("3D Renderer", () => {
     });
     renderer.input.canvasSize.set(1080, 1920);
     const content = new SceneExtension("test-visible-content", renderer);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(55, 55, 3), new THREE.MeshBasicMaterial());
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(55, 55, 3),
+      new THREE.MeshBasicMaterial(),
+    );
     content.add(mesh);
     content.startFrame = () => {
       mesh.position.set(3, 4, 5);
@@ -216,7 +246,10 @@ describe("3D Renderer", () => {
     renderer.sceneExtensions.set(content.extensionId, content);
     const grid = new SceneExtension("foxglove.Grid", renderer);
     grid.add(
-      new THREE.Mesh(new THREE.BoxGeometry(10000, 10000, 10000), new THREE.MeshBasicMaterial()),
+      new THREE.Mesh(
+        new THREE.BoxGeometry(10000, 10000, 10000),
+        new THREE.MeshBasicMaterial(),
+      ),
     );
     renderer.sceneExtensions.set(grid.extensionId, grid);
     const changed = jest.fn();
@@ -236,40 +269,44 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
-  it.each([
-    "manual camera",
-    "follow selection",
-    "projection",
-  ])("lets a later %s supersede a pending Overview framing request", (change) => {
-    const renderer = new Renderer({
-      ...defaultRendererProps,
-      canvas,
-      config: {
-        ...defaultRendererConfig,
-        followMode: "follow-none",
-        followTf: "world",
-        transforms: { "frame:world": { visible: true } },
-      },
-    });
-    const content = new SceneExtension("test-visible-content", renderer);
-    content.add(new THREE.Mesh(new THREE.BoxGeometry(55, 55, 3), new THREE.MeshBasicMaterial()));
-    renderer.sceneExtensions.set(content.extensionId, content);
-    renderer.input.canvasSize.set(1080, 1920);
-    renderer.frameVisibleContent();
-    renderer.updateConfig((draft) => {
-      if (change === "manual camera") {
-        draft.cameraState.targetOffset = [17, 18, 19];
-      } else if (change === "follow selection") {
-        draft.followMode = "follow-position";
-      } else {
-        draft.cameraState.perspective = false;
-      }
-    });
-    const superseding = renderer.config.cameraState;
-    renderer.animationFrame();
-    expect(renderer.config.cameraState).toBe(superseding);
-    renderer.dispose();
-  });
+  it.each(["manual camera", "follow selection", "projection"])(
+    "lets a later %s supersede a pending Overview framing request",
+    (change) => {
+      const renderer = new Renderer({
+        ...defaultRendererProps,
+        canvas,
+        config: {
+          ...defaultRendererConfig,
+          followMode: "follow-none",
+          followTf: "world",
+          transforms: { "frame:world": { visible: true } },
+        },
+      });
+      const content = new SceneExtension("test-visible-content", renderer);
+      content.add(
+        new THREE.Mesh(
+          new THREE.BoxGeometry(55, 55, 3),
+          new THREE.MeshBasicMaterial(),
+        ),
+      );
+      renderer.sceneExtensions.set(content.extensionId, content);
+      renderer.input.canvasSize.set(1080, 1920);
+      renderer.frameVisibleContent();
+      renderer.updateConfig((draft) => {
+        if (change === "manual camera") {
+          draft.cameraState.targetOffset = [17, 18, 19];
+        } else if (change === "follow selection") {
+          draft.followMode = "follow-position";
+        } else {
+          draft.cameraState.perspective = false;
+        }
+      });
+      const superseding = renderer.config.cameraState;
+      renderer.animationFrame();
+      expect(renderer.config.cameraState).toBe(superseding);
+      renderer.dispose();
+    },
+  );
 
   it("constructs a renderer in image interface mode", () => {
     // Given: Props with image interface mode
@@ -369,8 +406,9 @@ describe("3D Renderer", () => {
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
     const visibility = jest.fn();
     renderer.on("canvasVisibilityChanged", visibility);
-    const startFrames = Array.from(renderer.sceneExtensions.values(), (extension) =>
-      jest.spyOn(extension, "startFrame"),
+    const startFrames = Array.from(
+      renderer.sceneExtensions.values(),
+      (extension) => jest.spyOn(extension, "startFrame"),
     );
     const draw = jest.spyOn(renderer.gl, "render");
     draw.mockClear();
@@ -387,7 +425,10 @@ describe("3D Renderer", () => {
           {
             header: { frame_id: "world", stamp: { sec: 0, nsec: 0 } },
             child_frame_id: "robot",
-            transform: { translation: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+            transform: {
+              translation: { x: 1, y: 0, z: 0 },
+              rotation: { x: 0, y: 0, z: 0, w: 1 },
+            },
           },
         ],
       },
@@ -402,7 +443,9 @@ describe("3D Renderer", () => {
         .get("tf2_msgs/TFMessage")
         ?.every((subscription) => subscription.queue == undefined),
     ).toBe(true);
-    expect(startFrames.every((startFrame) => startFrame.mock.calls.length === 0)).toBe(true);
+    expect(
+      startFrames.every((startFrame) => startFrame.mock.calls.length === 0),
+    ).toBe(true);
     expect(draw).not.toHaveBeenCalled();
 
     // When: The canvas returns
@@ -411,11 +454,16 @@ describe("3D Renderer", () => {
     renderer.setCanvasVisibility("visible");
 
     // Then: One frame is queued to paint the current state, and the next frame draws
-    expect(visibility.mock.calls.map(([value]) => value)).toEqual(["hidden", "visible"]);
+    expect(visibility.mock.calls.map(([value]) => value)).toEqual([
+      "hidden",
+      "visible",
+    ]);
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     renderer.animationFrame();
     expect(draw).toHaveBeenCalled();
-    expect(startFrames.every((startFrame) => startFrame.mock.calls.length === 1)).toBe(true);
+    expect(
+      startFrames.every((startFrame) => startFrame.mock.calls.length === 1),
+    ).toBe(true);
 
     renderer.dispose();
   });
@@ -452,10 +500,19 @@ describe("3D Renderer", () => {
       jest.useRealTimers();
     });
 
-    function prepareDomForInput(inputCanvas: HTMLCanvasElement, inputParent: HTMLDivElement) {
+    function prepareDomForInput(
+      inputCanvas: HTMLCanvasElement,
+      inputParent: HTMLDivElement,
+    ) {
       // Input relies on clientWidth/clientHeight of the canvas parent.
-      Object.defineProperty(inputParent, "clientWidth", { configurable: true, value: 300 });
-      Object.defineProperty(inputParent, "clientHeight", { configurable: true, value: 300 });
+      Object.defineProperty(inputParent, "clientWidth", {
+        configurable: true,
+        value: 300,
+      });
+      Object.defineProperty(inputParent, "clientHeight", {
+        configurable: true,
+        value: 300,
+      });
       inputCanvas.getBoundingClientRect = jest.fn(() => ({
         left: 0,
         top: 0,
@@ -469,12 +526,18 @@ describe("3D Renderer", () => {
       }));
     }
 
-    function createHoverRenderer(): { renderer: Renderer; hoverCanvas: HTMLCanvasElement } {
+    function createHoverRenderer(): {
+      renderer: Renderer;
+      hoverCanvas: HTMLCanvasElement;
+    } {
       const hoverParent = document.createElement("div");
       const hoverCanvas = document.createElement("canvas");
       hoverParent.appendChild(hoverCanvas);
       prepareDomForInput(hoverCanvas, hoverParent);
-      const renderer = new Renderer({ ...defaultRendererProps, canvas: hoverCanvas });
+      const renderer = new Renderer({
+        ...defaultRendererProps,
+        canvas: hoverCanvas,
+      });
       renderer.setPickingEnabled(true);
       return { renderer, hoverCanvas };
     }
@@ -485,14 +548,22 @@ describe("3D Renderer", () => {
       const hoveredSpy = jest.fn();
       renderer.addListener("renderableHovered", hoveredSpy);
 
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10 }));
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 11, clientY: 11 }));
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 12, clientY: 12 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 10, clientY: 10 }),
+      );
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 11, clientY: 11 }),
+      );
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 12, clientY: 12 }),
+      );
 
       expect(hoveredSpy).toHaveBeenCalledTimes(1);
 
       jest.advanceTimersByTime(HOVER_PICK_THROTTLE_MS);
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 13, clientY: 13 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 13, clientY: 13 }),
+      );
       expect(hoveredSpy).toHaveBeenCalledTimes(2);
 
       renderer.dispose();
@@ -504,12 +575,20 @@ describe("3D Renderer", () => {
       const hoveredSpy = jest.fn();
       renderer.addListener("renderableHovered", hoveredSpy);
 
-      hoverCanvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 10, clientY: 10 }));
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 11, clientY: 11 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10 }),
+      );
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 11, clientY: 11 }),
+      );
       expect(hoveredSpy).toHaveBeenCalledTimes(0);
 
-      hoverCanvas.dispatchEvent(new MouseEvent("mouseup", { clientX: 11, clientY: 11 }));
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 12, clientY: 12 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mouseup", { clientX: 11, clientY: 11 }),
+      );
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 12, clientY: 12 }),
+      );
       expect(hoveredSpy).toHaveBeenCalledTimes(1);
 
       renderer.dispose();
@@ -521,15 +600,22 @@ describe("3D Renderer", () => {
       hoverParent.appendChild(hoverCanvas);
       prepareDomForInput(hoverCanvas, hoverParent);
 
-      const renderer = new Renderer({ ...defaultRendererProps, canvas: hoverCanvas });
+      const renderer = new Renderer({
+        ...defaultRendererProps,
+        canvas: hoverCanvas,
+      });
       renderer.setPickingEnabled(false);
 
       const hoveredSpy = jest.fn();
       renderer.addListener("renderableHovered", hoveredSpy);
 
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 10, clientY: 10 }),
+      );
       jest.advanceTimersByTime(HOVER_PICK_THROTTLE_MS * 2);
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 11, clientY: 11 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 11, clientY: 11 }),
+      );
 
       expect(hoveredSpy).toHaveBeenCalledTimes(0);
 
@@ -541,14 +627,20 @@ describe("3D Renderer", () => {
       const frameSpy = jest.spyOn(renderer, "animationFrame");
 
       // First hover result (empty) is a change from "no hover state": repaint.
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 10, clientY: 10 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 10, clientY: 10 }),
+      );
       expect(frameSpy).toHaveBeenCalledTimes(1);
 
       // Moving within the same (empty) hover result must not repaint again.
       jest.advanceTimersByTime(HOVER_PICK_THROTTLE_MS);
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 11, clientY: 11 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 11, clientY: 11 }),
+      );
       jest.advanceTimersByTime(HOVER_PICK_THROTTLE_MS);
-      hoverCanvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 12, clientY: 12 }));
+      hoverCanvas.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 12, clientY: 12 }),
+      );
       expect(frameSpy).toHaveBeenCalledTimes(1);
 
       renderer.dispose();
@@ -692,7 +784,9 @@ describe("3D Renderer", () => {
     });
     renderer.animationFrame();
 
-    const poseArrays = renderer.sceneExtensions.get(PoseArrays.extensionId) as PoseArrays;
+    const poseArrays = renderer.sceneExtensions.get(
+      PoseArrays.extensionId,
+    ) as PoseArrays;
     const renderable = poseArrays.renderables.get(topic);
     expect(renderable).toBeDefined();
     // One batched Axis draws every pose: two meshes with three instances per pose.
@@ -709,7 +803,11 @@ describe("3D Renderer", () => {
     const poseMatrix = new THREE.Matrix4();
     (axes?.children[0] as THREE.InstancedMesh).getMatrixAt(3, poseMatrix);
     const poseOrientation = new THREE.Quaternion();
-    poseMatrix.decompose(new THREE.Vector3(), poseOrientation, new THREE.Vector3());
+    poseMatrix.decompose(
+      new THREE.Vector3(),
+      poseOrientation,
+      new THREE.Vector3(),
+    );
     expect(poseOrientation.z).toBeCloseTo(Math.SQRT1_2);
 
     const settingsNode = poseArrays
@@ -717,7 +815,9 @@ describe("3D Renderer", () => {
       .find(({ path: settingPath }) => settingPath.includes(topic));
     expect(settingsNode?.node.fields?.type).toMatchObject({
       value: "line-axes",
-      options: expect.arrayContaining([expect.objectContaining({ value: "line-axes" })]),
+      options: expect.arrayContaining([
+        expect.objectContaining({ value: "line-axes" }),
+      ]),
     });
     expect(settingsNode?.node.fields).toEqual(
       expect.objectContaining({
@@ -803,7 +903,11 @@ describe("3D Renderer", () => {
 
     // Then: Should set layers, emit event, and queue animation frame
     expect(mockRenderable.layers.set).toHaveBeenCalled();
-    expect(emitSpy).toHaveBeenCalledWith("selectedRenderable", selection, renderer);
+    expect(emitSpy).toHaveBeenCalledWith(
+      "selectedRenderable",
+      selection,
+      renderer,
+    );
     expect(animationFrameSpy).toHaveBeenCalled();
 
     renderer.dispose();
@@ -863,7 +967,11 @@ describe("3D Renderer", () => {
 
     // Then: Should deselect and emit event
     expect(mockRenderable.layers.set).toHaveBeenCalled();
-    expect(emitSpy).toHaveBeenCalledWith("selectedRenderable", undefined, renderer);
+    expect(emitSpy).toHaveBeenCalledWith(
+      "selectedRenderable",
+      undefined,
+      renderer,
+    );
 
     renderer.dispose();
   });
@@ -906,13 +1014,18 @@ describe("3D Renderer", () => {
       traverse: jest.fn(),
     };
     // @ts-expect-error - Partial mock for testing
-    renderer.setSelectedRenderable({ renderable: mockRenderable, instanceIndex: 0 });
+    renderer.setSelectedRenderable({
+      renderable: mockRenderable,
+      instanceIndex: 0,
+    });
     // Capture the camera layer mask at each render call; the camera object is
     // reused across passes and its layers are mutated between them.
     const renderPasses: { scene: unknown; layersMask: number }[] = [];
-    (renderer.gl.render as jest.Mock).mockImplementation((scene: unknown, camera: THREE.Camera) => {
-      renderPasses.push({ scene, layersMask: camera.layers.mask });
-    });
+    (renderer.gl.render as jest.Mock).mockImplementation(
+      (scene: unknown, camera: THREE.Camera) => {
+        renderPasses.push({ scene, layersMask: camera.layers.mask });
+      },
+    );
 
     // When: Rendering a frame
     renderer.animationFrame();
@@ -943,7 +1056,10 @@ describe("3D Renderer", () => {
       traverse: jest.fn(),
     };
     // @ts-expect-error - Partial mock for testing
-    renderer.setSelectedRenderable({ renderable: mockRenderable, instanceIndex: 0 });
+    renderer.setSelectedRenderable({
+      renderable: mockRenderable,
+      instanceIndex: 0,
+    });
     const renderSpy = jest.spyOn(renderer.gl, "render");
     renderSpy.mockClear();
 
@@ -971,9 +1087,14 @@ describe("3D Renderer", () => {
 
     // Then: The error is registered once and the message translated once
     expect(
-      renderer.settings.errors.hasError(["general", "followTf"], "FOLLOW_FRAME_NOT_FOUND"),
+      renderer.settings.errors.hasError(
+        ["general", "followTf"],
+        "FOLLOW_FRAME_NOT_FOUND",
+      ),
     ).toBe(true);
-    expect(tSpy.mock.calls.filter((call) => call[0] === "threeDee:frameNotFound")).toHaveLength(1);
+    expect(
+      tSpy.mock.calls.filter((call) => call[0] === "threeDee:frameNotFound"),
+    ).toHaveLength(1);
 
     renderer.dispose();
   });
@@ -1112,13 +1233,15 @@ describe("3D Renderer", () => {
     renderer.addMessageEventBatch(messages);
 
     // Then: Schema subscriptions should be defined and have queued messages
-    const schemaSubscriptions = renderer.schemaSubscriptions.get("tf2_msgs/TFMessage");
+    const schemaSubscriptions =
+      renderer.schemaSubscriptions.get("tf2_msgs/TFMessage");
     expect(schemaSubscriptions).toBeDefined();
     expect(schemaSubscriptions!.length).toBeGreaterThan(0);
 
     // Check that messages were queued to at least one subscription
     const hasQueuedMessages = schemaSubscriptions!.some(
-      (subscription) => subscription.queue != undefined && subscription.queue.length >= 3,
+      (subscription) =>
+        subscription.queue != undefined && subscription.queue.length >= 3,
     );
     expect(hasQueuedMessages).toBe(true);
 
@@ -1313,7 +1436,10 @@ describe("3D Renderer", () => {
         receiveTime: fromNanoSec(1n),
         schemaName: "foxglove.SceneUpdate",
         message: {
-          entities: [{ frame_id: "entity_frame1" }, { frame_id: "entity_frame2" }],
+          entities: [
+            { frame_id: "entity_frame1" },
+            { frame_id: "entity_frame2" },
+          ],
         },
         sizeInBytes: 0,
       },
@@ -1379,7 +1505,8 @@ describe("3D Renderer", () => {
   it("registers a message's frames without queueing it for subscriptions", () => {
     // Given: A renderer whose transform extension subscribes to TFMessage
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
-    const subscriptions = renderer.schemaSubscriptions.get("tf2_msgs/TFMessage")!;
+    const subscriptions =
+      renderer.schemaSubscriptions.get("tf2_msgs/TFMessage")!;
     const event: MessageEvent = {
       topic: "/tf",
       schemaName: "tf2_msgs/TFMessage",
@@ -1393,13 +1520,17 @@ describe("3D Renderer", () => {
 
     // Then: The frame exists but nothing waits in the subscription queues
     expect(renderer.transformTree.hasFrame("sensor")).toBe(true);
-    expect(subscriptions.some((subscription) => subscription.queue != undefined)).toBe(false);
+    expect(
+      subscriptions.some((subscription) => subscription.queue != undefined),
+    ).toBe(false);
 
     // A full message event is queued as before.
     renderer.addMessageEvent(event);
-    expect(subscriptions.some((subscription) => subscription.queue?.includes(event) === true)).toBe(
-      true,
-    );
+    expect(
+      subscriptions.some(
+        (subscription) => subscription.queue?.includes(event) === true,
+      ),
+    ).toBe(true);
 
     renderer.dispose();
   });
@@ -1422,7 +1553,13 @@ describe("3D Renderer", () => {
   it("removes transform and updates coordinate frame list", () => {
     // Given: A renderer with a transform
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
-    renderer.addTransform("parent", "child", 1n, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
+    renderer.addTransform(
+      "parent",
+      "child",
+      1n,
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0, w: 1 },
+    );
     const emitSpy = jest.spyOn(renderer, "emit");
 
     // When: Removing the transform
@@ -1444,7 +1581,13 @@ describe("3D Renderer", () => {
       { x: 0, y: 0, z: 0 },
       { x: 0, y: 0, z: 0, w: 1 },
     );
-    renderer.addTransform("parent", "child", 1n, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
+    renderer.addTransform(
+      "parent",
+      "child",
+      1n,
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0, w: 1 },
+    );
 
     // When: Attempting to create a cycle by making grandparent a child of child
     renderer.addTransform(
@@ -1471,7 +1614,13 @@ describe("3D Renderer", () => {
   it("reports cycle detection error with custom settings path", () => {
     // Given: A renderer with a transform chain
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
-    renderer.addTransform("parent", "child", 1n, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
+    renderer.addTransform(
+      "parent",
+      "child",
+      1n,
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0, w: 1 },
+    );
 
     // When: Attempting to create a cycle with a custom error settings path
     const customErrorPath = ["custom", "error", "path"];
@@ -1491,7 +1640,8 @@ describe("3D Renderer", () => {
     ]);
     expect(defaultPathError).toBeDefined();
 
-    const customPathError = renderer.settings.errors.errors.errorAtPath(customErrorPath);
+    const customPathError =
+      renderer.settings.errors.errors.errorAtPath(customErrorPath);
     expect(customPathError).toBeDefined();
     expect(customPathError).toContain("Attempted to add cyclical transform");
 
@@ -1607,12 +1757,22 @@ describe("3D Renderer", () => {
 
     renderer.setCurrentTime(1n);
 
-    const tfWithDisplayParent = createTFMessageEvent("display", "childOfDisplay", 1n, [1n]);
+    const tfWithDisplayParent = createTFMessageEvent(
+      "display",
+      "childOfDisplay",
+      1n,
+      [1n],
+    );
     renderer.addMessageEvent(tfWithDisplayParent);
     renderer.animationFrame();
 
     // record to make sure it changes when there's a new fixed frame
-    const tfWithDisplayChild = createTFMessageEvent("parentOfDisplay", "display", 1n, [1n]);
+    const tfWithDisplayChild = createTFMessageEvent(
+      "parentOfDisplay",
+      "display",
+      1n,
+      [1n],
+    );
     tfWithDisplayChild.message.transforms[0]!.transform.translation.x = 1;
     renderer.addMessageEvent(tfWithDisplayChild);
     renderer.animationFrame();
@@ -1631,8 +1791,15 @@ describe("3D Renderer", () => {
     });
     const initialCamera = renderer.cameraHandler.getActiveCamera();
     initialCamera.updateWorldMatrix(true, false);
-    const initialOrientation = initialCamera.getWorldQuaternion(new THREE.Quaternion());
-    const sample = (time: bigint, position: THREE.Vector3, yaw: number, frameId = "robot") => {
+    const initialOrientation = initialCamera.getWorldQuaternion(
+      new THREE.Quaternion(),
+    );
+    const sample = (
+      time: bigint,
+      position: THREE.Vector3,
+      yaw: number,
+      frameId = "robot",
+    ) => {
       const robotOrientation = new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 0, 1),
         yaw,
@@ -1663,8 +1830,14 @@ describe("3D Renderer", () => {
     };
     const first = sample(1n, new THREE.Vector3(1, 2, 0), 0.2);
     const second = sample(2n, new THREE.Vector3(4, 6, 0), 1.4);
-    expect(Math.abs(first.orientation.dot(initialOrientation))).toBeCloseTo(1, 10);
-    expect(Math.abs(first.orientation.dot(second.orientation))).toBeCloseTo(1, 10);
+    expect(Math.abs(first.orientation.dot(initialOrientation))).toBeCloseTo(
+      1,
+      10,
+    );
+    expect(Math.abs(first.orientation.dot(second.orientation))).toBeCloseTo(
+      1,
+      10,
+    );
     const delta = second.position.clone().sub(first.position);
     expect(delta.x).toBeCloseTo(3, 10);
     expect(delta.y).toBeCloseTo(4, 10);
@@ -1673,7 +1846,52 @@ describe("3D Renderer", () => {
       draft.followTf = "robot2";
     });
     const otherRobot = sample(3n, new THREE.Vector3(10, -5, 2), -1.1, "robot2");
-    expect(Math.abs(otherRobot.orientation.dot(initialOrientation))).toBeCloseTo(1, 10);
+    expect(
+      Math.abs(otherRobot.orientation.dot(initialOrientation)),
+    ).toBeCloseTo(1, 10);
+    renderer.dispose();
+  });
+
+  it("zooming during position follow preserves the world viewing direction", () => {
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      config: {
+        ...defaultRendererConfig,
+        followMode: "follow-position",
+        followTf: "robot",
+        scene: { transforms: { enablePreloading: false } },
+      },
+    });
+    const orientation = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(0.2, -0.15, 0.8),
+    );
+    const event = createTFMessageEvent("world", "robot", 1n, [1n]);
+    event.message.transforms[0]!.transform.rotation = {
+      x: orientation.x,
+      y: orientation.y,
+      z: orientation.z,
+      w: orientation.w,
+    };
+    renderer.setCurrentTime(1n);
+    renderer.addMessageEvent(event);
+    renderer.animationFrame();
+    const camera = renderer.cameraHandler.getActiveCamera();
+    camera.updateWorldMatrix(true, false);
+    const before = camera.getWorldQuaternion(new THREE.Quaternion());
+    const distance = renderer.getCameraState()!.distance;
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -100,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    renderer.animationFrame();
+    camera.updateWorldMatrix(true, false);
+    const after = camera.getWorldQuaternion(new THREE.Quaternion());
+    expect(renderer.getCameraState()!.distance).toBeLessThan(distance);
+    expect(Math.abs(before.dot(after))).toBeCloseTo(1, 10);
     renderer.dispose();
   });
 
@@ -1691,12 +1909,22 @@ describe("3D Renderer", () => {
 
     renderer.setCurrentTime(1n);
 
-    const tfWithDisplayParent = createTFMessageEvent("display", "childOfDisplay", 1n, [1n]);
+    const tfWithDisplayParent = createTFMessageEvent(
+      "display",
+      "childOfDisplay",
+      1n,
+      [1n],
+    );
     renderer.addMessageEvent(tfWithDisplayParent);
     renderer.animationFrame();
 
     // record to make sure it changes when there's a new fixed frame
-    const tfWithDisplayChild = createTFMessageEvent("parentOfDisplay", "display", 1n, [1n]);
+    const tfWithDisplayChild = createTFMessageEvent(
+      "parentOfDisplay",
+      "display",
+      1n,
+      [1n],
+    );
     tfWithDisplayChild.message.transforms[0]!.transform.translation.x = 1;
     renderer.addMessageEvent(tfWithDisplayChild);
     renderer.animationFrame();
@@ -1724,12 +1952,22 @@ describe("3D Renderer", () => {
 
     renderer.setCurrentTime(1n);
 
-    const tfWithDisplayParent = createTFMessageEvent("display", "childOfDisplay", 1n, [1n]);
+    const tfWithDisplayParent = createTFMessageEvent(
+      "display",
+      "childOfDisplay",
+      1n,
+      [1n],
+    );
     renderer.addMessageEvent(tfWithDisplayParent);
     renderer.animationFrame();
 
     // record to make sure it changes when there's a new fixed frame
-    const tfWithDisplayChild = createTFMessageEvent("parentOfDisplay", "display", 1n, [1n]);
+    const tfWithDisplayChild = createTFMessageEvent(
+      "parentOfDisplay",
+      "display",
+      1n,
+      [1n],
+    );
     tfWithDisplayChild.message.transforms[0]!.transform.translation.x = 1;
     renderer.addMessageEvent(tfWithDisplayChild);
     renderer.animationFrame();
@@ -1756,12 +1994,22 @@ describe("3D Renderer", () => {
 
     renderer.setCurrentTime(1n);
 
-    const tfWithDisplayParent = createTFMessageEvent("display", "childOfDisplay", 1n, [1n]);
+    const tfWithDisplayParent = createTFMessageEvent(
+      "display",
+      "childOfDisplay",
+      1n,
+      [1n],
+    );
     renderer.addMessageEvent(tfWithDisplayParent);
     renderer.animationFrame();
 
     // record to make sure it changes when there's a new fixed frame
-    const tfWithDisplayChild = createTFMessageEvent("parentOfDisplay", "display", 1n, [1n]);
+    const tfWithDisplayChild = createTFMessageEvent(
+      "parentOfDisplay",
+      "display",
+      1n,
+      [1n],
+    );
     tfWithDisplayChild.message.transforms[0]!.transform.translation.x = 1;
     renderer.addMessageEvent(tfWithDisplayChild);
     renderer.animationFrame();
@@ -1795,12 +2043,22 @@ describe("3D Renderer", () => {
 
     renderer.setCurrentTime(1n);
 
-    const tfWithDisplayParent = createTFMessageEvent("display", "childOfDisplay", 1n, [1n]);
+    const tfWithDisplayParent = createTFMessageEvent(
+      "display",
+      "childOfDisplay",
+      1n,
+      [1n],
+    );
     renderer.addMessageEvent(tfWithDisplayParent);
     renderer.animationFrame();
 
     // record to make sure it changes when there's a new fixed frame
-    const tfWithDisplayChild = createTFMessageEvent("parentOfDisplay", "display", 1n, [1n]);
+    const tfWithDisplayChild = createTFMessageEvent(
+      "parentOfDisplay",
+      "display",
+      1n,
+      [1n],
+    );
     tfWithDisplayChild.message.transforms[0]!.transform.translation.x = 1;
     renderer.addMessageEvent(tfWithDisplayChild);
     renderer.animationFrame();
@@ -1811,7 +2069,12 @@ describe("3D Renderer", () => {
       z: 0,
     });
 
-    const tfWithFinalRoot = createTFMessageEvent("root", "parentOfDisplay", 1n, [1n]);
+    const tfWithFinalRoot = createTFMessageEvent(
+      "root",
+      "parentOfDisplay",
+      1n,
+      [1n],
+    );
     tfWithFinalRoot.message.transforms[0]!.transform.translation.y = 1;
     renderer.addMessageEvent(tfWithFinalRoot);
     renderer.animationFrame();
@@ -1840,7 +2103,9 @@ describe("3D Renderer", () => {
 
     // first frame
     let currentTime = 5n;
-    const beforeHeader = createTFMessageEvent("root", "before", currentTime, [currentTime - 2n]);
+    const beforeHeader = createTFMessageEvent("root", "before", currentTime, [
+      currentTime - 2n,
+    ]);
     // transform with headerstamp before currentTime
     currentFrame = [beforeHeader];
     renderer.setCurrentTime(currentTime);
@@ -1850,7 +2115,9 @@ describe("3D Renderer", () => {
 
     // second frame
     currentTime = 6n;
-    const onHeader = createTFMessageEvent("root", "on", currentTime, [currentTime]);
+    const onHeader = createTFMessageEvent("root", "on", currentTime, [
+      currentTime,
+    ]);
     // transform with headerstamp on currentTime
     currentFrame = [onHeader];
     renderer.setCurrentTime(currentTime);
@@ -1860,7 +2127,9 @@ describe("3D Renderer", () => {
 
     // third frame
     currentTime = 7n;
-    const afterHeader = createTFMessageEvent("root", "after", currentTime, [currentTime + 2n]);
+    const afterHeader = createTFMessageEvent("root", "after", currentTime, [
+      currentTime + 2n,
+    ]);
     // transform with headerstamp after currentTime
     currentFrame = [afterHeader];
     renderer.setCurrentTime(currentTime);
@@ -1911,7 +2180,9 @@ describe("3D Renderer", () => {
 
     // first frame
     let currentTime = 5n;
-    const beforeHeader = createTFMessageEvent("root", "before", currentTime, [currentTime - 2n]);
+    const beforeHeader = createTFMessageEvent("root", "before", currentTime, [
+      currentTime - 2n,
+    ]);
     // transform with headerstamp before currentTime
     currentFrame = [beforeHeader];
     renderer.setCurrentTime(currentTime);
@@ -1921,7 +2192,9 @@ describe("3D Renderer", () => {
 
     // second frame
     currentTime = 6n;
-    const onHeader = createTFMessageEvent("root", "on", currentTime, [currentTime]);
+    const onHeader = createTFMessageEvent("root", "on", currentTime, [
+      currentTime,
+    ]);
     // transform with headerstamp on currentTime
     currentFrame = [onHeader];
     renderer.setCurrentTime(currentTime);
@@ -1931,7 +2204,9 @@ describe("3D Renderer", () => {
 
     // third frame
     currentTime = 7n;
-    const afterHeader = createTFMessageEvent("root", "after", currentTime, [currentTime + 2n]);
+    const afterHeader = createTFMessageEvent("root", "after", currentTime, [
+      currentTime + 2n,
+    ]);
     // transform with headerstamp after currentTime
     currentFrame = [afterHeader];
     renderer.setCurrentTime(currentTime);
@@ -1956,7 +2231,9 @@ describe("3D Renderer", () => {
     expect(renderer.transformTree.frame("on")).not.toBeUndefined();
     expect(renderer.transformTree.frame("after")).not.toBeUndefined();
     // currentFrame will be set back to what it was at that time
-    const seekOnHeader = createTFMessageEvent("root", "seekOn", currentTime, [currentTime]);
+    const seekOnHeader = createTFMessageEvent("root", "seekOn", currentTime, [
+      currentTime,
+    ]);
     currentFrame = [seekOnHeader];
     currentFrame.forEach((msg) => {
       renderer.addMessageEvent(msg);
@@ -2118,7 +2395,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
     const currentTime = 4n;
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Processing messages up to currentTime
     renderer.setCurrentTime(currentTime);
@@ -2136,7 +2416,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
     for (let i = 0; i < 10; i++) {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Processing messages up to time 4
     renderer.setCurrentTime(4n);
@@ -2163,7 +2446,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
     const currentTime = 11n;
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Setting current time and handling messages
     renderer.setCurrentTime(currentTime);
@@ -2182,7 +2468,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
     const currentTime = 11n;
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Processing first batch
     renderer.setCurrentTime(currentTime);
@@ -2208,7 +2497,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
     for (let i = 0; i < 10; i++) {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Processing all messages
     renderer.setCurrentTime(11n);
@@ -2231,7 +2523,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
     for (let i = 0; i < 10; i++) {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Processing messages initially
     renderer.setCurrentTime(11n);
@@ -2255,7 +2550,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
     for (let i = 2; i < 10; i++) {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Processing initial messages
     renderer.setCurrentTime(5n);
@@ -2285,7 +2583,10 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
     for (let i = 2; i < 10; i++) {
       msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
     }
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+    const addMessageEventBatchMock = jest.spyOn(
+      renderer,
+      "addMessageEventBatch",
+    );
 
     // When: Processing initial messages
     renderer.setCurrentTime(5n);
@@ -2306,30 +2607,36 @@ describe("Renderer.handleAllFramesMessages behavior", () => {
     const reprocessedBatch = addMessageEventBatchMock.mock.calls[0]?.[0];
     expect(reprocessedBatch).toHaveLength(numMessagesBeforeTime - 1);
   });
-  it.failing("(does not) reset the cursor if number of messages added **and** removed before cursor are equal in a single update", () => {
-    // Given: A renderer with messages starting at index 2
-    const renderer = new Renderer(rendererArgs);
-    const msgs = [];
-    for (let i = 2; i < 10; i++) {
-      msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
-    }
-    const addMessageEventBatchMock = jest.spyOn(renderer, "addMessageEventBatch");
+  it.failing(
+    "(does not) reset the cursor if number of messages added **and** removed before cursor are equal in a single update",
+    () => {
+      // Given: A renderer with messages starting at index 2
+      const renderer = new Renderer(rendererArgs);
+      const msgs = [];
+      for (let i = 2; i < 10; i++) {
+        msgs.push(createTFMessageEvent("a", "b", BigInt(i), [BigInt(i)]));
+      }
+      const addMessageEventBatchMock = jest.spyOn(
+        renderer,
+        "addMessageEventBatch",
+      );
 
-    // When: Processing initial messages
-    renderer.setCurrentTime(5n);
-    renderer.handleAllFramesMessages(msgs);
-    expect(addMessageEventBatchMock).toHaveBeenCalledTimes(1);
+      // When: Processing initial messages
+      renderer.setCurrentTime(5n);
+      renderer.handleAllFramesMessages(msgs);
+      expect(addMessageEventBatchMock).toHaveBeenCalledTimes(1);
 
-    // When: Removing and adding message at beginning (before cursor)
-    addMessageEventBatchMock.mockClear();
-    msgs.shift();
-    msgs.unshift(createTFMessageEvent("a", "b", 1n, [1n]));
-    const newMessagesHandled = renderer.handleAllFramesMessages(msgs);
+      // When: Removing and adding message at beginning (before cursor)
+      addMessageEventBatchMock.mockClear();
+      msgs.shift();
+      msgs.unshift(createTFMessageEvent("a", "b", 1n, [1n]));
+      const newMessagesHandled = renderer.handleAllFramesMessages(msgs);
 
-    // Then: Should still reprocess because cursor was reset
-    expect(newMessagesHandled).toBeTruthy();
-    expect(addMessageEventBatchMock).toHaveBeenCalledTimes(1);
-  });
+      // Then: Should still reprocess because cursor was reset
+      expect(newMessagesHandled).toBeTruthy();
+      expect(addMessageEventBatchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe("Renderer backward seek behavior", () => {
@@ -2364,7 +2671,11 @@ describe("Renderer backward seek behavior", () => {
     });
     const allFrames = [];
     for (let i = 0; i < 100; i++) {
-      allFrames.push(createTFMessageEvent("parent", "child", BigInt(i * 1000), [BigInt(i * 1000)]));
+      allFrames.push(
+        createTFMessageEvent("parent", "child", BigInt(i * 1000), [
+          BigInt(i * 1000),
+        ]),
+      );
     }
 
     // When: Processing messages up to current time
@@ -2627,7 +2938,9 @@ describe("Renderer maxPreloadMessages configuration", () => {
       ...rendererArgs,
       config: {
         ...defaultRendererConfig,
-        scene: { transforms: { enablePreloading: true, maxPreloadMessages: customMax } },
+        scene: {
+          transforms: { enablePreloading: true, maxPreloadMessages: customMax },
+        },
       },
     });
 

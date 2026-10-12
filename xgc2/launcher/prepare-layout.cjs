@@ -412,7 +412,7 @@ function prepareLayout(input) {
   if (obstacleProjection || simulatedProjection) arTopics["/tf"] = visible();
   for (const r of robots) {
     if (r.visualization.descriptionPackage)
-      threeTopics[`param:${r.namespace}/visual_robot_description`] =
+      threeTopics[`${r.namespace}/visual_robot_description`] =
         overlay(false);
     if (r.visualization.odometryTopic)
       threeTopics[namespaced(r, r.visualization.odometryTopic)] = visible();
@@ -702,8 +702,8 @@ function prepareLayout(input) {
           label: r.name,
           visible: true,
           frameLocked: true,
-          sourceType: "param",
-          parameter: `${r.namespace}/visual_robot_description`,
+          sourceType: "topic",
+          topic: `${r.namespace}/visual_robot_description`,
           framePrefix: `${frame(r)}/`,
           displayMode: "visual",
           order: index + 2,

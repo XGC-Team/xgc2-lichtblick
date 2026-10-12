@@ -13,12 +13,30 @@ for (const f of fixtures)
     const before = structuredClone(f.input);
     const value = prepareLayout(mapViewInput(f.input));
     assert.deepEqual(value.layout, f.layout);
-    // Captured from the legacy builder before translating the fixture inputs.
+    // Frozen expected bytes include the current description transport.
     assert.equal(createHash("sha256").update(JSON.stringify(value.layout)).digest("hex"), f.layoutSha256);
     assert.deepEqual(f.input, before, "frozen facts are unchanged");
     assert.equal(Object.hasOwn(value, "allowedTopics"), false);
     assert.equal(Object.hasOwn(value, "displayRelays"), false);
   });
+
+test("robot models consume latched descriptions for every robot kind and view", () => {
+  const kinds = new Set();
+  for (const fixture of fixtures) {
+    const { layout } = prepareLayout(mapViewInput(fixture.input));
+    for (const config of Object.values(layout.configById)) {
+      for (const layer of Object.values(config.layers ?? {})) {
+        if (layer.layerId !== "foxglove.Urdf") continue;
+        const robot = fixture.input.robots.find((r) => r.namespace === `/${layer.label}`);
+        kinds.add(robot.kind);
+        assert.equal(layer.sourceType, "topic");
+        assert.equal(layer.topic, `${robot.namespace}/visual_robot_description`);
+        assert.equal(Object.hasOwn(layer, "parameter"), false);
+      }
+    }
+  }
+  assert.ok(kinds.has("px4_multirotor") && kinds.has("scout_mini") && kinds.has("mecanum_ugv"));
+});
 
 test("RobotFact maps binding and asset fields and derives the slot name from its namespace", () => {
   const fact = structuredClone(fixtures[0].input.robots[0]);
