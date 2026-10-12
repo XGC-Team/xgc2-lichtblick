@@ -136,7 +136,7 @@ test("accepts Marker and MarkerArray display copies without inventing pose axes"
 test("history parameters keep the author path style and record the send ceiling", () => {
   const input = structuredClone(fixtures[0].input);
   const base = prepareLayout(mapViewInput(input));
-  assert.equal(base.parameters.historyMaxRateHz, 10);
+  assert.equal(base.parameters.historyMaxRateHz, 2);
   assert.equal(base.parameters.historyVisible, true);
   assert.equal(base.parameters.historyShowPoseAxes, false);
   assert.deepEqual(base.layout.configById["3D!xgc2"].topics["/uav1/path"], {
@@ -255,7 +255,7 @@ test("prediction display copies ignore a missing maxRateHz and explicit pose axe
   const input = structuredClone(fixtures[1].input);
   for (const topic of input.visualizationTopics) delete topic.maxRateHz;
   const prepared = prepareLayout(mapViewInput(input));
-  assert.equal(prepared.parameters.predictionMaxRateHz, 5);
+  assert.equal(prepared.parameters.predictionMaxRateHz, 2);
   assert.equal(prepared.parameters.predictionShowPoseAxes, true);
   const topics = prepared.layout.configById["3D!xgc2"].topics;
   for (const topic of input.visualizationTopics) {

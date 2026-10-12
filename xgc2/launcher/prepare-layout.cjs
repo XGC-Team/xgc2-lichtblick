@@ -72,11 +72,11 @@ const VIEWER_DEFAULTS = Object.freeze({
   simpleLidarMaxRateHz: 0,
   simpleLidarMaxMessageBytes: 0,
   frameWorldBoundary: false,
-  historyMaxRateHz: 10,
+  historyMaxRateHz: 2,
   historyVisible: true,
   historyShowPoseAxes: false,
   predictionShowPoseAxes: true,
-  predictionMaxRateHz: 5,
+  predictionMaxRateHz: 2,
 });
 const topicPattern = /^\/[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*$/;
 const colorPattern = /^#[0-9a-fA-F]{6}$/;
