@@ -127,7 +127,8 @@
                 0
               ],
               "size": 30,
-              "visible": true
+              "visible": true,
+              "frameId": "world"
             },
             "xgc2-urdf-uav1": {
               "displayMode": "visual",
@@ -298,7 +299,7 @@
       "userNodes": {}
     },
     "name": "defaults-one-uav",
-    "layoutSha256": "ddf9b08427030bbe43486315e239c879151f8dce8a201b2713d620bf68223e49"
+    "layoutSha256": "8721281d415d796602905255cd9c5e73cfde32bb511e9ee40b04ce191a2f84b7"
   },
   {
     "input": {
@@ -629,7 +630,8 @@
                 0,
                 0
               ],
-              "order": 1
+              "order": 1,
+              "frameId": "world"
             }
           }
         },
@@ -753,7 +755,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "b932bfa9a3ac1b413ebf6a354ac6669b3f958dc1c24110b761e09a668f2d65b0"
+    "layoutSha256": "905c9c05511fdd43c73c070ba3cb71c8d994fed86aeef8928688e57247609a8f"
   },
   {
     "input": {
@@ -1616,7 +1618,8 @@
                 0
               ],
               "size": 30,
-              "visible": true
+              "visible": true,
+              "frameId": "world"
             },
             "xgc2-urdf-uav1": {
               "displayMode": "visual",
@@ -1946,7 +1949,7 @@
       "userNodes": {}
     },
     "name": "scene-plot-palette",
-    "layoutSha256": "eaa6f5960a1406d14cc112d897055388dc4f92971239262d4c4ed1d8dfcd7bf8"
+    "layoutSha256": "8f17e2be198585dc211cbec6c812947988b31c129f392383695b3fe1c35286f2"
   },
   {
     "input": {
@@ -2216,7 +2219,8 @@
                 0
               ],
               "size": 30,
-              "visible": true
+              "visible": true,
+              "frameId": "world"
             },
             "xgc2-urdf-uav1": {
               "displayMode": "visual",
@@ -2571,7 +2575,7 @@
       "userNodes": {}
     },
     "name": "replay-pixels",
-    "layoutSha256": "8963e15b8976149d6cd51ff506758b98c504f40e181baadb16aba3c894af5850"
+    "layoutSha256": "ea88abecdbfac7022703606bb0f04986a9c6fe4a8442e37a49fe339e9c125dd2"
   },
   {
     "input": {
@@ -3052,7 +3056,8 @@
                 0,
                 0
               ],
-              "order": 1
+              "order": 1,
+              "frameId": "world"
             }
           }
         },
@@ -3240,7 +3245,7 @@
       }
     },
     "name": "hybrid-mixed",
-    "layoutSha256": "b9176045624473cacceb1d0c4d69e1c571a694579a7c0f93e82048a8ae497ad9"
+    "layoutSha256": "19214ca98302d1cba944b5fd4850fba9dfb8eb35644443cc1116b365afa93165"
   },
   {
     "input": {
@@ -4299,7 +4304,8 @@
                 0,
                 0
               ],
-              "order": 1
+              "order": 1,
+              "frameId": "world"
             }
           }
         },
@@ -4504,7 +4510,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "dff34c1195dbc708fdb56a8560bd727262f611e6c77f377afe65e6b361f00880"
+    "layoutSha256": "a7e254e8d5e4f2ddfac5bf5c5ed6601d9b4c8d8104fffbca50716e89ed263a73"
   },
   {
     "input": {
@@ -4606,7 +4612,8 @@
                 0
               ],
               "size": 30,
-              "visible": true
+              "visible": true,
+              "frameId": "world"
             }
           },
           "scene": {
@@ -4782,6 +4789,6 @@
       "userNodes": {}
     },
     "name": "obstacle-only",
-    "layoutSha256": "2565d6419abe7e8b8da390901689bac16577e323eb34d967001f5c36be35e11b"
+    "layoutSha256": "091da92f8f228517cbbdef5db1ec6d28ec7690a84236460e53f9cc5eb7385005"
   }
 ]

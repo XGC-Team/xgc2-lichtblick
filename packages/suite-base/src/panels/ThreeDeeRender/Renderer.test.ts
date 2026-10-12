@@ -1852,6 +1852,45 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
+  it("keeps the world reference grid steady while a followed robot turns and tilts", () => {
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      config: {
+        ...defaultRendererConfig,
+        followMode: "follow-position",
+        followTf: "robot",
+        scene: { transforms: { enablePreloading: false } },
+        layers: {
+          "xgc2-grid": { layerId: "foxglove.Grid", frameId: "world", visible: true },
+        },
+      },
+    });
+    const grid = renderer.sceneExtensions.get("foxglove.Grids")!.renderables.get("xgc2-grid")!;
+    const sample = (time: bigint, roll: number, pitch: number, yaw: number) => {
+      const event = createTFMessageEvent("world", "robot", time, [time]);
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(roll, pitch, yaw));
+      event.message.transforms[0]!.transform.rotation = { x: q.x, y: q.y, z: q.z, w: q.w };
+      event.message.transforms[0]!.transform.translation = { x: Number(time), y: 2, z: 1 };
+      renderer.setCurrentTime(time);
+      renderer.addMessageEvent(event);
+      renderer.animationFrame();
+      const camera = renderer.cameraHandler.getActiveCamera();
+      camera.updateWorldMatrix(true, false);
+      grid.updateWorldMatrix(true, false);
+      // Compare the rendered grid axes relative to the camera, not the camera alone.
+      return camera.getWorldQuaternion(new THREE.Quaternion()).invert()
+        .multiply(grid.getWorldQuaternion(new THREE.Quaternion()));
+    };
+    const before = sample(1n, 0, 0, 0);
+    let time = 2n;
+    for (const [roll, pitch, yaw] of [[0.2, -0.15, 0.8], [-0.1, 0.3, -1.5], [0, 0, Math.PI]]) {
+      const after = sample(time++, roll!, pitch!, yaw!);
+      expect(Math.abs(before.dot(after))).toBeCloseTo(1, 10);
+    }
+    renderer.dispose();
+  });
+
   it("zooming during position follow preserves the world viewing direction", () => {
     const renderer = new Renderer({
       ...defaultRendererProps,
@@ -1862,6 +1901,13 @@ describe("3D Renderer", () => {
         followTf: "robot",
         scene: { transforms: { enablePreloading: false } },
       },
+    });
+    // Match the panel's synchronous cameraMove listener, including persisted
+    // control state being applied again before the next rendered frame.
+    renderer.on("cameraMove", () => {
+      const state = renderer.getCameraState()!;
+      renderer.setCameraState(state);
+      renderer.updateConfig((draft) => { draft.cameraState = state; });
     });
     const orientation = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(0.2, -0.15, 0.8),
@@ -1892,6 +1938,25 @@ describe("3D Renderer", () => {
     const after = camera.getWorldQuaternion(new THREE.Quaternion());
     expect(renderer.getCameraState()!.distance).toBeLessThan(distance);
     expect(Math.abs(before.dot(after))).toBeCloseTo(1, 10);
+    const worldOrientation = orientation.clone().multiply(before);
+    for (let i = 2; i <= 30; i++) {
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        0.3 * Math.sin(i), 0.2 * Math.cos(i), i / 3,
+      ));
+      const tf = createTFMessageEvent("world", "robot", BigInt(i), [BigInt(i)]);
+      tf.message.transforms[0]!.transform.rotation = { x: q.x, y: q.y, z: q.z, w: q.w };
+      renderer.setCurrentTime(BigInt(i));
+      renderer.addMessageEvent(tf);
+      renderer.animationFrame();
+      if (i % 3 === 0) {
+        canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: i % 2 ? -40 : 40, cancelable: true }));
+        renderer.animationFrame();
+      }
+      camera.updateWorldMatrix(true, false);
+      const actual = q.clone().multiply(camera.getWorldQuaternion(new THREE.Quaternion()));
+      expect(Math.abs(worldOrientation.dot(actual))).toBeCloseTo(1, 10);
+    }
+
     renderer.dispose();
   });
 

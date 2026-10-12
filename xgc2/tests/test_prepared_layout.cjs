@@ -20,6 +20,20 @@ for (const f of fixtures)
     assert.equal(Object.hasOwn(value, "displayRelays"), false);
   });
 
+test("reference grids stay in world coordinates when a robot is followed", () => {
+  let grids = 0;
+  for (const fixture of fixtures) {
+    const { layout } = prepareLayout(mapViewInput(fixture.input));
+    for (const config of Object.values(layout.configById)) {
+      const grid = config.layers?.["xgc2-grid"];
+      if (!grid) continue;
+      grids++;
+      assert.equal(grid.frameId, "world", fixture.name);
+    }
+  }
+  assert.ok(grids > 0);
+});
+
 test("robot models consume latched descriptions for every robot kind and view", () => {
   const kinds = new Set();
   for (const fixture of fixtures) {

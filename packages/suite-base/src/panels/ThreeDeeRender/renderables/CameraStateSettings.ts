@@ -102,24 +102,6 @@ export class CameraStateSettings
     this.add(this.#cameraGroup);
 
     this.#controls = new OrbitControls(this.#perspectiveCamera, this.#canvas);
-    // OrbitControls reads local camera coordinates but calls world-space lookAt.
-    // Its calculations must not include the parent transform that cancels the
-    // moving robot's rotation. Restore that transform before drawing the scene.
-    const updateControls = this.#controls.update.bind(this.#controls);
-    this.#controls.update = (...args) => {
-      const position = this.#cameraGroup.position.clone();
-      const orientation = this.#cameraGroup.quaternion.clone();
-      this.#cameraGroup.position.set(0, 0, 0);
-      this.#cameraGroup.quaternion.identity();
-      this.#cameraGroup.updateWorldMatrix(true, true);
-      try {
-        return updateControls(...args);
-      } finally {
-        this.#cameraGroup.position.copy(position);
-        this.#cameraGroup.quaternion.copy(orientation);
-        this.#cameraGroup.updateWorldMatrix(true, true);
-      }
-    };
     this.#controls.screenSpacePanning =
       DEFAULT_ORBIT_CONTROLS_CONFIG.screenSpacePanning;
     this.#controls.mouseButtons.LEFT =

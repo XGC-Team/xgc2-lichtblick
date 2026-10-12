@@ -725,6 +725,7 @@ function prepareLayout(input) {
       label: "Grid",
       instanceId: "xgc2-grid",
       layerId: "foxglove.Grid",
+      frameId: "world",
       size: p.gridSize,
       divisions: p.gridDivisions,
       lineWidth: p.gridLineWidth,
