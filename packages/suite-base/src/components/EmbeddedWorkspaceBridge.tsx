@@ -34,10 +34,12 @@ import {
 import { embeddedSceneBridge } from "./EmbeddedSceneBridge";
 import { embeddedViewCapture } from "./EmbeddedViewCapture";
 import {
+  isEmbeddedThemeCommand,
   XGC2_EMBED_CHANNEL,
   XGC2_EMBED_SURFACES,
   XGC2_EMBED_VERSION,
   XGC2_HOST_VISIBILITY_EVENT,
+  type EmbeddedThemeCommand,
   XGC2_NAVIGATION_STATE_EVENT,
   embeddedParentOrigin,
   isXgc2EmbeddedNavigationState,
@@ -74,28 +76,7 @@ export type Xgc2EmbeddedReadyMessage = {
   visibleSurfaces: readonly Xgc2EmbeddedSurface[];
 };
 
-export type EmbeddedThemeCommand = {
-  channel: typeof XGC2_EMBED_CHANNEL;
-  version: typeof XGC2_EMBED_VERSION;
-  sender: "xgc2";
-  type: "theme";
-} & EmbeddedHostTheme;
-
-export function isEmbeddedThemeCommand(value: unknown): value is EmbeddedThemeCommand {
-  const keys = ["channel", "version", "sender", "type", "colorScheme", "backgroundColor"];
-  return (
-    isPlainObject(value) &&
-    Object.keys(value).length === keys.length &&
-    Object.keys(value).every((key) => keys.includes(key)) &&
-    value.channel === XGC2_EMBED_CHANNEL &&
-    value.version === XGC2_EMBED_VERSION &&
-    value.sender === "xgc2" &&
-    value.type === "theme" &&
-    (value.colorScheme === "dark" || value.colorScheme === "light") &&
-    typeof value.backgroundColor === "string" &&
-    /^#[\da-f]{6}$/i.test(value.backgroundColor)
-  );
-}
+export { isEmbeddedThemeCommand, type EmbeddedThemeCommand };
 
 // Navigation remains on this authenticated embed channel and names one native panel.
 export const EMBEDDED_NAVIGATION_EVENT = "xgc2.lichtblick.native-navigation";

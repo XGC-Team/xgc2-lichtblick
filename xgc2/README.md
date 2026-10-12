@@ -130,18 +130,35 @@ Optional `parameters` overrides viewer options. The single authoritative default
 table is `VIEWER_DEFAULTS` in [prepare-layout.cjs](launcher/prepare-layout.cjs).
 It contains grid and axes settings, model scales, palettes, prediction widths,
 marker and label options, `sceneNamespace`, `plotPaths`, `transformTopics`,
-`frameWorldBoundary` and simple-lidar display budgets. Run mode, layout mode,
-boundary, camera topics and visualization declarations belong to the top-level
-fields and cannot be overridden through parameters. Label options other than
-marker background are carried through as before; robot label rendering belongs
-to the visualizer. Display budgets select display topic copies in the layout;
-Core's visualization workflow configures those copies and the bridge allowlist.
-The launcher no longer produces `allowedTopics` or `displayRelays`.
+`frameWorldBoundary`, simple-lidar display budgets, and the five host parameters
+`historyVisible` (true), `historyShowPoseAxes` (false), `historyMaxRateHz` (10),
+`predictionShowPoseAxes` (true) and `predictionMaxRateHz` (5). Run mode, layout
+mode, boundary, camera topics and visualization declarations belong to the
+top-level fields and cannot be overridden through parameters. Label options other
+than marker background are carried through as before; robot label rendering
+belongs to the visualizer. A declaration with `maxRateHz` greater than zero, and
+every `role` of `prediction` even without `maxRateHz`, is subscribed at
+`/xgc/display` plus the original topic. That includes `visualization_msgs/Marker`
+and `MarkerArray`. The layout keeps the original message type and does not
+throttle. `predictionMaxRateHz` and `historyMaxRateHz` are recorded for the
+system graph, which owns the display copy and takes the minimum of an explicit
+`maxRateHz` and the type rate. Pose axes apply only to `nav_msgs/Path` and
+`geometry_msgs/PoseArray`: an explicit `showPoseAxes` wins, otherwise prediction
+uses `predictionShowPoseAxes` and history paths use `historyShowPoseAxes`.
+Marker and MarkerArray settings never add pose axes. Optional `robotNamespace`
+must name one roster namespace and selects that robot's palette; an explicit
+`color` wins, and a declaration without an owner keeps the previous default
+colors. `historyVisible` false omits history paths. These parameters are view
+input, not the desktop startup-input file. Display budgets for other types still
+select display copies in the layout; Core's visualization workflow configures
+those copies and the bridge allowlist. The launcher no longer produces
+`allowedTopics` or `displayRelays`.
 
 The launcher maps this input and builds LayoutData in process. It embeds that
 layout in `index.html` and serves the same document at `layout.json` under the
-public URL prefix. The eight frozen fixtures retain their expected layouts and
-hashes of the legacy serialized layout bytes.
+public URL prefix. The eight frozen fixtures store the layouts and hashes
+produced by the current preparer. Prediction topics in those fixtures are on
+`/xgc/display` plus the original topic.
 
 ## Focused checks
 

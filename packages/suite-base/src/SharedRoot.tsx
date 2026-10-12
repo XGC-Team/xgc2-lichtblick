@@ -73,7 +73,7 @@ export function SharedRoot(
   return (
     <AppConfigurationContext.Provider value={appConfiguration}>
       <AppParametersProvider appParameters={appParameters}>
-        <ColorSchemeThemeProvider>
+        <ColorSchemeThemeProvider embedded={workspaceAppearance === "embedded"}>
           {enableGlobalCss && <GlobalCss />}
           <CssBaseline>
             <ErrorBoundary>

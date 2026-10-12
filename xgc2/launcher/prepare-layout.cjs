@@ -72,6 +72,11 @@ const VIEWER_DEFAULTS = Object.freeze({
   simpleLidarMaxRateHz: 0,
   simpleLidarMaxMessageBytes: 0,
   frameWorldBoundary: false,
+  historyMaxRateHz: 10,
+  historyVisible: true,
+  historyShowPoseAxes: false,
+  predictionShowPoseAxes: true,
+  predictionMaxRateHz: 5,
 });
 const topicPattern = /^\/[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*$/;
 const colorPattern = /^#[0-9a-fA-F]{6}$/;
@@ -80,12 +85,10 @@ const relayTypes = new Set([
   "nav_msgs/OccupancyGrid",
   "nav_msgs/Path",
   "geometry_msgs/PoseArray",
-]);
-const messageTypes = new Set([
-  ...relayTypes,
   "visualization_msgs/Marker",
   "visualization_msgs/MarkerArray",
 ]);
+const messageTypes = new Set(relayTypes);
 const array = (value) => Array.isArray(value);
 const topic = (value) =>
   typeof value === "string" && value.length <= 511 && topicPattern.test(value);
@@ -100,7 +103,9 @@ const model = (robot) => robot.visualization.sceneModel || robot.name;
 const frame = (robot) =>
   robot.visualization.sceneClass ? `xgc/robots/${model(robot)}` : model(robot);
 const display = (declared) =>
-  declared.maxRateHz > 0 ? `/xgc/display${declared.topic}` : declared.topic;
+  declared.role === "prediction" || declared.maxRateHz > 0
+    ? `/xgc/display${declared.topic}`
+    : declared.topic;
 const visible = (value = true) => ({ visible: value });
 const overlay = (value) => ({ visible: value, showOutlines: false });
 const slot = (name) => Number(/\d+$/.exec(name)?.[0] ?? 0);
@@ -234,8 +239,13 @@ function prepareLayout(input) {
     "uavHeightProjection",
     "markerBackgroundVisible",
     "frameWorldBoundary",
+    "historyVisible",
+    "historyShowPoseAxes",
+    "predictionShowPoseAxes",
   ])
     assert(typeof p[key] === "boolean", `invalid ${key}`);
+  assert(within(p.historyMaxRateHz, 0.1, 100), "invalid historyMaxRateHz");
+  assert(within(p.predictionMaxRateHz, 0.1, 100), "invalid predictionMaxRateHz");
   assert(
     ["off", "ground", "walls"].includes(p.worldBoundaryMode),
     "invalid worldBoundaryMode",
@@ -338,30 +348,36 @@ function prepareLayout(input) {
     .map((r) => namespaced(r, "simple_lidar/points"));
   const lidarDisplay = (t) =>
     p.simpleLidarMaxRateHz > 0 ? `/xgc/display${t}` : t;
-  const history = (r) => {
+  const paletteColor = (robot) => {
     const peers = robots
-      .filter((v) => v.kind === r.kind)
+      .filter((v) => v.kind === robot.kind)
       .sort(
         (a, b) => slot(a.name) - slot(b.name) || a.name.localeCompare(b.name),
       );
     const palette = p[
-      r.kind === "scout_mini"
+      robot.kind === "scout_mini"
         ? "scoutPalette"
-        : r.kind === "mecanum_ugv"
+        : robot.kind === "mecanum_ugv"
           ? "mecanumPalette"
           : "uavPalette"
     ] ||
-      palettes[r.kind] || ["#f2003c"];
-    const color =
-      palette[
-        peers.findIndex((v) => v.name === r.name) % palette.length
-      ].toLowerCase();
-    return {
+      palettes[robot.kind] || ["#f2003c"];
+    return palette[
+      peers.findIndex((v) => v.name === robot.name) % palette.length
+    ].toLowerCase();
+  };
+  const history = (robot) => {
+    if (!p.historyVisible) return undefined;
+    const color = paletteColor(robot);
+    const axes = p.historyShowPoseAxes;
+    const settings = {
       visible: true,
-      type: "line",
-      lineWidth: r.visualization.pathLineWidthMeters || 0.02,
+      type: axes ? "line-axes" : "line",
+      lineWidth: robot.visualization.pathLineWidthMeters || 0.02,
       gradient: [color + "80", color + "ff"],
     };
+    if (axes) settings.axisScale = p.predictionAxisScale;
+    return settings;
   };
   const physicalPixels = [
     "/usb_cam/video_h264",
@@ -400,13 +416,14 @@ function prepareLayout(input) {
         overlay(false);
     if (r.visualization.odometryTopic)
       threeTopics[namespaced(r, r.visualization.odometryTopic)] = visible();
-    if (r.visualization.pathTopic)
-      threeTopics[namespaced(r, r.visualization.pathTopic)] = history(r);
+    const traced = history(r);
+    if (traced && r.visualization.pathTopic)
+      threeTopics[namespaced(r, r.visualization.pathTopic)] = traced;
     const arPath =
       r.visualization.sceneClass === "fs150"
         ? "ar_path"
         : r.visualization.pathTopic;
-    if (arPath) arTopics[namespaced(r, arPath)] = history(r);
+    if (traced && arPath) arTopics[namespaced(r, arPath)] = history(r);
     for (const v of r.visualization.visuals)
       threeTopics[`${model(r)}/${v.link}-${v.index}-${v.geometryType}`] = {
         showOutlines: false,
@@ -414,31 +431,59 @@ function prepareLayout(input) {
   }
   const declaredSettings = (t) => {
     const s = visible();
+    const owner = t.robotNamespace
+      ? robots.find((r) => r.namespace === t.robotNamespace)
+      : undefined;
+    const tint = owner ? paletteColor(owner) : undefined;
+    const alpha =
+      t.paletteAlpha != null ? String(t.paletteAlpha).toLowerCase() : undefined;
+    const flat = (fallback) =>
+      t.color ? t.color : tint ? tint + (alpha || "ff") : fallback;
+    const gradient = (fallback) =>
+      t.color
+        ? [t.color, t.color]
+        : tint
+          ? [tint + "80", tint + (alpha || "ff")]
+          : fallback;
     if (t.messageType === "sensor_msgs/PointCloud2")
       Object.assign(s, {
         decayTime: 0,
-        pointSize: t.pointSize || 2,
+        pointSize: t.pointSize != null ? t.pointSize : 2,
         pointSizeMode: t.pointSizeMode || "screen",
         pointShape:
           t.pointShape || (t.role === "obstacle" ? "square" : "circle"),
         colorMode: "flat",
         colorField: "z",
-        flatColor: t.role === "obstacle" ? "#3399ffb3" : "#8f8f8f99",
+        flatColor: flat(t.role === "obstacle" ? "#3399ffb3" : "#8f8f8f99"),
       });
+    const poseAxes =
+      t.showPoseAxes != null
+        ? t.showPoseAxes
+        : t.role === "prediction" && p.predictionShowPoseAxes;
     if (t.messageType === "nav_msgs/Path") {
-      const axes = t.showPoseAxes ?? t.role === "prediction";
       Object.assign(s, {
-        type: axes ? "line-axes" : "line",
+        type: poseAxes ? "line-axes" : "line",
         lineWidth: t.role === "prediction" ? p.predictionLineWidth : 0.04,
-        gradient:
+        gradient: gradient(
           t.role === "prediction"
             ? ["#ffbf00ff", "#ffbf0040"]
             : ["#000000ff", "#00000040"],
+        ),
       });
-      if (axes) s.axisScale = p.predictionAxisScale;
+      if (poseAxes) s.axisScale = p.predictionAxisScale;
     }
     if (t.messageType === "geometry_msgs/PoseArray" && t.role === "prediction")
-      Object.assign(s, { type: "arrow", gradient: ["#ffbf00ff", "#ffbf0040"] });
+      Object.assign(s, {
+        type: poseAxes ? "arrow" : "line",
+        gradient: gradient(["#ffbf00ff", "#ffbf0040"]),
+      });
+    if (
+      (t.messageType === "visualization_msgs/Marker" ||
+        t.messageType === "visualization_msgs/MarkerArray") &&
+      (t.color ||
+        (tint && (t.role === "prediction" || t.role === "obstacle" || alpha)))
+    )
+      s.color = t.color || tint + (alpha || "ff");
     for (const k of ["lineWidth", "markerScale"]) if (t[k] != null) s[k] = t[k];
     if (t.color) {
       if (t.messageType === "sensor_msgs/PointCloud2") s.flatColor = t.color;
@@ -542,6 +587,16 @@ function prepareLayout(input) {
       assert(
         ["screen", "world"].includes(t.pointSizeMode),
         "invalid point size mode",
+      );
+    if (t.paletteAlpha != null)
+      assert(/^[0-9a-fA-F]{2}$/.test(t.paletteAlpha), "invalid palette alpha");
+    if (t.showPoseAxes != null)
+      assert(typeof t.showPoseAxes === "boolean", "invalid showPoseAxes");
+    if (t.robotNamespace != null)
+      assert(
+        topic(t.robotNamespace) &&
+          robots.some((r) => r.namespace === t.robotNamespace),
+        "robot namespace is not a roster member",
       );
     if (p.sceneNamespace && t.role === "obstacle")
       assert(

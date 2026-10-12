@@ -170,15 +170,26 @@ export const mainConfig =
         }
         @media (prefers-color-scheme: dark) {
           #root {
-            background-color: ${palette.dark.background?.default}};
+            background-color: ${palette.dark.background?.default};
             color: ${palette.dark.text?.primary};
           }
+        }
+        html[data-xgc2-embed="pending"],
+        html[data-xgc2-embed="pending"] body {
+          background-color: transparent;
+        }
+        html[data-xgc2-embed="pending"] #root {
+          visibility: hidden;
+          background-color: transparent;
         }
       </style>
     </head>
     <script>
       global = globalThis;
       globalThis.LICHTBLICK_SUITE_DEFAULT_LAYOUT = [/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/][0];
+      if (new URLSearchParams(location.search).get("xgc2Embed") === "1") {
+        document.documentElement.setAttribute("data-xgc2-embed", "pending");
+      }
     </script>
     <body>
       <div id="root"></div>

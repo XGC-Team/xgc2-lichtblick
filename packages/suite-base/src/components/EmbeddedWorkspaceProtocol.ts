@@ -21,6 +21,38 @@ export const XGC2_EMBED_SURFACES = [
 
 export type Xgc2EmbeddedSurface = (typeof XGC2_EMBED_SURFACES)[number];
 
+export type EmbeddedThemeCommand = {
+  channel: typeof XGC2_EMBED_CHANNEL;
+  version: typeof XGC2_EMBED_VERSION;
+  sender: "xgc2";
+  type: "theme";
+  colorScheme: "dark" | "light";
+  backgroundColor: string;
+};
+
+export function isEmbeddedThemeCommand(value: unknown): value is EmbeddedThemeCommand {
+  if (typeof value !== "object" || value == null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype != null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = ["channel", "version", "sender", "type", "colorScheme", "backgroundColor"];
+  return (
+    Object.keys(record).length === keys.length &&
+    keys.every((key) => Object.prototype.hasOwnProperty.call(record, key)) &&
+    record.channel === XGC2_EMBED_CHANNEL &&
+    record.version === XGC2_EMBED_VERSION &&
+    record.sender === "xgc2" &&
+    record.type === "theme" &&
+    (record.colorScheme === "dark" || record.colorScheme === "light") &&
+    typeof record.backgroundColor === "string" &&
+    /^#[\da-f]{6}$/i.test(record.backgroundColor)
+  );
+}
+
 /**
  * The host page may embed the viewer from a different site (loopback alias for
  * renderer-process isolation). It passes its origin as xgc2ParentOrigin; fall

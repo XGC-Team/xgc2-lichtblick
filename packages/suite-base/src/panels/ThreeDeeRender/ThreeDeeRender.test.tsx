@@ -13,7 +13,10 @@ import { produce } from "immer";
 import * as _ from "lodash-es";
 
 import { SettingsTreeAction, Topic } from "@lichtblick/suite";
-import { EMBEDDED_NAVIGATION_EVENT } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
+import {
+  EMBEDDED_NAVIGATION_EVENT,
+  XGC2_HOST_VISIBILITY_EVENT,
+} from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import {
@@ -65,6 +68,7 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
     frameVisibleContent: jest.fn(),
     updateConfig: jest.fn(),
     getCameraState: jest.fn().mockReturnValue(undefined),
+    setCanvasVisibility: jest.fn(),
     animationFrame: jest.fn(),
     queueThrottledAnimationFrame: jest.fn(),
     setMaxFrameRate: jest.fn(),
@@ -802,6 +806,38 @@ describe("ThreeDeeRender", () => {
     });
     expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", "#ffffff");
     expect(renderer.config.scene.backgroundColor).toBeUndefined();
+  });
+
+  it("hides the embedded canvas until the host theme is applied", () => {
+    const props = setup();
+    let controls!: ReturnType<typeof useEmbeddedWorkspaceControls>;
+    const view = render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <CaptureEmbeddedControls capture={(value) => (controls = value)} />
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    const canvas = view.container.querySelector("canvas");
+    expect(canvas).toHaveStyle({ visibility: "hidden" });
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    act(() => {
+      props.context.onRender!(RenderStateBuilder.renderState({ colorScheme: "dark" }), jest.fn());
+    });
+    expect(renderer.setColorScheme).not.toHaveBeenCalled();
+    expect(canvas).toHaveStyle({ visibility: "hidden" });
+    act(() => {
+      controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
+    });
+    expect(renderer.setColorScheme).toHaveBeenCalledWith("light", "#ffffff");
+    expect(canvas).toHaveStyle({ visibility: "visible" });
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+      );
+    });
+    expect(canvas).toHaveStyle({ visibility: "visible" });
+    expect(canvas?.isConnected).toBe(true);
+    expect(view.container.querySelector("canvas")).toBe(canvas);
   });
 
   it("retains standalone upstream background defaults despite an unused host theme", () => {

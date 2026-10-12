@@ -151,6 +151,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   const obstacleSceneColor = config.scene.obstacleScene?.color?.join(",");
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | ReactNull>(ReactNull);
+  const [canvasReady, setCanvasReady] = useState(!embedded);
   const [renderer, setRenderer] = useState<IRenderer | undefined>(undefined);
   const rendererRef = useRef<IRenderer | undefined>(undefined);
 
@@ -222,7 +223,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   }, [setMessagePathDropConfig, renderer]);
 
   const [colorScheme, setColorScheme] = useState<"dark" | "light" | undefined>();
-  const effectiveColorScheme = embedded ? (hostTheme?.colorScheme ?? colorScheme) : colorScheme;
+  const effectiveColorScheme = embedded ? hostTheme?.colorScheme : colorScheme;
   const [timezone, setTimezone] = useState<string | undefined>();
   const [topics, setTopics] = useState<ReadonlyArray<Topic> | undefined>();
   const [parameters, setParameters] = useState<
@@ -770,13 +771,18 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     }
   }, [currentTime, renderer, didSeek, allFrames]);
 
-  // Keep the renderer colorScheme and backgroundColor up to date
+  // Embedded waits for the host theme, then paints. Once that theme is applied, parking
+  // only pauses drawing; it does not hide or unmount the canvas. Standalone stays visible.
   useEffect(() => {
-    if (effectiveColorScheme && renderer) {
-      renderer.setColorScheme(effectiveColorScheme, backgroundColor);
-      renderRef.current.needsRender = true;
+    if (!renderer || !effectiveColorScheme) {
+      return;
     }
-  }, [backgroundColor, effectiveColorScheme, renderer]);
+    renderer.setColorScheme(effectiveColorScheme, backgroundColor);
+    renderRef.current.needsRender = true;
+    if (embedded) {
+      setCanvasReady(true);
+    }
+  }, [backgroundColor, effectiveColorScheme, embedded, renderer]);
 
   // Keep the passive repaint cap in sync with the config (layout load, scene reset)
   useEffect(() => {
@@ -1268,6 +1274,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
             position: "absolute",
             top: 0,
             left: 0,
+            visibility: canvasReady ? "visible" : "hidden",
             ...((measureActive || publishActive) && { cursor: "crosshair" }),
           }}
         />

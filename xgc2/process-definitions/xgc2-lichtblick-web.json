@@ -29,7 +29,7 @@
           },
           "viewInputJson": {
             "type": "string",
-            "description": "One high-level view input JSON object on stdin (at most 8 MiB): layoutMode, runMode, optional worldBoundary and camera, frozen visualizationTopics and RobotFact rows, and optional viewer parameters."
+            "description": "One high-level view input JSON object on stdin (at most 8 MiB): layoutMode, runMode, optional worldBoundary and camera, frozen visualizationTopics and RobotFact rows, and optional viewer parameters. Accepted parameter names include historyVisible, historyShowPoseAxes, historyMaxRateHz, predictionShowPoseAxes and predictionMaxRateHz. Prediction topics are laid out on /xgc/display plus the original topic."
           }
         },
         "required": [
