@@ -6,7 +6,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { createPersistenceBridge } from "./persistence";
-import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
+import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore.types";
 import { unwrapManagedIPC } from "../common/managedIPC";
 
 it("preserves code, status and uncertain request identity through a plain IPC reply", async () => {

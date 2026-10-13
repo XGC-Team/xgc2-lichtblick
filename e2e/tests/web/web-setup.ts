@@ -6,12 +6,14 @@
 import { chromium, FullConfig } from "@playwright/test";
 
 import { STORAGE_STATE } from "./playwright.config";
+import { installCoreUiDocuments } from "../../fixtures/core-ui-documents";
 
 async function webSetup(config: FullConfig): Promise<void> {
   console.debug("Running web setup...");
 
   const browser = await chromium.launch();
   const page = await browser.newPage();
+  await installCoreUiDocuments(page);
 
   const baseURL: boolean = config.projects[0].use.baseURL;
   if (!baseURL) {

@@ -5,11 +5,13 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { installCoreUiDocuments } from "../../../fixtures/core-ui-documents";
 import { TEST_MCAP_URL } from "../../../fixtures/urls";
 import { PlayerControls } from "../../../page-objects";
 
 test("should open an MCAP file via URL", { tag: "@smoke" }, async ({ page }) => {
   const player = new PlayerControls(page);
+  await installCoreUiDocuments(page);
 
   // Serve the checked-in MCAP through the remote-file protocol; this smoke test
   // must not depend on the availability of an external demo-file proxy.

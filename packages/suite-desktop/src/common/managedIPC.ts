@@ -6,7 +6,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import type { ManagedIPCReply } from "./types";
-import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
+import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore.types";
 
 /** Electron preserves plain return values, but drops custom Error properties. */
 export function managedIPCFailure(error: unknown): ManagedIPCReply<never> {

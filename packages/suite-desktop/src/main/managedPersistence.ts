@@ -10,8 +10,8 @@ import { ipcMain } from "electron";
 import StudioWindow from "./StudioWindow";
 import { observeCommittedSettings } from "./settings";
 import type { ManagedDomainClient } from "../../../../xgc2/desktop/managed-storage.cjs";
-import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 import type { ManagedRequest } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
+import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore.types";
 import { managedIPCFailure } from "../common/managedIPC";
 import type { ManagedIPCReply } from "../common/types";
 
