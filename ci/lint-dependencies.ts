@@ -46,6 +46,8 @@ const globAsync = promisify(glob);
 async function run(rootPath: string) {
   info(`Linting dependencies in ${rootPath}...`);
   const options: depcheck.Options = {
+    // TypeScript build output is not an authored dependency surface.
+    ignorePatterns: ["dist/**"],
     detectors: [...Object.values(depcheck.detector), commentDetector, tripleSlashDetector],
     // These come from `/// <reference types="X" />` directives or tsconfig `types` entries that are
     // satisfied by an `@types/*` package (or root-provided types) rather than a runtime package
@@ -58,6 +60,8 @@ async function run(rootPath: string) {
       "@types/jest",
       "foxglove__web",
       "wicg-file-system-access",
+      // Published APT SDK, installed by CI and externalized by webpackMainConfig.
+      "@xgc2/xrpc",
     ],
   };
   return await depcheck(rootPath, options);

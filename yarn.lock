@@ -3592,9 +3592,6 @@ __metadata:
     hammerjs: "npm:2.0.8"
     heap-js: "npm:2.7.1"
     i18next: "npm:26.3.1"
-    i18next-browser-languagedetector: "npm:8.2.0"
-    idb: "npm:7.1.1"
-    idb-keyval: "npm:6.2.1"
     immer: "npm:10.1.1"
     intervals-fn: "npm:3.0.3"
     jest-canvas-mock: "npm:2.5.2"
@@ -3670,7 +3667,6 @@ __metadata:
   dependencies:
     "@actions/exec": "npm:1.1.1"
     "@actions/tool-cache": "npm:2.0.2"
-    "@lichtblick/den": "workspace:*"
     "@lichtblick/electron-socket": "npm:1.0.0"
     "@lichtblick/log": "workspace:*"
     "@lichtblick/mcap-support": "workspace:*"
@@ -3689,20 +3685,17 @@ __metadata:
     "@types/tinycolor2": "npm:1.4.4"
     "@types/utif": "npm:^3.0.6"
     "@xmldom/xmldom": "npm:0.9.10"
-    async-mutex: "npm:0.5.0"
     builder-util: "npm:*"
     clean-webpack-plugin: "npm:4.0.0"
     dotenv: "npm:17.2.2"
     electron: "npm:43.5.0"
     electron-builder: "npm:26.15.3"
-    electron-devtools-installer: "npm:4.0.0"
     electron-squirrel-startup: "npm:1.0.1"
     electron-updater: "npm:6.8.9"
     esbuild-loader: "npm:4.3.0"
     eventemitter3: "npm:5.0.1"
     fork-ts-checker-webpack-plugin: "npm:9.0.2"
     html-webpack-plugin: "npm:5.5.3"
-    jszip: "npm:3.10.1"
     mock-fs: "npm:5.5.0"
     path-browserify: "npm:1.0.1"
     plist: "npm:4.0.0"
@@ -9877,6 +9870,7 @@ __metadata:
     "@lichtblick/suite-base": "workspace:*"
     "@lichtblick/suite-desktop": "workspace:*"
     "@lichtblick/tsconfig": "npm:1.1.2"
+    electron: "npm:43.5.0"
   languageName: unknown
   linkType: soft
 
@@ -10256,15 +10250,6 @@ __metadata:
     electron-builder: ./cli.js
     install-app-deps: ./install-app-deps.js
   checksum: 10/e07a0afcb10601fde41018e8a1a4c99a9ab0fb30064fddecd506b596602466e87263f3f161e9d33e984c6411391d17081ea4d1f799db6beb3b55053cfe027982
-  languageName: node
-  linkType: hard
-
-"electron-devtools-installer@npm:4.0.0":
-  version: 4.0.0
-  resolution: "electron-devtools-installer@npm:4.0.0"
-  dependencies:
-    unzip-crx-3: "npm:^0.2.0"
-  checksum: 10/3f9a69645a15bb7925d12ef1fce803d9320fa2a9d50a0e49de7786c23dd9954ea8c5c4914a81a54966e33436bf40bd61828b6844529cb1042a31a70989771397
   languageName: node
   linkType: hard
 
@@ -13126,15 +13111,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"i18next-browser-languagedetector@npm:8.2.0":
-  version: 8.2.0
-  resolution: "i18next-browser-languagedetector@npm:8.2.0"
-  dependencies:
-    "@babel/runtime": "npm:^7.23.2"
-  checksum: 10/b2e78feb256e92b219cd378b38af00404b8f667473f886d64c53588df0592bce145ad29ad7d8238c75f78a9c79f02c84d400569dd5c0ab94c751ac62a4e1f8dd
-  languageName: node
-  linkType: hard
-
 "i18next@npm:26.3.1":
   version: 26.3.1
   resolution: "i18next@npm:26.3.1"
@@ -13171,20 +13147,6 @@ __metadata:
   peerDependencies:
     postcss: ^8.1.0
   checksum: 10/5c324d283552b1269cfc13a503aaaa172a280f914e5b81544f3803bc6f06a3b585fb79f66f7c771a2c052db7982c18bf92d001e3b47282e3abbbb4c4cc488d68
-  languageName: node
-  linkType: hard
-
-"idb-keyval@npm:6.2.1":
-  version: 6.2.1
-  resolution: "idb-keyval@npm:6.2.1"
-  checksum: 10/9a1416ff5e2ceff3832f5645518f438833a5ff6ee316fe3ec111d580db120425991d64d8098a847be7541bbbb7cc941984b4d0d62d541c39f7a0f415594837c2
-  languageName: node
-  linkType: hard
-
-"idb@npm:7.1.1":
-  version: 7.1.1
-  resolution: "idb@npm:7.1.1"
-  checksum: 10/8e33eaebf21055129864acb89932e0739b8c96788e559df24c253ce114d8c6deb977a3b30ea47a9bb8a2ae8a55964861c3df65f360d95745e341cee40d5c17f4
   languageName: node
   linkType: hard
 
@@ -14722,7 +14684,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jszip@npm:3.10.1, jszip@npm:^3.1.0":
+"jszip@npm:3.10.1":
   version: 3.10.1
   resolution: "jszip@npm:3.10.1"
   dependencies:
@@ -21133,17 +21095,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"unzip-crx-3@npm:^0.2.0":
-  version: 0.2.0
-  resolution: "unzip-crx-3@npm:0.2.0"
-  dependencies:
-    jszip: "npm:^3.1.0"
-    mkdirp: "npm:^0.5.1"
-    yaku: "npm:^0.16.6"
-  checksum: 10/fcc381e9dda6fa7c3e99d285bcc87baffd9010b0dd0927027799c2a17fab9873417323d164d93ff6babe6bb757a8d5d266e891040f4364b9989e2608465545fe
-  languageName: node
-  linkType: hard
-
 "unzipper@npm:^0.12.3":
   version: 0.12.5
   resolution: "unzipper@npm:0.12.5"
@@ -21997,13 +21948,6 @@ __metadata:
   version: 5.0.8
   resolution: "y18n@npm:5.0.8"
   checksum: 10/5f1b5f95e3775de4514edbb142398a2c37849ccfaf04a015be5d75521e9629d3be29bd4432d23c57f37e5b61ade592fb0197022e9993f81a06a5afbdcda9346d
-  languageName: node
-  linkType: hard
-
-"yaku@npm:^0.16.6":
-  version: 0.16.7
-  resolution: "yaku@npm:0.16.7"
-  checksum: 10/13de5e1249e1299f67fef0c39153fcf1be8ddc89ce4b8c99951bbf4fe67d7803cd0c2001fbfec35af9338a894e0bf58db8ee4bf33d06752b5d66090c32a6fd3e
   languageName: node
   linkType: hard
 

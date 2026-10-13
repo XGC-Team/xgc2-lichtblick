@@ -4,6 +4,7 @@
   "devDependencies": {
     "@lichtblick/suite-base": "workspace:*",
     "@lichtblick/suite-desktop": "workspace:*",
-    "@lichtblick/tsconfig": "1.1.2"
+    "@lichtblick/tsconfig": "1.1.2",
+    "electron": "43.5.0"
   }
 }
