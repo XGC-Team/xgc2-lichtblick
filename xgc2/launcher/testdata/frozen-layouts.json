@@ -539,15 +539,14 @@
               "visible": true,
               "showPoints": false,
               "showOutlines": false,
-              "lineWidth": 0.01,
-              "color": "#ffbf00ff"
+              "lineWidth": 0.01
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
               "type": "arrow",
               "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
+                "#123456ff",
+                "#123456ff"
               ]
             },
             "/robot_0/grid": {
@@ -696,8 +695,7 @@
               "visible": true,
               "showPoints": false,
               "showOutlines": false,
-              "lineWidth": 0.01,
-              "color": "#ffbf00ff"
+              "lineWidth": 0.01
             },
             "/robot_0/graph": {
               "visible": true
@@ -757,7 +755,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "ce3170a404fb44a12bed0a305e9a2b31e26b0d0767dd56922c0dd9219565091c"
+    "layoutSha256": "e23bbacc2b7dd86065e8bf20e8f801b7377e3037991d0a253b3099a653099a46"
   },
   {
     "input": {
@@ -4098,15 +4096,14 @@
               "visible": true,
               "showPoints": false,
               "showOutlines": false,
-              "lineWidth": 0.01,
-              "color": "#ffbf00ff"
+              "lineWidth": 0.01
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
               "type": "arrow",
               "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
+                "#123456ff",
+                "#123456ff"
               ]
             },
             "/robot_0/grid": {
@@ -4453,8 +4450,7 @@
               "visible": true,
               "showPoints": false,
               "showOutlines": false,
-              "lineWidth": 0.01,
-              "color": "#ffbf00ff"
+              "lineWidth": 0.01
             },
             "/robot_0/graph": {
               "visible": true
@@ -4514,7 +4510,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "ae5f7dbebe289c1694f2959658e14eb51d25da55b5571489b88555e37a418a49"
+    "layoutSha256": "dd03361394e778ba09b6199dc4d86ea8a8ce200b30204444649a159b584f28ea"
   },
   {
     "input": {

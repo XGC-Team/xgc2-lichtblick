@@ -440,11 +440,9 @@ function prepareLayout(input) {
     const flat = (fallback) =>
       t.color ? t.color : tint ? tint + (alpha || "ff") : fallback;
     const gradient = (fallback) =>
-      t.role === "prediction"
-        ? fallback
-        : t.color
-          ? [t.color, t.color]
-          : tint
+      t.color
+        ? [t.color, t.color]
+        : tint
           ? [tint + "80", tint + (alpha || "ff")]
           : fallback;
     if (t.messageType === "sensor_msgs/PointCloud2")
@@ -485,14 +483,13 @@ function prepareLayout(input) {
         s.showPoints = false;
         s.showOutlines = false;
         s.lineWidth = p.predictionLineWidth;
-        s.color = "#ffbf00ff";
-      } else if (t.color || (tint && (t.role === "obstacle" || alpha))) {
+      }
+      if (t.color || (tint && (t.role === "prediction" || t.role === "obstacle" || alpha))) {
         s.color = t.color || tint + (alpha || "ff");
       }
     }
-    for (const k of ["lineWidth", "markerScale"])
-      if (t[k] != null && t.role !== "prediction") s[k] = t[k];
-    if (t.color && t.role !== "prediction") {
+    for (const k of ["lineWidth", "markerScale"]) if (t[k] != null) s[k] = t[k];
+    if (t.color) {
       if (t.messageType === "sensor_msgs/PointCloud2") s.flatColor = t.color;
       if (["nav_msgs/Path", "geometry_msgs/PoseArray"].includes(t.messageType))
         s.gradient = [t.color, t.color];
