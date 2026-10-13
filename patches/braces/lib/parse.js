@@ -146,6 +146,7 @@ const parse = (input, options = {}) => {
     if (value === CHAR_LEFT_PARENTHESES) {
       block = push({ type: 'paren', nodes: [] });
       stack.push(block);
+      if (stack.length > 128) throw new SyntaxError("Pattern nesting exceeds the supported depth");
       push({ type: 'text', value });
       continue;
     }
@@ -215,6 +216,7 @@ const parse = (input, options = {}) => {
 
       block = push(brace);
       stack.push(block);
+      if (stack.length > 128) throw new SyntaxError("Pattern nesting exceeds the supported depth");
       push({ type: 'open', value });
       continue;
     }

@@ -119,7 +119,7 @@
     "proxy-addr": "2.0.8",
     "shell-quote": "1.12.0",
     "source-map-js": "1.2.2",
-    "braces": "portal:./vendor/braces"
+    "braces": "file:./patches/braces"
   },
   "devDependencies": {
     "@actions/core": "1.11.1",

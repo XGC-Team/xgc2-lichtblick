@@ -1,7 +1,7 @@
 {
-  "name": "braces",
-  "description": "Bash-like brace expansion. XGC2 vendor of micromatch/braces 3.0.3 with a nesting-depth limit so GHSA-vfj7-8cjw-p6xm (affected <=3.0.3) does not apply. Behavior below the depth limit is unchanged.",
-  "version": "3.0.4",
+  "name": "@xgc2/braces",
+  "description": "Maintained XGC2 fork of micromatch/braces 3.0.3 with bounded AST traversal (GHSA-vfj7-8cjw-p6xm).",
+  "version": "3.0.3-xgc.1",
   "homepage": "https://github.com/micromatch/braces",
   "author": "Jon Schlinkert (https://github.com/jonschlinkert)",
   "contributors": [

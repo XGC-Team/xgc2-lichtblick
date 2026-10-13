@@ -8141,13 +8141,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"braces@portal:./vendor/braces::locator=lichtblick%40workspace%3A.":
-  version: 0.0.0-use.local
-  resolution: "braces@portal:./vendor/braces::locator=lichtblick%40workspace%3A."
+"braces@file:./patches/braces::locator=lichtblick%40workspace%3A.":
+  version: 3.0.3-xgc.1
+  resolution: "braces@file:./patches/braces#./patches/braces::hash=1b6d95&locator=lichtblick%40workspace%3A."
   dependencies:
     fill-range: "npm:^7.1.1"
+  checksum: 10/879bf0e92ba51759bd5d0cbf51fffa25ac8a4549d87959225ad12115ab7f46dda6f4279ca08c2a8a4a40f9a4451054b08b8dff6773006dee029fc5701ddb52e7
   languageName: node
-  linkType: soft
+  linkType: hard
 
 "brorand@npm:^1.0.1, brorand@npm:^1.1.0":
   version: 1.1.0

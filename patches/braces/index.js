@@ -4,6 +4,7 @@ const stringify = require('./lib/stringify');
 const compile = require('./lib/compile');
 const expand = require('./lib/expand');
 const parse = require('./lib/parse');
+const checkDepth = require('./lib/check-depth');
 
 /**
  * Expand the given pattern or create a regex-compatible string.
@@ -75,6 +76,7 @@ braces.stringify = (input, options = {}) => {
   if (typeof input === 'string') {
     return stringify(braces.parse(input, options), options);
   }
+  checkDepth(input);
   return stringify(input, options);
 };
 
@@ -97,6 +99,7 @@ braces.compile = (input, options = {}) => {
   if (typeof input === 'string') {
     input = braces.parse(input, options);
   }
+  checkDepth(input);
   return compile(input, options);
 };
 
@@ -122,6 +125,7 @@ braces.expand = (input, options = {}) => {
     input = braces.parse(input, options);
   }
 
+  checkDepth(input);
   let result = expand(input, options);
 
   // filter out empty strings if specified

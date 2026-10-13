@@ -40,7 +40,7 @@ export default [
       "packages/**/wasm/*.js",
       "storybook-static/**",
       "**/coverage/**",
-      "vendor/braces/**",
+      "patches/braces/**",
     ],
   },
 

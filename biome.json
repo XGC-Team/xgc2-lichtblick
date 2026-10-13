@@ -16,7 +16,7 @@
       "!**/storybook-static/**",
       "!**/node_modules/**",
       "!packages/**/wasm/*.js",
-      "!vendor/braces/**"
+      "!patches/braces/**"
     ]
   },
   "formatter": {
