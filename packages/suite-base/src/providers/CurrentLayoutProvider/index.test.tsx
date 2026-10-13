@@ -652,7 +652,7 @@ describe("CurrentLayoutProvider", () => {
 
     it("seeds the injected default layout instead of restoring a stored layout", async () => {
       // Given a managed embed URL with layoutUrl and an Experiment layout scope
-      const scope = JSON.stringify(["exp-1", "lichtblick"]);
+      const scope = JSON.stringify(["exp-1", "lichtblick"])!;
       window.history.replaceState(
         null,
         "",
@@ -699,7 +699,7 @@ describe("CurrentLayoutProvider", () => {
 
     it("reuses the stored scoped layout instead of seeding a new one", async () => {
       // Given a managed embed URL and a stored layout carrying the same scope
-      const scope = JSON.stringify(["exp-1", "lichtblick"]);
+      const scope = JSON.stringify(["exp-1", "lichtblick"])!;
       window.history.replaceState(
         null,
         "",

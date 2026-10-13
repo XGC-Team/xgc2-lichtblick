@@ -175,6 +175,9 @@ describe("useLayoutTransfer", () => {
     // Given the active layout already matches the managed document for the scope
     const scope = ["experiment-a", "viewer"] as const;
     const core = {
+      globalVariables: {},
+      playbackConfig: { speed: 1 },
+      userNodes: {},
       configById: {
         "3D!xgc2": {
           followMode: "follow-none",
