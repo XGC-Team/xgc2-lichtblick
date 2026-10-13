@@ -36,7 +36,6 @@ import {
   XGC2_EMBED_SURFACES,
   XGC2_EMBED_VERSION,
   XGC2_HOST_VISIBILITY_EVENT,
-  type EmbeddedThemeCommand,
   XGC2_NAVIGATION_STATE_EVENT,
   embeddedParentOrigin,
   isXgc2EmbeddedNavigationState,
@@ -55,7 +54,6 @@ export {
   embeddedParentOrigin,
   publishNavigationState,
 } from "./EmbeddedWorkspaceProtocol";
-export type { Xgc2EmbeddedSurface } from "./EmbeddedWorkspaceProtocol";
 export type Xgc2EmbeddedHostCommand = {
   channel: typeof XGC2_EMBED_CHANNEL;
   version: typeof XGC2_EMBED_VERSION;
@@ -73,7 +71,7 @@ export type Xgc2EmbeddedReadyMessage = {
   visibleSurfaces: readonly Xgc2EmbeddedSurface[];
 };
 
-export { isEmbeddedThemeCommand, type EmbeddedThemeCommand };
+export { isEmbeddedThemeCommand };
 
 // Navigation remains on this authenticated embed channel and names one native panel.
 export const EMBEDDED_NAVIGATION_EVENT = "xgc2.lichtblick.native-navigation";
@@ -273,7 +271,9 @@ function useEmbeddedDesiredView(
       view.layoutId == undefined ||
       layoutId === view.layoutId ||
       missingLayoutRevision === revision;
-    const plan = planDesiredView(view, observed, current.pending, { layoutSettled });
+    const plan = planDesiredView(view, observed, current.pending, {
+      layoutSettled,
+    });
     current.pending = plan.pending;
     plan.steps.forEach(applyStep);
   }, [
@@ -382,7 +382,9 @@ export default function EmbeddedWorkspaceBridge(): null {
 
       if (isXgc2EmbeddedVisibilityMessage(event.data)) {
         window.dispatchEvent(
-          new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: event.data.visible } }),
+          new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, {
+            detail: { visible: event.data.visible },
+          }),
         );
         return;
       }

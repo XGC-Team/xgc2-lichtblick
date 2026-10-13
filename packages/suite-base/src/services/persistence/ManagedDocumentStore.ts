@@ -9,8 +9,7 @@ import {
 } from "./ManagedDocumentStore.types";
 import { validateManagedLayout } from "./validateManagedLayout";
 
-export { ManagedRequestError } from "./ManagedDocumentStore.types";
-export type { ManagedChange, ManagedFamily, ManagedKey } from "./ManagedDocumentStore.types";
+export type { ManagedFamily } from "./ManagedDocumentStore.types";
 
 export const MANAGED_FAMILIES = [
   "layouts",
@@ -20,7 +19,11 @@ export const MANAGED_FAMILIES = [
   "extensions",
   "desktop",
 ] as const;
-export type ManagedToken = { database_id: string; schema: string; revision: string };
+export type ManagedToken = {
+  database_id: string;
+  schema: string;
+  revision: string;
+};
 export type ManagedRecord = ManagedKey & {
   version: string;
   value?: unknown;
@@ -50,7 +53,11 @@ export type ManagedRequest =
     }
   | { operation: "receipt"; requestId: string };
 export type ManagedTransport = (request: ManagedRequest) => Promise<unknown>;
-export type ManagedCommitState = { pending: number; error?: Error; uncertainRequestId?: string };
+export type ManagedCommitState = {
+  pending: number;
+  error?: Error;
+  uncertainRequestId?: string;
+};
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != undefined && !Array.isArray(value);
@@ -182,7 +189,11 @@ export class ManagedDocumentStore {
         validateManagedLayout((record as ManagedRecord).value);
       }
     }
-    return response as { token: ManagedToken; records: ManagedRecord[]; nextAfter?: string };
+    return response as {
+      token: ManagedToken;
+      records: ManagedRecord[];
+      nextAfter?: string;
+    };
   }
   public async bootstrap(families: readonly ManagedFamily[] = MANAGED_FAMILIES): Promise<void> {
     if (this.#state.pending > 0 || this.#uncertain) {
@@ -218,7 +229,13 @@ export class ManagedDocumentStore {
         let response;
         try {
           response = this.#parseSnapshot(
-            await this.#transport({ operation: "snapshot", families: [family], at, after, limit }),
+            await this.#transport({
+              operation: "snapshot",
+              families: [family],
+              at,
+              after,
+              limit,
+            }),
           );
         } catch (error) {
           if (
@@ -445,7 +462,10 @@ export class ManagedDocumentStore {
       throw new Error("No uncertain managed request");
     }
     const receipt = this.#parseReceipt(
-      await this.#transport({ operation: "receipt", requestId: pending.requestId }),
+      await this.#transport({
+        operation: "receipt",
+        requestId: pending.requestId,
+      }),
       pending.requestId,
       pending.changes,
     );
