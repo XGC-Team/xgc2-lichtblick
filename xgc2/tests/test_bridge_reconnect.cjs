@@ -64,7 +64,9 @@ async function bridge(t, port, sessionId = "first") {
     connections++;
     socket.on("error", () => {});
     socket.on("message", (data, binary) => {
-      if (!binary) {received.push(JSON.parse(data));}
+      if (!binary) {
+        received.push(JSON.parse(data));
+      }
     });
     socket.send(JSON.stringify(info));
     socket.send(JSON.stringify(advertisement));
@@ -72,9 +74,13 @@ async function bridge(t, port, sessionId = "first") {
   await once(server, "listening");
   let stopped = false;
   const stop = async () => {
-    if (stopped) {return;}
+    if (stopped) {
+      return;
+    }
     stopped = true;
-    for (const socket of server.clients) {socket.terminate();}
+    for (const socket of server.clients) {
+      socket.terminate();
+    }
     await new Promise((resolve) => server.close(resolve));
   };
   t.after(stop);
@@ -157,8 +163,8 @@ function assertConnectionFailedAlert(alerts, url) {
   );
 }
 
-for (const workers of [true, false])
-  {test(`the page retries a late bridge and replays only the latest desired revision once per new connection (${workers ? "worker" : "native"} socket)`, async (t) => {
+for (const workers of [true, false]) {
+  test(`the page retries a late bridge and replays only the latest desired revision once per new connection (${workers ? "worker" : "native"} socket)`, async (t) => {
     const port = await unusedPort();
     const { launcher } = await startLauncher(t, { controlPlane: `ws://127.0.0.1:${port}` });
     await launcher.waitForPort();
@@ -233,17 +239,19 @@ for (const workers of [true, false])
       ["error", "warn", "error"],
       "each outage logs its alert once and short outages share one ten-second summary",
     );
-    for (const entry of [logs[0], logs[2]])
-      {assert.deepEqual(entry.args.slice(0, 2).map(String), [
+    for (const entry of [logs[0], logs[2]]) {
+      assert.deepEqual(entry.args.slice(0, 2).map(String), [
         "Player alert",
         "ws:connection-failed",
-      ]);}
+      ]);
+    }
     await harness.stop();
     const attempts = harness.stats.attempts;
     await delay(300);
     assert.equal(harness.stats.attempts, attempts, "closing the page cancels reconnects");
     assert.equal(harness.stats.activeWorkers, 0);
-  });}
+  });
+}
 
 test("constructor and worker failures release the worker and feed the same reconnect path", async (t) => {
   const port = await unusedPort();
@@ -369,7 +377,9 @@ test("[long] a bridge down for sixty seconds stays idle and bounded, then recove
   });
   const exited = new Promise((resolve) => child.once("close", resolve));
   t.after(async () => {
-    if (child.connected) {child.send("stop");}
+    if (child.connected) {
+      child.send("stop");
+    }
     const timeout = setTimeout(() => child.kill("SIGKILL"), 4000);
     try {
       await exited;

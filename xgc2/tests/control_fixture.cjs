@@ -27,7 +27,9 @@ async function startControl(t, { ready = true } = {}) {
     fs.rmSync(root, { recursive: true, force: true });
   });
   await control.start();
-  if (ready) {control.markReady();}
+  if (ready) {
+    control.markReady();
+  }
   return {
     root,
     viewStore,

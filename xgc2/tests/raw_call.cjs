@@ -50,8 +50,9 @@ function rawCall(
         response.on("end", () => {
           const raw = Buffer.concat(chunks);
           let json;
-          if (response.headers["content-type"]?.startsWith("application/json"))
-            {json = JSON.parse(raw.toString("utf8"));}
+          if (response.headers["content-type"]?.startsWith("application/json")) {
+            json = JSON.parse(raw.toString("utf8"));
+          }
           resolve({ status: response.statusCode, headers: response.headers, raw, json });
         });
       },

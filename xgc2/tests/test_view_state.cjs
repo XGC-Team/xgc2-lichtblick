@@ -98,11 +98,12 @@ test("expectedRevision is checked even for equal views and a rejected write chan
     (error) => error.code === "conflict",
   );
   assert.deepEqual(store.state, { revision: first.revision, view: normalizeView(full) });
-  for (const expectedRevision of [5, "01", "-1", "", null])
-    {await assert.rejects(
+  for (const expectedRevision of [5, "01", "-1", "", null]) {
+    await assert.rejects(
       store.set(full, { expectedRevision }),
       (error) => error.code === "invalid_argument",
-    );}
+    );
+  }
   const second = await store.set({ perspective: false }, { expectedRevision: "1" });
   assert.equal(second.revision, "2", "a rejected write does not poison the queue");
 });

@@ -48,17 +48,24 @@ function invalid(message) {
  * for that field. The result is canonical, so equal views are equal values.
  */
 function normalizeView(value) {
-  if (value == null || typeof value !== "object" || Array.isArray(value))
-    {invalid("view must be an object");}
-  for (const key of Object.keys(value))
-    {if (!FIELDS.includes(key)) {invalid(`unknown view field ${key}`);}}
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    invalid("view must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (!FIELDS.includes(key)) {
+      invalid(`unknown view field ${key}`);
+    }
+  }
   const { layoutId = null, followRobot = null, perspective = null, visibleSurfaces = null } = value;
-  if (layoutId !== null && (typeof layoutId !== "string" || !LAYOUT_ID.test(layoutId)))
-    {invalid("layoutId must be a layout identity or null");}
-  if (followRobot !== null && (typeof followRobot !== "string" || !ROBOT.test(followRobot)))
-    {invalid("followRobot must be a robot identifier or null");}
-  if (perspective !== null && typeof perspective !== "boolean")
-    {invalid("perspective must be a boolean or null");}
+  if (layoutId !== null && (typeof layoutId !== "string" || !LAYOUT_ID.test(layoutId))) {
+    invalid("layoutId must be a layout identity or null");
+  }
+  if (followRobot !== null && (typeof followRobot !== "string" || !ROBOT.test(followRobot))) {
+    invalid("followRobot must be a robot identifier or null");
+  }
+  if (perspective !== null && typeof perspective !== "boolean") {
+    invalid("perspective must be a boolean or null");
+  }
   let surfaces = null;
   if (visibleSurfaces !== null) {
     if (
@@ -68,8 +75,9 @@ function normalizeView(value) {
     ) {
       invalid("visibleSurfaces must list distinct embed surfaces or be null");
     }
-    if (visibleSurfaces.filter((surface) => LEFT_SIDEBAR.includes(surface)).length > 1)
-      {invalid("visibleSurfaces can show only one left sidebar surface");}
+    if (visibleSurfaces.filter((surface) => LEFT_SIDEBAR.includes(surface)).length > 1) {
+      invalid("visibleSurfaces can show only one left sidebar surface");
+    }
     surfaces = SURFACES.filter((surface) => visibleSurfaces.includes(surface));
   }
   return { layoutId, followRobot, perspective, visibleSurfaces: surfaces };
@@ -100,20 +108,27 @@ class ViewStore {
     if (
       expectedRevision !== undefined &&
       (typeof expectedRevision !== "string" || !DECIMAL.test(expectedRevision))
-    )
-      {invalid("expectedRevision must be a decimal string");}
+    ) {
+      invalid("expectedRevision must be a decimal string");
+    }
     const work = this.#queue.then(() => {
-      if (expectedRevision !== undefined && expectedRevision !== this.#state.revision)
-        {throw new ViewError("conflict", "view revision conflict", 409);}
-      if (this.#stated && isDeepStrictEqual(this.#state.view, view))
-        {return { ...this.#state, unchanged: true };}
-      if (view.visibleSurfaces) {Object.freeze(view.visibleSurfaces);}
+      if (expectedRevision !== undefined && expectedRevision !== this.#state.revision) {
+        throw new ViewError("conflict", "view revision conflict", 409);
+      }
+      if (this.#stated && isDeepStrictEqual(this.#state.view, view)) {
+        return { ...this.#state, unchanged: true };
+      }
+      if (view.visibleSurfaces) {
+        Object.freeze(view.visibleSurfaces);
+      }
       this.#state = Object.freeze({
         revision: String(BigInt(this.#state.revision) + 1n),
         view: Object.freeze(view),
       });
       this.#stated = true;
-      for (const listener of this.#listeners) {listener(this.#state);}
+      for (const listener of this.#listeners) {
+        listener(this.#state);
+      }
       return { ...this.#state, unchanged: false };
     });
     this.#queue = work.catch(() => {});

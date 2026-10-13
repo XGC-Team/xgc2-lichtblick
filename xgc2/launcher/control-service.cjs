@@ -27,23 +27,29 @@ function json(response, status, value) {
   response.end(body);
 }
 async function body(request, limit) {
-  if (Number(request.headers["content-length"] ?? 0) > limit)
-    {throw new ViewError("resource_exhausted", "domain body exceeds limit", 413);}
+  if (Number(request.headers["content-length"] ?? 0) > limit) {
+    throw new ViewError("resource_exhausted", "domain body exceeds limit", 413);
+  }
   const chunks = [];
   let length = 0;
   for await (const chunk of request) {
     length += chunk.length;
-    if (length > limit) {throw new ViewError("resource_exhausted", "domain body exceeds limit", 413);}
+    if (length > limit) {
+      throw new ViewError("resource_exhausted", "domain body exceeds limit", 413);
+    }
     chunks.push(chunk);
   }
   return Buffer.concat(chunks, length);
 }
 // `wait_ready_ms=<0..30000>` is the only describe query.
 function describeWait(search) {
-  if (search === "") {return 0;}
+  if (search === "") {
+    return 0;
+  }
   const match = /^\?wait_ready_ms=(0|[1-9][0-9]{0,4})$/.exec(search);
-  if (!match || Number(match[1]) > 30000)
-    {throw new ViewError("invalid_argument", "describe takes only wait_ready_ms=<0..30000>", 400);}
+  if (!match || Number(match[1]) > 30000) {
+    throw new ViewError("invalid_argument", "describe takes only wait_ready_ms=<0..30000>", 400);
+  }
   return Number(match[1]);
 }
 
@@ -77,10 +83,14 @@ function createControlService({
     },
   });
   const release = () => {
-    for (const wake of [...waiters]) {wake();}
+    for (const wake of [...waiters]) {
+      wake();
+    }
   };
   const requireReady = () => {
-    if (!launcherReady) {throw new ViewError("unavailable", `the launcher is ${reason}`, 503);}
+    if (!launcherReady) {
+      throw new ViewError("unavailable", `the launcher is ${reason}`, 503);
+    }
   };
   const waitReady = (milliseconds, context) =>
     new Promise((resolve) => {
@@ -106,11 +116,14 @@ function createControlService({
         if (route === "GET /v1/describe") {
           const wait = describeWait(url.search);
           if (wait > 0 && !launcherReady) {
-            if (waiters.size >= MAX_DESCRIBE_WAITERS)
-              {throw new ViewError("resource_exhausted", "describe waiter limit reached", 503);}
+            if (waiters.size >= MAX_DESCRIBE_WAITERS) {
+              throw new ViewError("resource_exhausted", "describe waiter limit reached", 503);
+            }
             await waitReady(wait, context);
           }
-          if (!response.destroyed) {json(response, 200, document());}
+          if (!response.destroyed) {
+            json(response, 200, document());
+          }
         } else if (route === "GET /v1/health") {
           requireReady();
           json(response, 200, { status: "ok" });
@@ -119,8 +132,9 @@ function createControlService({
           json(response, 200, viewStore.state);
         } else if (route === "PUT /v1/view") {
           requireReady();
-          if (request.headers["content-type"]?.split(";")[0] !== "application/json")
-            {throw new ViewError("invalid_argument", "JSON domain body required", 400);}
+          if (request.headers["content-type"]?.split(";")[0] !== "application/json") {
+            throw new ViewError("invalid_argument", "JSON domain body required", 400);
+          }
           const input = JSON.parse((await body(request, 8192)).toString("utf8"));
           if (
             input == null ||
@@ -140,7 +154,9 @@ function createControlService({
             200,
             await viewStore.set(input.view, { expectedRevision: input.expectedRevision }),
           );
-        } else {throw new ViewError("not_found", "undeclared Lichtblick domain operation", 404);}
+        } else {
+          throw new ViewError("not_found", "undeclared Lichtblick domain operation", 404);
+        }
       } catch (error) {
         if (!response.destroyed && !response.headersSent) {
           json(response, error.status ?? (error instanceof SyntaxError ? 400 : 503), {

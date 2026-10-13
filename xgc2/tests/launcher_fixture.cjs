@@ -97,13 +97,17 @@ async function startLauncher(
     child.once("close", (code, signal) => resolve({ code, signal })),
   );
   t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) {child.kill("SIGTERM");}
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+    }
     const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
     try {
       await launcher.exited;
     } finally {
       clearTimeout(timer);
-      if (runtimeDirectory === undefined) {fs.rmSync(root, { recursive: true, force: true });}
+      if (runtimeDirectory === undefined) {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
     }
   });
   launcher.waitForPort = async (milliseconds = 8000) => {
@@ -117,10 +121,11 @@ async function startLauncher(
         launcher.base = `http://127.0.0.1:${launcher.port}`;
         return launcher.port;
       }
-      if (child.exitCode !== null)
-        {throw new Error(
+      if (child.exitCode !== null) {
+        throw new Error(
           `launcher exited ${child.exitCode}\n${launcher.output}\n${launcher.errors}`,
-        );}
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error(`launcher did not listen\n${launcher.output}\n${launcher.errors}`);
@@ -139,7 +144,9 @@ async function startLauncher(
             rawCall(socketPath, method, target, { instance, ...options }),
         };
       } catch (error) {
-        if (Date.now() > deadline || child.exitCode !== null) {throw error;}
+        if (Date.now() > deadline || child.exitCode !== null) {
+          throw error;
+        }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }

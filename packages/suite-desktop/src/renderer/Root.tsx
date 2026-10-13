@@ -26,7 +26,6 @@ import {
   VelodyneDataSourceFactory,
 } from "@lichtblick/suite-base";
 
-
 import { NativeAppMenu } from "./services/NativeAppMenu";
 import { NativeWindow } from "./services/NativeWindow";
 import { ManagedExtensionLoader } from "../../../suite-base/src/services/persistence/ManagedExtensionLoader";

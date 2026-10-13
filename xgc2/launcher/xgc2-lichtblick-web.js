@@ -83,7 +83,9 @@ function parseArgs(argv) {
     const arg = argv[i];
     switch (arg) {
       case "--view-input-stdin":
-        if (opts.viewInputStdin) {throw new Error("--view-input-stdin occurs more than once");}
+        if (opts.viewInputStdin) {
+          throw new Error("--view-input-stdin occurs more than once");
+        }
         opts.viewInputStdin = true;
         break;
       case "-h":
@@ -121,8 +123,9 @@ function parseArgs(argv) {
         }
         break;
       case "--control-socket":
-        if (opts.controlSocket != null || !argv[i + 1] || argv[i + 1].startsWith("--"))
-          {throw new Error("one explicit --control-socket path is required");}
+        if (opts.controlSocket != null || !argv[i + 1] || argv[i + 1].startsWith("--")) {
+          throw new Error("one explicit --control-socket path is required");
+        }
         opts.controlSocket = argv[++i];
         break;
       default:
@@ -649,16 +652,23 @@ function buildRequestListener(
     if (viewState || viewEvents) {
       // The desired view is stated through the control service; pages read it.
       try {
-        if (!originAllowed(declaredOrigin(true)))
-          {throw new ViewError("permission_denied", "view origin is not allowed", 403);}
-        if (!viewGateway)
-          {throw new ViewError("unavailable", "the desired view is not configured", 503);}
-        if (req.method !== "GET") {throw new ViewError("invalid_argument", "GET required", 400);}
-        if (viewState) {viewGateway.state(res, responseSecurityHeaders);}
-        else {viewGateway.events(req, res, responseSecurityHeaders);}
+        if (!originAllowed(declaredOrigin(true))) {
+          throw new ViewError("permission_denied", "view origin is not allowed", 403);
+        }
+        if (!viewGateway) {
+          throw new ViewError("unavailable", "the desired view is not configured", 503);
+        }
+        if (req.method !== "GET") {
+          throw new ViewError("invalid_argument", "GET required", 400);
+        }
+        if (viewState) {
+          viewGateway.state(res, responseSecurityHeaders);
+        } else {
+          viewGateway.events(req, res, responseSecurityHeaders);
+        }
       } catch (error) {
-        if (!res.destroyed && !res.headersSent)
-          {writeJson(
+        if (!res.destroyed && !res.headersSent) {
+          writeJson(
             res,
             error.status ?? 503,
             {
@@ -667,7 +677,8 @@ function buildRequestListener(
                 error instanceof ViewError ? error.message : "the desired view is unavailable",
             },
             responseSecurityHeaders,
-          );}
+          );
+        }
       }
       return;
     }
@@ -766,7 +777,9 @@ async function main() {
       STATIC_ROOT,
       opts.assetUrlPrefix ?? process.env.ASSET_URL_PREFIX ?? null,
     );
-    if (!opts.viewInputStdin) {throw new Error("--view-input-stdin is required");}
+    if (!opts.viewInputStdin) {
+      throw new Error("--view-input-stdin is required");
+    }
     {
       initialLayout = prepareLayout(mapViewInput(readJSONInput())).layout;
       const sourceIndex = loadIndex;
@@ -802,7 +815,9 @@ async function main() {
         views?.close();
         const results = await Promise.allSettled([hostRuntime?.close(), control?.close()]);
         const failure = results.find((result) => result.status === "rejected");
-        if (failure) {throw failure.reason;}
+        if (failure) {
+          throw failure.reason;
+        }
         await diagnostics?.close({ timeoutMs: shutdownMs });
       })().catch((error) => {
         closing = undefined;
@@ -824,7 +839,9 @@ async function main() {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   try {
-    if (!opts.controlSocket) {throw new Error("--control-socket is required");}
+    if (!opts.controlSocket) {
+      throw new Error("--control-socket is required");
+    }
     diagnostics = new Diagnostics({
       sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
     });

@@ -29,7 +29,9 @@ function processIdentity(pid) {
     const fields = fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" ");
     return fields[0] === "Z" ? undefined : fields[19];
   } catch (error) {
-    if (error.code === "ENOENT") {return undefined;}
+    if (error.code === "ENOENT") {
+      return undefined;
+    }
     throw error;
   }
 }
@@ -58,13 +60,18 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
     );
   }
   async function stopStorage(root) {
-    if (!fs.existsSync(stateFile(root))) {return;}
+    if (!fs.existsSync(stateFile(root))) {
+      return;
+    }
     const state = load(root);
-    if (!state.pid || !state.pidIdentity || processIdentity(state.pid) !== state.pidIdentity)
-      {return;}
+    if (!state.pid || !state.pidIdentity || processIdentity(state.pid) !== state.pidIdentity) {
+      return;
+    }
     process.kill(state.pid, "SIGTERM");
     for (let i = 0; i < 100; i++) {
-      if (processIdentity(state.pid) !== state.pidIdentity) {return;}
+      if (processIdentity(state.pid) !== state.pidIdentity) {
+        return;
+      }
       await delay(50);
     }
     process.kill(state.pid, "SIGKILL");
@@ -103,7 +110,9 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
     save(root, state);
     child.unref();
     for (let i = 0; i < 150; i++) {
-      if (failure) {throw failure;}
+      if (failure) {
+        throw failure;
+      }
       assert.equal(
         child.exitCode,
         null,
@@ -246,7 +255,9 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
     while (Date.now() < deadline) {
       const log = fs.readFileSync(logFile, "utf8");
       assert.ok(!failurePattern.test(log), log);
-      if (log.split("\n").some((line) => line === '{"type":"ready"}')) {return;}
+      if (log.split("\n").some((line) => line === '{"type":"ready"}')) {
+        return;
+      }
       await delay(100);
     }
     throw Error(`application readiness timed out: ${fs.readFileSync(logFile, "utf8")}`);
@@ -268,7 +279,9 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
         page = (await response.json()).find(
           (target) => target.type === "page" && target.url.startsWith("file:"),
         );
-        if (page) {break;}
+        if (page) {
+          break;
+        }
       }
       await delay(100);
     }
@@ -279,8 +292,9 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
     const errors = [];
     socket.on("message", (bytes) => {
       const message = JSON.parse(bytes);
-      if (message.method === "Runtime.exceptionThrown")
-        {errors.push(message.params.exceptionDetails);}
+      if (message.method === "Runtime.exceptionThrown") {
+        errors.push(message.params.exceptionDetails);
+      }
       const request = pending.get(message.id);
       if (request) {
         pending.delete(message.id);
@@ -368,18 +382,23 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
       const expected = state.expected[documentKeys[0]];
       const layout = saved[documentKeys[0]];
       assert.deepEqual(Object.keys(saved).sort(), documentKeys.slice().sort());
-      for (const key of ["id", "name", "permission", "baseline"])
-        {assert.deepEqual(layout[key], expected[key], `renderer changed saved layout ${key}`);}
+      for (const key of ["id", "name", "permission", "baseline"]) {
+        assert.deepEqual(layout[key], expected[key], `renderer changed saved layout ${key}`);
+      }
       assert.deepEqual(saved["profile:user"], state.expected["profile:user"]);
       assert.equal(saved["configuration:language"], state.expected["configuration:language"]);
       if (layout.working) {
         const original = expected.baseline.data;
         const working = layout.working.data;
-        for (const key of ["layout", "globalVariables", "userNodes", "playbackConfig"])
-          {assert.deepEqual(working[key], original[key]);}
+        for (const key of ["layout", "globalVariables", "userNodes", "playbackConfig"]) {
+          assert.deepEqual(working[key], original[key]);
+        }
         const camera = working.configById["3D!installed"].cameraState;
-        for (const [key, value] of Object.entries(original.configById["3D!installed"].cameraState))
-          {assert.deepEqual(camera[key], value, `renderer changed camera ${key}`);}
+        for (const [key, value] of Object.entries(
+          original.configById["3D!installed"].cameraState,
+        )) {
+          assert.deepEqual(camera[key], value, `renderer changed camera ${key}`);
+        }
       }
       state.expected = saved;
       save(root, state);
@@ -401,22 +420,29 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
 async function main() {
   const [command, root, log, seconds] = process.argv.slice(2);
   assert.ok(root && path.isAbsolute(root), "absolute private fixture root required");
-  if (seconds !== undefined)
-    {assert.ok(
+  if (seconds !== undefined) {
+    assert.ok(
       Number.isFinite(Number(seconds)) && Number(seconds) > 0 && Number(seconds) <= 120,
       "readiness timeout must be 1..120 seconds",
-    );}
+    );
+  }
   const fixture = createFixture();
-  if (command === "prepare") {await fixture.prepare(root);}
-  else if (command === "verify-desktop")
-    {await fixture.verifyDesktop(root, log, seconds === undefined ? undefined : Number(seconds));}
-  else if (command === "verify-closed") {await fixture.verifyClosed(root);}
-  else if (command === "stop") {await fixture.stopStorage(root);}
-  else {throw Error(`unknown installed fixture command: ${command}`);}
+  if (command === "prepare") {
+    await fixture.prepare(root);
+  } else if (command === "verify-desktop") {
+    await fixture.verifyDesktop(root, log, seconds === undefined ? undefined : Number(seconds));
+  } else if (command === "verify-closed") {
+    await fixture.verifyClosed(root);
+  } else if (command === "stop") {
+    await fixture.stopStorage(root);
+  } else {
+    throw Error(`unknown installed fixture command: ${command}`);
+  }
 }
-if (require.main === module)
-  {main().catch((error) => {
+if (require.main === module) {
+  main().catch((error) => {
     console.error(error.stack);
     process.exitCode = 1;
-  });}
+  });
+}
 module.exports = { createFixture, processIdentity };

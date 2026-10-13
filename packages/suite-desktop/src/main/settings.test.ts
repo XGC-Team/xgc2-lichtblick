@@ -9,7 +9,6 @@ import { getAppSetting, initializeAppSettings, observeCommittedSettings } from "
 import { AppSetting } from "../../../suite-base/src/AppSetting";
 import type { ManagedRequest } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
-
 const token = {
   database_id: "desktop-test",
   schema: "lichtblick-v1",

@@ -17,8 +17,8 @@ const {
 } = require("../launcher/prepare-layout.cjs");
 const fixtures = require("../launcher/testdata/frozen-layouts.json");
 
-for (const f of fixtures)
-  {test(`preserves the layout bytes of ${f.name}`, () => {
+for (const f of fixtures) {
+  test(`preserves the layout bytes of ${f.name}`, () => {
     const before = structuredClone(f.input);
     const value = prepareLayout(mapViewInput(f.input));
     assert.deepEqual(value.layout, f.layout);
@@ -30,7 +30,8 @@ for (const f of fixtures)
     assert.deepEqual(f.input, before, "frozen facts are unchanged");
     assert.equal(Object.hasOwn(value, "allowedTopics"), false);
     assert.equal(Object.hasOwn(value, "displayRelays"), false);
-  });}
+  });
+}
 
 test("reference grids stay in world coordinates when a robot is followed", () => {
   let grids = 0;
@@ -38,7 +39,9 @@ test("reference grids stay in world coordinates when a robot is followed", () =>
     const { layout } = prepareLayout(mapViewInput(fixture.input));
     for (const config of Object.values(layout.configById)) {
       const grid = config.layers?.["xgc2-grid"];
-      if (!grid) {continue;}
+      if (!grid) {
+        continue;
+      }
       grids++;
       assert.equal(grid.frameId, "world", fixture.name);
     }
@@ -52,7 +55,9 @@ test("robot models consume latched descriptions for every robot kind and view", 
     const { layout } = prepareLayout(mapViewInput(fixture.input));
     for (const config of Object.values(layout.configById)) {
       for (const layer of Object.values(config.layers ?? {})) {
-        if (layer.layerId !== "foxglove.Urdf") {continue;}
+        if (layer.layerId !== "foxglove.Urdf") {
+          continue;
+        }
         const robot = fixture.input.robots.find((r) => r.namespace === `/${layer.label}`);
         kinds.add(robot.kind);
         assert.equal(layer.sourceType, "topic");
@@ -85,8 +90,9 @@ test("viewer defaults apply once and parameters override them without replacing 
   const input = structuredClone(fixtures[0].input);
   delete input.parameters;
   const mapped = mapViewInput(input);
-  for (const [key, value] of Object.entries(VIEWER_DEFAULTS))
-    {assert.deepEqual(mapped.parameters[key], value, key);}
+  for (const [key, value] of Object.entries(VIEWER_DEFAULTS)) {
+    assert.deepEqual(mapped.parameters[key], value, key);
+  }
   input.parameters = { gridSize: 41, markerBackgroundVisible: true, px4ModelScale: 3 };
   const prepared = prepareLayout(mapViewInput(input));
   assert.equal(prepared.layout.configById["3D!xgc2"].layers["xgc2-grid"].size, 41);
@@ -98,11 +104,12 @@ test("viewer defaults apply once and parameters override them without replacing 
     "worldBoundary",
     "cameraImageTopic",
     "visualizationTopics",
-  ])
-    {assert.throws(
+  ]) {
+    assert.throws(
       () => mapViewInput({ ...input, parameters: { [key]: "override" } }),
       new RegExp(key),
-    );}
+    );
+  }
 });
 
 test("3D only needs no camera, while every camera layout needs distinct explicit topics", () => {
@@ -116,15 +123,17 @@ test("3D only needs no camera, while every camera layout needs distinct explicit
     "3d-above-camera-ar",
     "camera-ar-above-3d",
     "3d-above-camera-ar-plot",
-  ])
-    {assert.throws(() => mapViewInput({ ...input, layoutMode }), /camera required/);}
+  ]) {
+    assert.throws(() => mapViewInput({ ...input, layoutMode }), /camera required/);
+  }
   for (const camera of [
     null,
     {},
     { imageTopic: "/camera", infoTopic: "/camera" },
     { imageTopic: "relative", infoTopic: "/info" },
-  ])
-    {assert.throws(() => mapViewInput({ ...input, camera }), /camera/);}
+  ]) {
+    assert.throws(() => mapViewInput({ ...input, camera }), /camera/);
+  }
 });
 
 test("the stdin contract refuses unknown members and malformed or absent facts", () => {
@@ -133,8 +142,9 @@ test("the stdin contract refuses unknown members and malformed or absent facts",
     () => mapViewInput({ ...input, startupInputPath: "x", layoutJson: "x" }),
     /startupInputPath, layoutJson/,
   );
-  for (const value of [null, [], "view"])
-    {assert.throws(() => mapViewInput(value), /one JSON object/);}
+  for (const value of [null, [], "view"]) {
+    assert.throws(() => mapViewInput(value), /one JSON object/);
+  }
   for (const key of ["layoutMode", "runMode", "visualizationTopics", "robots"]) {
     const value = structuredClone(input);
     delete value[key];
@@ -177,9 +187,13 @@ test("missing or invalid robot layout facts name the offending slot", () => {
 
 test("an absent simulationSensors member is the empty authored selection", () => {
   const withEmpty = structuredClone(fixtures[0].input);
-  for (const robot of withEmpty.robots) {robot.binding.simulationSensors = {};}
+  for (const robot of withEmpty.robots) {
+    robot.binding.simulationSensors = {};
+  }
   const absent = structuredClone(withEmpty);
-  for (const robot of absent.robots) {delete robot.binding.simulationSensors;}
+  for (const robot of absent.robots) {
+    delete robot.binding.simulationSensors;
+  }
   assert.deepEqual(prepareLayout(mapViewInput(absent)), prepareLayout(mapViewInput(withEmpty)));
 });
 
@@ -424,13 +438,17 @@ test("obstacle projection stays in 3D and physical augmented views keep the tint
 
 test("prediction display copies ignore a missing maxRateHz and explicit pose axes win", () => {
   const input = structuredClone(fixtures[1].input);
-  for (const topic of input.visualizationTopics) {delete topic.maxRateHz;}
+  for (const topic of input.visualizationTopics) {
+    delete topic.maxRateHz;
+  }
   const prepared = prepareLayout(mapViewInput(input));
   assert.equal(prepared.parameters.predictionMaxRateHz, 2);
   assert.equal(prepared.parameters.predictionShowPoseAxes, true);
   const topics = prepared.layout.configById["3D!xgc2"].topics;
   for (const topic of input.visualizationTopics) {
-    if (topic.role !== "prediction" || !topic.visible3d) {continue;}
+    if (topic.role !== "prediction" || !topic.visible3d) {
+      continue;
+    }
     const settings = topics[`/xgc/display${topic.topic}`];
     assert.ok(settings, topic.topic);
     assert.equal(topics[topic.topic], undefined, topic.topic);
@@ -493,6 +511,7 @@ test("stdin is one JSON object of at most 8 MiB", () => {
   const oversized = run(json + " ".repeat(8 * 1024 * 1024 + 1 - Buffer.byteLength(json)));
   assert.notEqual(oversized.status, 0);
   assert.match(oversized.stderr, /view input exceeds 8 MiB/);
-  for (const input of ["", "[]", json + json, "{"])
-    {assert.notEqual(run(input).status, 0, input.slice(0, 30));}
+  for (const input of ["", "[]", json + json, "{"]) {
+    assert.notEqual(run(input).status, 0, input.slice(0, 30));
+  }
 });

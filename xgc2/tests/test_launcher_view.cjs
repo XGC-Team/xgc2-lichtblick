@@ -60,7 +60,9 @@ function openStream(base, pathname, headers = { Origin: ORIGIN }) {
         stream.until = async (predicate, milliseconds = 4000) => {
           const deadline = Date.now() + milliseconds;
           while (Date.now() < deadline) {
-            if (predicate(stream)) {return stream;}
+            if (predicate(stream)) {
+              return stream;
+            }
             await delay(10);
           }
           throw new Error(`stream condition not met: ${JSON.stringify(stream.frames)}`);
@@ -147,7 +149,9 @@ test("pages read the desired view and hear changes over the same-origin gateway"
     ),
   );
   assert.equal((await launcher.control()).described.facts.pages.view_streams, 4);
-  for (const stream of [early, late, current, behind]) {stream.close();}
+  for (const stream of [early, late, current, behind]) {
+    stream.close();
+  }
 });
 
 test("only a page of an allowed origin reads the view, and nothing from a page writes it", async (t) => {
@@ -189,13 +193,15 @@ test("only a page of an allowed origin reads the view, and nothing from a page w
     "/xgc2/storage",
     "/xgc2/extensions/assets",
     "/xgc2/extensions/assets/archive",
-  ])
-    {for (const method of ["GET", "POST"])
-      {assert.equal(
+  ]) {
+    for (const method of ["GET", "POST"]) {
+      assert.equal(
         (await fetch(`${launcher.base}${route}`, { method, headers: { Origin: ORIGIN } })).status,
         404,
         `${method} ${route}`,
-      );}}
+      );
+    }
+  }
 });
 
 test("a restarted launcher starts with revision zero and no desired view", async (t) => {
@@ -234,9 +240,13 @@ test("the page gateway permits at most sixteen view streams", async (t) => {
   await launcher.waitForPort();
   const streams = [];
   t.after(() => {
-    for (const stream of streams) {stream.close();}
+    for (const stream of streams) {
+      stream.close();
+    }
   });
-  for (let i = 0; i < 16; i++) {streams.push(await openStream(launcher.base, "/xgc2/view/events"));}
+  for (let i = 0; i < 16; i++) {
+    streams.push(await openStream(launcher.base, "/xgc2/view/events"));
+  }
   const overflow = await get(launcher.base, "/xgc2/view/events");
   assert.equal(overflow.status, 503);
   assert.equal(overflow.json.code, "resource_exhausted");

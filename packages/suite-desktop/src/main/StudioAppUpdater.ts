@@ -14,7 +14,6 @@ import Logger from "@lichtblick/log";
 import { getAppSetting } from "./settings";
 import { AppSetting } from "../../../suite-base/src/AppSetting";
 
-
 const log = Logger.getLogger(__filename);
 
 function isNetworkError(err: unknown) {

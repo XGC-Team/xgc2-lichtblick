@@ -54,8 +54,9 @@ test("the definition is one process whose endpoint, high-level view input and po
     [definition.stop, ["graceMs", "rpc"]],
     [definition.logs, ["maxBytes", "files"]],
   ]) {
-    for (const key of Object.keys(fields))
-      {assert.ok(allowed.includes(key), `unsupported field ${key}`);}
+    for (const key of Object.keys(fields)) {
+      assert.ok(allowed.includes(key), `unsupported field ${key}`);
+    }
   }
   const { properties, required } = definition.parameters;
   assert.deepEqual(required.slice().sort(), ["socketPath", "viewInputJson"]);
@@ -70,8 +71,8 @@ test("the definition is one process whose endpoint, high-level view input and po
       assert.equal(property["x-xgc-path-kind"], undefined, `path hint on ${name}`);
       assert.equal(property["x-xgc-file-extensions"], undefined, `file hint on ${name}`);
     }
-    for (const key of Object.keys(property))
-      {assert.ok(
+    for (const key of Object.keys(property)) {
+      assert.ok(
         [
           "type",
           "description",
@@ -86,7 +87,8 @@ test("the definition is one process whose endpoint, high-level view input and po
           "x-xgc-file-extensions",
         ].includes(key),
         `unsupported parameter field ${key}`,
-      );}
+      );
+    }
   }
   assert.deepEqual(properties.socketPath, {
     type: "string",
@@ -149,12 +151,14 @@ test("the definition is one process whose endpoint, high-level view input and po
       placeholders,
     ),
   );
-  for (const name of used)
-    {assert.ok(Object.hasOwn(properties, name), `${name} is not a declared parameter`);}
+  for (const name of used) {
+    assert.ok(Object.hasOwn(properties, name), `${name} is not a declared parameter`);
+  }
   assert.equal(definition.command.stdinParameter, "viewInputJson");
   assert.ok(definition.command.args.includes("--view-input-stdin"));
-  for (const retired of ["--startup-input", "--layout-stdin", "${startupInputPath}"])
-    {assert.ok(!definition.command.args.includes(retired), retired);}
+  for (const retired of ["--startup-input", "--layout-stdin", "${startupInputPath}"]) {
+    assert.ok(!definition.command.args.includes(retired), retired);
+  }
 });
 
 test("the launcher accepts the command the definition declares and answers the service it declares", async (t) => {

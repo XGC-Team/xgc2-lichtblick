@@ -17,24 +17,34 @@ function invalid(message) {
   throw new TypeError(message);
 }
 function object(value, name, allowed, required = allowed) {
-  if (value == null || typeof value !== "object" || Array.isArray(value))
-    {invalid(`${name} must be an object`);}
-  for (const key of Object.keys(value))
-    {if (!allowed.includes(key)) {invalid(`unknown ${name} field ${key}`);}}
-  for (const key of required)
-    {if (!Object.hasOwn(value, key)) {invalid(`missing ${name} field ${key}`);}}
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    invalid(`${name} must be an object`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) {
+      invalid(`unknown ${name} field ${key}`);
+    }
+  }
+  for (const key of required) {
+    if (!Object.hasOwn(value, key)) {
+      invalid(`missing ${name} field ${key}`);
+    }
+  }
   return value;
 }
 function checkScope(value, name) {
   const scope = object(value, name, ["namespace", "user", "workspace"]);
-  if (scope.namespace !== "lichtblick") {invalid(`the ${name} belongs to the lichtblick namespace`);}
+  if (scope.namespace !== "lichtblick") {
+    invalid(`the ${name} belongs to the lichtblick namespace`);
+  }
   id(scope.user, `${name} user`);
   id(scope.workspace, `${name} workspace`);
   return scope;
 }
 function id(value, name) {
-  if (typeof value !== "string" || !ID.test(value))
-    {invalid(`${name} must be 1..128 canonical identifier characters`);}
+  if (typeof value !== "string" || !ID.test(value)) {
+    invalid(`${name} must be 1..128 canonical identifier characters`);
+  }
   return value;
 }
 
@@ -69,8 +79,9 @@ function readPrivateFile(filePath, maximum) {
     }
     const uid = process.geteuid();
     const parent = fs.fstatSync(directory);
-    if (parent.uid !== uid || (parent.mode & 0o777) !== 0o700)
-      {invalid("the directory of a private input file must be owned by this user with mode 0700");}
+    if (parent.uid !== uid || (parent.mode & 0o777) !== 0o700) {
+      invalid("the directory of a private input file must be owned by this user with mode 0700");
+    }
     file = fs.openSync(
       `/proc/self/fd/${directory}/${name}`,
       fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
@@ -93,13 +104,20 @@ function readPrivateFile(filePath, maximum) {
     while (
       count < bytes.length &&
       (read = fs.readSync(file, bytes, count, bytes.length - count, count)) !== 0
-    )
-      {count += read;}
-    if (count > maximum) {invalid("a private input file exceeds its byte limit");}
+    ) {
+      count += read;
+    }
+    if (count > maximum) {
+      invalid("a private input file exceeds its byte limit");
+    }
     return bytes.subarray(0, count);
   } finally {
-    if (file != null) {fs.closeSync(file);}
-    if (directory != null) {fs.closeSync(directory);}
+    if (file != null) {
+      fs.closeSync(file);
+    }
+    if (directory != null) {
+      fs.closeSync(directory);
+    }
   }
 }
 
@@ -128,17 +146,22 @@ function loadStartupInput(filePath) {
   try {
     input = JSON.parse(readPrivateFile(filePath, MAX_INPUT_BYTES).toString("utf8"));
   } catch (error) {
-    if (error instanceof SyntaxError) {invalid("the startup input is not valid JSON");}
+    if (error instanceof SyntaxError) {
+      invalid("the startup input is not valid JSON");
+    }
     throw error;
   }
   object(input, "startup input", ["schema_version", "operator_time_zone", "storage", "assets"]);
-  if (input.schema_version !== 1) {invalid("current startup input schema required");}
+  if (input.schema_version !== 1) {
+    invalid("current startup input schema required");
+  }
   if (
     typeof input.operator_time_zone !== "string" ||
     input.operator_time_zone.length < 1 ||
     input.operator_time_zone.length > 128
-  )
-    {invalid("authoritative operator time zone required");}
+  ) {
+    invalid("authoritative operator time zone required");
+  }
   const storage = object(
     input.storage,
     "storage",
@@ -159,11 +182,13 @@ function loadStartupInput(filePath) {
     reference.service !== "xgc2.storage.v1.Storage" ||
     reference.api_version !== "1" ||
     reference.profile !== "http.v1"
-  )
-    {invalid("an instance-bound local storage-v1 reference is required");}
+  ) {
+    invalid("an instance-bound local storage-v1 reference is required");
+  }
   object(reference.endpoint, "storage endpoint", ["kind", "address"]);
-  if (reference.endpoint.kind !== "unix")
-    {invalid("the storage endpoint must be a local Unix socket");}
+  if (reference.endpoint.kind !== "unix") {
+    invalid("the storage endpoint must be a local Unix socket");
+  }
   checkUnixAddress(reference.endpoint.address, "storage endpoint address");
   const scope = checkScope(storage.scope, "storage scope");
   // The desired view lives in a scope of its own: its writes move that scope's revision, never the one the pages' saves are fenced by.
@@ -171,20 +196,24 @@ function loadStartupInput(filePath) {
     storage.view_scope === undefined
       ? undefined
       : checkScope(storage.view_scope, "storage view_scope");
-  if (viewScope && viewScope.user === scope.user && viewScope.workspace === scope.workspace)
-    {invalid("storage view_scope must differ from the storage scope");}
+  if (viewScope && viewScope.user === scope.user && viewScope.workspace === scope.workspace) {
+    invalid("storage view_scope must differ from the storage scope");
+  }
   const token = readPrivateFile(storage.token_file, MAX_TOKEN_BYTES).toString("utf8");
-  if (!TOKEN.test(token))
-    {invalid("the storage credential must be one RFC 6750 bearer token without a trailing newline");}
+  if (!TOKEN.test(token)) {
+    invalid("the storage credential must be one RFC 6750 bearer token without a trailing newline");
+  }
   const assets = object(input.assets, "assets", ["root", "access"]);
   if (
     typeof assets.root !== "string" ||
     !path.isAbsolute(assets.root) ||
     path.normalize(assets.root) !== assets.root
-  )
-    {invalid("a canonical granted extension directory is required");}
-  if (assets.access !== "read-write" && assets.access !== "read-only")
-    {invalid("explicit extension asset access is required");}
+  ) {
+    invalid("a canonical granted extension directory is required");
+  }
+  if (assets.access !== "read-write" && assets.access !== "read-only") {
+    invalid("explicit extension asset access is required");
+  }
   return Object.freeze({
     operatorTimeZone: input.operator_time_zone,
     storage: Object.freeze({

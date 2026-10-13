@@ -32,7 +32,9 @@ test("actual managed document client restores camera after browser replacement a
   const manifest = path.resolve(__dirname, "../contracts/storage-manifest.json");
   let child;
   async function stop() {
-    if (!child || child.exitCode !== null) {return;}
+    if (!child || child.exitCode !== null) {
+      return;
+    }
     const owner = child;
     const exited = new Promise((resolve) => owner.once("exit", resolve));
     owner.kill("SIGTERM");
@@ -45,13 +47,17 @@ test("actual managed document client restores camera after browser replacement a
   }
   const clients = [];
   t.after(async () => {
-    for (const client of clients) {await client.close();}
+    for (const client of clients) {
+      await client.close();
+    }
     await stop();
     await fs.rm(root, { recursive: true, force: true });
   });
   async function start(create) {
     await fs.unlink(refs).catch((error) => {
-      if (error.code !== "ENOENT") {throw error;}
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
     });
     child = spawn(
       binary,
@@ -77,13 +83,17 @@ test("actual managed document client restores camera after browser replacement a
       failure += chunk.toString();
     });
     for (let attempt = 0; attempt < 100; attempt++) {
-      if (child.exitCode !== null) {throw Error(`storage provider failed: ${failure}`);}
+      if (child.exitCode !== null) {
+        throw Error(`storage provider failed: ${failure}`);
+      }
       try {
         const all = JSON.parse(await fs.readFile(refs, "utf8"));
         assert.equal(all.length, 1);
         return all[0];
       } catch (error) {
-        if (error.code !== "ENOENT") {throw error;}
+        if (error.code !== "ENOENT") {
+          throw error;
+        }
       }
       await delay(20);
     }

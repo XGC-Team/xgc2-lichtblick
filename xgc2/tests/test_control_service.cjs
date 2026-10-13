@@ -162,8 +162,9 @@ test("health is instance-bound and retired persistence and asset operations are 
   const { call, socketPath } = await startControl(t);
   assert.deepEqual((await call("GET", "/v1/health")).json, { status: "ok" });
   assert.equal((await rawCall(socketPath, "GET", "/v1/health")).status, 409);
-  for (const target of ["/v1/persistence", "/v1/extensions/assets", "/v1/extensions/load"])
-    {assert.equal((await call("POST", target, { body: {} })).status, 404, target);}
+  for (const target of ["/v1/persistence", "/v1/extensions/assets", "/v1/extensions/load"]) {
+    assert.equal((await call("POST", target, { body: {} })).status, 404, target);
+  }
 });
 
 test("the desired view is read and stated with a revision", async (t) => {
@@ -242,7 +243,9 @@ test("the socket is private, a stale one is reclaimed and a live one is never ta
   );
   const exited = new Promise((resolve) => owner.once("close", resolve));
   t.after(async () => {
-    if (owner.exitCode === null && owner.signalCode === null) {owner.kill("SIGKILL");}
+    if (owner.exitCode === null && owner.signalCode === null) {
+      owner.kill("SIGKILL");
+    }
     await exited;
   });
   await new Promise((resolve) => owner.stdout.once("data", resolve));

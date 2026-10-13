@@ -8,7 +8,6 @@
 import type { ManagedIPCReply } from "./types";
 import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
-
 /** Electron preserves plain return values, but drops custom Error properties. */
 export function managedIPCFailure(error: unknown): ManagedIPCReply<never> {
   const fields = error as

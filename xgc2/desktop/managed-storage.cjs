@@ -50,16 +50,20 @@ function checkScope(scope, name) {
     !ID.test(scope.user) ||
     typeof scope.workspace !== "string" ||
     !ID.test(scope.workspace)
-  )
-    {invalid(`explicit Lichtblick user/workspace ${name} required`);}
+  ) {
+    invalid(`explicit Lichtblick user/workspace ${name} required`);
+  }
 }
 function object(value, name) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    {invalid(`${name} must be an object`);}
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    invalid(`${name} must be an object`);
+  }
   return value;
 }
 function fields(value, allowed) {
-  if (Object.keys(value).some((key) => !allowed.includes(key))) {invalid("undeclared request field");}
+  if (Object.keys(value).some((key) => !allowed.includes(key))) {
+    invalid("undeclared request field");
+  }
 }
 function token(value) {
   object(value, "token");
@@ -71,36 +75,43 @@ function token(value) {
     !ID.test(value.schema) ||
     typeof value.revision !== "string" ||
     !DECIMAL.test(value.revision)
-  )
-    {invalid("invalid storage token");}
+  ) {
+    invalid("invalid storage token");
+  }
   return value;
 }
 function identity(family, key) {
-  if (!Object.hasOwn(FAMILY_LIMITS, family)) {invalid("undeclared document family");}
+  if (!Object.hasOwn(FAMILY_LIMITS, family)) {
+    invalid("undeclared document family");
+  }
   if (
     typeof key !== "string" ||
     key.length === 0 ||
     Buffer.byteLength(key) > 480 ||
     /[\x00-\x1f\x7f]/.test(key)
-  )
-    {invalid("invalid document key");}
+  ) {
+    invalid("invalid document key");
+  }
   return `${family}:${key}`;
 }
 function decoded(key) {
   const separator = key.indexOf(":");
   const family = key.slice(0, separator);
   const original = key.slice(separator + 1);
-  if (separator < 1 || identity(family, original) !== key)
-    {throw new PersistenceError("internal", "invalid stored document identity", 500);}
+  if (separator < 1 || identity(family, original) !== key) {
+    throw new PersistenceError("internal", "invalid stored document identity", 500);
+  }
   return { family, key: original };
 }
 function record(value) {
   const id = decoded(value.key);
-  if (value.missing || value.deleted)
-    {return { ...id, version: value.version, missing: value.missing, deleted: value.deleted };}
+  if (value.missing || value.deleted) {
+    return { ...id, version: value.version, missing: value.missing, deleted: value.deleted };
+  }
   object(value.data, "stored document");
-  if (value.data.family !== id.family || value.data.key !== id.key)
-    {throw new PersistenceError("internal", "stored document identity mismatch", 500);}
+  if (value.data.family !== id.family || value.data.key !== id.key) {
+    throw new PersistenceError("internal", "stored document identity mismatch", 500);
+  }
   return { ...id, version: value.version, value: value.data.value };
 }
 
@@ -115,9 +126,10 @@ async function acquireAssetWriterLock(handle) {
     });
     child.once("error", reject);
     child.once("close", (code) => {
-      if (code === 0) {resolve();}
-      else
-        {reject(
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(
           new PersistenceError(
             code === 1 ? "conflict" : "unavailable",
             code === 1
@@ -125,7 +137,8 @@ async function acquireAssetWriterLock(handle) {
               : "extension asset lease acquisition failed",
             code === 1 ? 409 : 503,
           ),
-        );}
+        );
+      }
     });
   });
 }
@@ -155,21 +168,29 @@ class ManagedDomainClient {
     checkScope(scope, "scope");
     if (viewScope !== undefined) {
       checkScope(viewScope, "view scope");
-      if (viewScope.user === scope.user && viewScope.workspace === scope.workspace)
-        {invalid("the view scope must differ from the document scope");}
+      if (viewScope.user === scope.user && viewScope.workspace === scope.workspace) {
+        invalid("the view scope must differ from the document scope");
+      }
     }
-    if (typeof call !== "function") {invalid("XRPC storage call required");}
+    if (typeof call !== "function") {
+      invalid("XRPC storage call required");
+    }
     if (
       typeof assetRoot !== "string" ||
       !path.isAbsolute(assetRoot) ||
       path.normalize(assetRoot) !== assetRoot
-    )
-      {invalid("canonical granted extension directory required");}
-    if (process.platform !== "linux")
-      {invalid("extension asset grants require the Linux descriptor lease");}
-    if (assetAccess !== "read-write" && assetAccess !== "read-only")
-      {invalid("explicit extension asset access mode required");}
-    if (typeof timeZone !== "string" || !timeZone) {invalid("operator time zone required");}
+    ) {
+      invalid("canonical granted extension directory required");
+    }
+    if (process.platform !== "linux") {
+      invalid("extension asset grants require the Linux descriptor lease");
+    }
+    if (assetAccess !== "read-write" && assetAccess !== "read-only") {
+      invalid("explicit extension asset access mode required");
+    }
+    if (typeof timeZone !== "string" || !timeZone) {
+      invalid("operator time zone required");
+    }
     try {
       this.assetClock = new Intl.DateTimeFormat("sv-SE", {
         ...(timeZone === "system" ? {} : { timeZone }),
@@ -202,8 +223,9 @@ class ManagedDomainClient {
   }
   async initializeAssets() {
     try {
-      if ((await fs.realpath(this.assetRoot)) !== this.assetRoot)
-        {invalid("extension grant must not traverse symbolic links");}
+      if ((await fs.realpath(this.assetRoot)) !== this.assetRoot) {
+        invalid("extension grant must not traverse symbolic links");
+      }
       this.assetDirectory = await fs.open(
         this.assetRoot,
         constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
@@ -213,8 +235,9 @@ class ManagedDomainClient {
         !this.assetDirectoryIdentity.isDirectory() ||
         this.assetDirectoryIdentity.uid !== BigInt(process.getuid()) ||
         (this.assetDirectoryIdentity.mode & 0o22n) !== 0n
-      )
-        {invalid("extension grant must be an owned directory without group/other writes");}
+      ) {
+        invalid("extension grant must be an owned directory without group/other writes");
+      }
       this.assetAnchor = `/proc/self/fd/${this.assetDirectory.fd}`;
       if (this.assetAccess === "read-write") {
         this.assetWriter = await fs.open(
@@ -223,30 +246,38 @@ class ManagedDomainClient {
           0o600,
         );
         this.assetWriterIdentity = await this.assetWriter.stat({ bigint: true });
-        if (!privateControlFile(this.assetWriterIdentity))
-          {invalid("extension asset control lock must be private, regular and owned");}
+        if (!privateControlFile(this.assetWriterIdentity)) {
+          invalid("extension asset control lock must be private, regular and owned");
+        }
         await acquireAssetWriterLock(this.assetWriter);
       }
       await this.assertAssetGrant();
-      if (this.assetAccess === "read-only") {return;}
+      if (this.assetAccess === "read-only") {
+        return;
+      }
       const entries = await fs.readdir(this.assetAnchor, { withFileTypes: true });
-      if (entries.length > this.maxAssets + 33)
-        {throw new PersistenceError(
+      if (entries.length > this.maxAssets + 33) {
+        throw new PersistenceError(
           "resource_exhausted",
           "extension asset directory exceeds quota",
           429,
-        );}
+        );
+      }
       for (const entry of entries) {
-        if (entry.name === ASSET_WRITER_LOCK) {continue;}
+        if (entry.name === ASSET_WRITER_LOCK) {
+          continue;
+        }
         // Interrupted staging files remain charged until explicit maintenance.
         const stat = await fs.lstat(path.join(this.assetAnchor, entry.name));
-        if (!stat.isFile() || stat.isSymbolicLink())
-          {invalid("extension grant contains an undeclared entry");}
+        if (!stat.isFile() || stat.isSymbolicLink()) {
+          invalid("extension grant contains an undeclared entry");
+        }
         this.assetCount++;
         this.assetBytes += stat.size;
       }
-      if (this.assetCount > this.maxAssets || this.assetBytes > this.maxAssetBytes)
-        {throw new PersistenceError("resource_exhausted", "extension asset quota exceeded", 429);}
+      if (this.assetCount > this.maxAssets || this.assetBytes > this.maxAssetBytes) {
+        throw new PersistenceError("resource_exhausted", "extension asset quota exceeded", 429);
+      }
       await this.assertAssetGrant();
     } catch (error) {
       await this.releaseAssetHandles();
@@ -258,22 +289,27 @@ class ManagedDomainClient {
       !this.assetDirectory ||
       (await fs.realpath(this.assetRoot)) !== this.assetRoot ||
       !sameFile(this.assetDirectoryIdentity, await fs.lstat(this.assetRoot, { bigint: true }))
-    )
-      {throw new PersistenceError("conflict", "extension asset grant directory was replaced", 409);}
+    ) {
+      throw new PersistenceError("conflict", "extension asset grant directory was replaced", 409);
+    }
     if (this.assetWriter) {
       const current = await fs.lstat(path.join(this.assetAnchor, ASSET_WRITER_LOCK), {
         bigint: true,
       });
-      if (!privateControlFile(current) || !sameFile(this.assetWriterIdentity, current))
-        {throw new PersistenceError("conflict", "extension asset control lock was replaced", 409);}
+      if (!privateControlFile(current) || !sameFile(this.assetWriterIdentity, current)) {
+        throw new PersistenceError("conflict", "extension asset control lock was replaced", 409);
+      }
     }
   }
   async domainOperation(operation, verifyAssets = false) {
-    if (this.assetClosing)
-      {throw new PersistenceError("unavailable", "extension asset owner is closing", 503);}
+    if (this.assetClosing) {
+      throw new PersistenceError("unavailable", "extension asset owner is closing", 503);
+    }
     const work = (async () => {
       await this.ready;
-      if (verifyAssets) {await this.assertAssetGrant();}
+      if (verifyAssets) {
+        await this.assertAssetGrant();
+      }
       return await operation();
     })();
     this.assetOperations.add(work);
@@ -297,7 +333,9 @@ class ManagedDomainClient {
       handles.filter(Boolean).map((handle) => handle.close()),
     );
     const failed = results.find((result) => result.status === "rejected");
-    if (failed) {throw failed.reason;}
+    if (failed) {
+      throw failed.reason;
+    }
   }
   /**
    * The documents of the pages: every family except the desired view, in the document scope.
@@ -314,8 +352,9 @@ class ManagedDomainClient {
   }
   /** The desired view: the one family of the view scope, whose revision no page is fenced by. */
   async requestView(input, context = {}) {
-    if (!this.viewScope)
-      {throw new PersistenceError("unavailable", "no view scope is configured", 503);}
+    if (!this.viewScope) {
+      throw new PersistenceError("unavailable", "no view scope is configured", 503);
+    }
     return await this.run(
       this.viewScope,
       (family) => family === VIEW_FAMILY,
@@ -336,39 +375,48 @@ class ManagedDomainClient {
           typeof family === "string" &&
           Object.hasOwn(FAMILY_LIMITS, family) &&
           !permitted(family)
-        )
-          {throw new PersistenceError("permission_denied", refusal, 403);}
+        ) {
+          throw new PersistenceError("permission_denied", refusal, 403);
+        }
       }
-      if (Buffer.byteLength(JSON.stringify(input)) > MAX_WIRE_BYTES)
-        {throw new PersistenceError("resource_exhausted", "document request too large", 413);}
+      if (Buffer.byteLength(JSON.stringify(input)) > MAX_WIRE_BYTES) {
+        throw new PersistenceError("resource_exhausted", "document request too large", 413);
+      }
       if (input.operation === "snapshot") {
         fields(input, ["operation", "keys", "families", "after", "limit", "at"]);
-        if ((input.keys !== undefined) === (input.families !== undefined))
-          {invalid("choose explicit keys or one family");}
+        if ((input.keys !== undefined) === (input.families !== undefined)) {
+          invalid("choose explicit keys or one family");
+        }
         const query = { collection: "documents" };
         if (input.keys !== undefined) {
-          if (!Array.isArray(input.keys) || input.keys.length < 1 || input.keys.length > 64)
-            {invalid("snapshot requires 1..64 keys");}
+          if (!Array.isArray(input.keys) || input.keys.length < 1 || input.keys.length > 64) {
+            invalid("snapshot requires 1..64 keys");
+          }
           query.keys = input.keys.map((key) => {
             object(key, "key");
             fields(key, ["family", "key"]);
             return identity(key.family, key.key);
           });
-          if (new Set(query.keys).size !== query.keys.length) {invalid("duplicate snapshot keys");}
-          if (input.after !== undefined || input.limit !== undefined)
-            {invalid("explicit keys do not accept pagination");}
+          if (new Set(query.keys).size !== query.keys.length) {
+            invalid("duplicate snapshot keys");
+          }
+          if (input.after !== undefined || input.limit !== undefined) {
+            invalid("explicit keys do not accept pagination");
+          }
         } else {
           if (
             !Array.isArray(input.families) ||
             input.families.length !== 1 ||
             !Object.hasOwn(FAMILY_LIMITS, input.families[0])
-          )
-            {invalid("one declared family per page required");}
+          ) {
+            invalid("one declared family per page required");
+          }
           query.index = "family";
           query.equal = [input.families[0]];
           query.limit = input.limit ?? 128;
-          if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 128)
-            {invalid("page limit must be 1..128");}
+          if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 128) {
+            invalid("page limit must be 1..128");
+          }
           if (input.after !== undefined) {
             decoded(input.after);
             query.after = input.after;
@@ -383,8 +431,9 @@ class ManagedDomainClient {
           !Array.isArray(result.results) ||
           result.results.length !== 1 ||
           result.results[0].collection !== "documents"
-        )
-          {throw new PersistenceError("internal", "invalid storage snapshot", 502);}
+        ) {
+          throw new PersistenceError("internal", "invalid storage snapshot", 502);
+        }
         return {
           token: token(result.token),
           records: result.results[0].records.map(record),
@@ -393,30 +442,42 @@ class ManagedDomainClient {
       }
       if (input.operation === "batch") {
         fields(input, ["operation", "expected", "requestId", "changes"]);
-        if (typeof input.requestId !== "string" || !ID.test(input.requestId))
-          {invalid("canonical request identity required");}
-        if (!Array.isArray(input.changes) || input.changes.length < 1 || input.changes.length > 256)
-          {invalid("batch requires 1..256 changes");}
+        if (typeof input.requestId !== "string" || !ID.test(input.requestId)) {
+          invalid("canonical request identity required");
+        }
+        if (
+          !Array.isArray(input.changes) ||
+          input.changes.length < 1 ||
+          input.changes.length > 256
+        ) {
+          invalid("batch requires 1..256 changes");
+        }
         const mutations = input.changes.map((change) => {
           object(change, "change");
           fields(change, ["family", "key", "expectedVersion", "value", "delete"]);
           const key = identity(change.family, change.key);
-          if (typeof change.expectedVersion !== "string" || !DECIMAL.test(change.expectedVersion))
-            {invalid("canonical expected version required");}
-          if (change.delete !== undefined && change.delete !== true)
-            {invalid("delete must be true or omitted");}
-          if (change.delete && Object.hasOwn(change, "value"))
-            {invalid("deleted record cannot carry data");}
-          if (!change.delete && !Object.hasOwn(change, "value")) {invalid("document value required");}
+          if (typeof change.expectedVersion !== "string" || !DECIMAL.test(change.expectedVersion)) {
+            invalid("canonical expected version required");
+          }
+          if (change.delete !== undefined && change.delete !== true) {
+            invalid("delete must be true or omitted");
+          }
+          if (change.delete && Object.hasOwn(change, "value")) {
+            invalid("deleted record cannot carry data");
+          }
+          if (!change.delete && !Object.hasOwn(change, "value")) {
+            invalid("document value required");
+          }
           const data = change.delete
             ? undefined
             : { family: change.family, key: change.key, value: change.value };
-          if (data && Buffer.byteLength(JSON.stringify(data)) > FAMILY_LIMITS[change.family])
-            {throw new PersistenceError(
+          if (data && Buffer.byteLength(JSON.stringify(data)) > FAMILY_LIMITS[change.family]) {
+            throw new PersistenceError(
               "resource_exhausted",
               "document family byte quota exceeded",
               413,
-            );}
+            );
+          }
           return {
             collection: "documents",
             key,
@@ -424,8 +485,9 @@ class ManagedDomainClient {
             ...(change.delete ? { delete: true } : { data }),
           };
         });
-        if (new Set(mutations.map((m) => m.key)).size !== mutations.length)
-          {invalid("duplicate batch keys");}
+        if (new Set(mutations.map((m) => m.key)).size !== mutations.length) {
+          invalid("duplicate batch keys");
+        }
         const result = await this.call(
           "/v1/batch",
           { scope, expected: token(input.expected), request_id: input.requestId, mutations },
@@ -443,8 +505,9 @@ class ManagedDomainClient {
       }
       if (input.operation === "receipt") {
         fields(input, ["operation", "requestId"]);
-        if (typeof input.requestId !== "string" || !ID.test(input.requestId))
-          {invalid("canonical request identity required");}
+        if (typeof input.requestId !== "string" || !ID.test(input.requestId)) {
+          invalid("canonical request identity required");
+        }
         return this.receipt(
           await this.call("/v1/receipt", { scope, request_id: input.requestId }, context),
           input.requestId,
@@ -465,16 +528,18 @@ class ManagedDomainClient {
           typeof v.version !== "string" ||
           !DECIMAL.test(v.version),
       )
-    )
-      {throw new PersistenceError("internal", "storage did not return a durable receipt", 502);}
+    ) {
+      throw new PersistenceError("internal", "storage did not return a durable receipt", 502);
+    }
     if (
       result.request_id !== requestId ||
       new Set(result.versions.map((v) => v.key)).size !== result.versions.length ||
       (mutations &&
         (result.versions.length !== mutations.length ||
           mutations.some((m) => !result.versions.some((v) => v.key === m.key))))
-    )
-      {throw new PersistenceError("internal", "storage receipt identity mismatch", 502);}
+    ) {
+      throw new PersistenceError("internal", "storage receipt identity mismatch", 502);
+    }
     return {
       token: token(result.token),
       requestId: result.request_id,
@@ -486,15 +551,17 @@ class ManagedDomainClient {
     };
   }
   async publish(bytes, info) {
-    if (this.assetAccess === "read-only")
-      {throw new PersistenceError("permission_denied", "extension asset grant is read-only", 403);}
+    if (this.assetAccess === "read-only") {
+      throw new PersistenceError("permission_denied", "extension asset grant is read-only", 403);
+    }
     return await this.assetOperation(async () => {
       if (
         !(bytes instanceof Uint8Array) ||
         bytes.byteLength < 1 ||
         bytes.byteLength > MAX_ASSET_BYTES
-      )
-        {throw new PersistenceError("resource_exhausted", "archive must be 1..8 MiB", 413);}
+      ) {
+        throw new PersistenceError("resource_exhausted", "archive must be 1..8 MiB", 413);
+      }
       object(info, "extension identity");
       if (
         typeof info.id !== "string" ||
@@ -502,17 +569,19 @@ class ManagedDomainClient {
         !ASSET_ID.test(info.id) ||
         !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(info.version) ||
         info.id.length + info.version.length > 96
-      )
-        {invalid("canonical extension name/version required (96 bytes combined)");}
+      ) {
+        invalid("canonical extension name/version required (96 bytes combined)");
+      }
       if (
         this.assetCount + this.pendingAssets >= this.maxAssets ||
         this.assetBytes + this.pendingBytes + bytes.byteLength > this.maxAssetBytes
-      )
-        {throw new PersistenceError(
+      ) {
+        throw new PersistenceError(
           "resource_exhausted",
           "extension quota exhausted; explicit maintenance required",
           429,
-        );}
+        );
+      }
       this.pendingAssets++;
       this.pendingBytes += bytes.byteLength;
       const temporary = path.join(this.assetAnchor, `.${randomUUID()}.pending`);
@@ -535,11 +604,14 @@ class ManagedDomainClient {
             this.assetBytes += bytes.byteLength;
             break;
           } catch (error) {
-            if (error.code !== "EEXIST") {throw error;}
+            if (error.code !== "EEXIST") {
+              throw error;
+            }
           }
         }
-        if (!published)
-          {throw new PersistenceError("resource_exhausted", "asset allocation exhausted", 429);}
+        if (!published) {
+          throw new PersistenceError("resource_exhausted", "asset allocation exhausted", 429);
+        }
         await this.assetDirectory.sync();
         await this.assertAssetGrant();
         return {
@@ -552,7 +624,9 @@ class ManagedDomainClient {
         this.pendingAssets--;
         this.pendingBytes -= bytes.byteLength;
         await fs.unlink(temporary).catch((error) => {
-          if (error.code !== "ENOENT") {throw error;}
+          if (error.code !== "ENOENT") {
+            throw error;
+          }
         });
         await this.assetDirectory.sync();
       }
@@ -570,19 +644,22 @@ class ManagedDomainClient {
         asset.bytes > MAX_ASSET_BYTES ||
         typeof asset.sha256 !== "string" ||
         !/^[0-9a-f]{64}$/.test(asset.sha256)
-      )
-        {invalid("invalid extension asset reference");}
+      ) {
+        invalid("invalid extension asset reference");
+      }
       const handle = await fs.open(
         path.join(this.assetAnchor, `${asset.asset_id}.foxe`),
         constants.O_RDONLY | constants.O_NOFOLLOW,
       );
       try {
         const stat = await handle.stat();
-        if (!stat.isFile() || stat.size !== asset.bytes)
-          {throw new PersistenceError("conflict", "extension asset size mismatch", 409);}
+        if (!stat.isFile() || stat.size !== asset.bytes) {
+          throw new PersistenceError("conflict", "extension asset size mismatch", 409);
+        }
         const content = await handle.readFile();
-        if (createHash("sha256").update(content).digest("hex") !== asset.sha256)
-          {throw new PersistenceError("conflict", "extension asset digest mismatch", 409);}
+        if (createHash("sha256").update(content).digest("hex") !== asset.sha256) {
+          throw new PersistenceError("conflict", "extension asset digest mismatch", 409);
+        }
         await this.assertAssetGrant();
         return new Uint8Array(content.buffer, content.byteOffset, content.byteLength);
       } finally {

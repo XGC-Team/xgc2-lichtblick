@@ -8,7 +8,6 @@
 import { getAppSetting } from "./settings";
 import { AppSetting } from "../../../suite-base/src/AppSetting";
 
-
 export function getTelemetrySettings(): {
   crashReportingEnabled: boolean;
   telemetryEnabled: boolean;

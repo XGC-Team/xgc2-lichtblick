@@ -104,7 +104,9 @@ function playerHarness({ url, workers = true, jitter = () => 0.5, logger = conso
     },
   };
   function load(filename) {
-    if (cache.has(filename)) {return cache.get(filename).exports;}
+    if (cache.has(filename)) {
+      return cache.get(filename).exports;
+    }
     const module = { exports: {} };
     cache.set(filename, module);
     const source = fs
@@ -119,29 +121,36 @@ function playerHarness({ url, workers = true, jitter = () => 0.5, logger = conso
       reportDiagnostics: true,
       fileName: filename,
     });
-    if (diagnostics.length)
-      {throw new Error(
+    if (diagnostics.length) {
+      throw new Error(
         ts.formatDiagnostics(diagnostics, {
           getCanonicalFileName: (name) => name,
           getCurrentDirectory: () => ROOT,
           getNewLine: () => "\n",
         }),
-      );}
+      );
+    }
     const localRequire = (name) => {
-      if (Object.hasOwn(doubles, name)) {return doubles[name];}
-      if (name === "@lichtblick/den/async")
-        {return {
+      if (Object.hasOwn(doubles, name)) {
+        return doubles[name];
+      }
+      if (name === "@lichtblick/den/async") {
+        return {
           debouncePromise: load(path.join(ROOT, "packages/den/async/debouncePromise.ts")).default,
-        };}
-      if (name.startsWith("@lichtblick/suite-base/"))
-        {return load(
+        };
+      }
+      if (name.startsWith("@lichtblick/suite-base/")) {
+        return load(
           path.join(
             ROOT,
             "packages/suite-base/src",
             name.slice("@lichtblick/suite-base/".length) + ".ts",
           ),
-        );}
-      if (name.startsWith(".")) {return load(path.resolve(path.dirname(filename), name + ".ts"));}
+        );
+      }
+      if (name.startsWith(".")) {
+        return load(path.resolve(path.dirname(filename), name + ".ts"));
+      }
       return require(name);
     };
     new vm.Script(
@@ -166,7 +175,9 @@ function playerHarness({ url, workers = true, jitter = () => 0.5, logger = conso
     context,
     async stop() {
       player.close();
-      for (const worker of instances) {worker.terminate();}
+      for (const worker of instances) {
+        worker.terminate();
+      }
       await Promise.all(exits);
     },
   };
@@ -178,7 +189,9 @@ if (require.main === module) {
   harness.player.setSubscriptions([{ topic: "/first" }]);
   harness.player.setPublishers([{ topic: "/publish-first", schemaName: "test.Value" }]);
   process.on("message", async (message) => {
-    if (message === "snapshot") {process.send(harness.stats);}
+    if (message === "snapshot") {
+      process.send(harness.stats);
+    }
     if (message === "latest") {
       harness.player.setSubscriptions([{ topic: "/latest" }]);
       harness.player.setPublishers([{ topic: "/publish-latest", schemaName: "test.Value" }]);

@@ -7,7 +7,6 @@
 
 import { ipcMain } from "electron";
 
-
 import StudioWindow from "./StudioWindow";
 import { observeCommittedSettings } from "./settings";
 import type { ManagedDomainClient } from "../../../../xgc2/desktop/managed-storage.cjs";

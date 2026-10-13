@@ -870,7 +870,7 @@ describe("ThreeDeeRender", () => {
     expect(replacement.setColorScheme).toHaveBeenCalledWith("light", "#ffffff");
     expect(replacement.animationFrame).toHaveBeenCalled();
     expect(replacement.setColorScheme.mock.invocationCallOrder[0]).toBeLessThan(
-      replacement.animationFrame.mock.invocationCallOrder[0],
+      replacement.animationFrame.mock.invocationCallOrder[0]!,
     );
     expect(view.container.querySelector("canvas")).toHaveStyle({ visibility: "visible" });
   });

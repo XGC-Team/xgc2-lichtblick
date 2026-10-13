@@ -20,13 +20,20 @@ function createViewGateway(viewStore, { heartbeatMs = 15000, maxStreams = 16 } =
   const streams = new Map();
   const frame = (state) => `id: ${state.revision}\nevent: view\ndata: ${JSON.stringify(state)}\n\n`;
   function send(response, chunk) {
-    if (response.destroyed) {return;}
-    if (response.writableLength > MAX_STREAM_BACKLOG_BYTES) {response.destroy();}
-    else {response.write(chunk);}
+    if (response.destroyed) {
+      return;
+    }
+    if (response.writableLength > MAX_STREAM_BACKLOG_BYTES) {
+      response.destroy();
+    } else {
+      response.write(chunk);
+    }
   }
   const unsubscribe = viewStore.subscribe((state) => {
     const chunk = frame(state);
-    for (const response of streams.keys()) {send(response, chunk);}
+    for (const response of streams.keys()) {
+      send(response, chunk);
+    }
   });
   return {
     get streamCount() {
@@ -43,8 +50,9 @@ function createViewGateway(viewStore, { heartbeatMs = 15000, maxStreams = 16 } =
       response.end(body);
     },
     events(request, response, headers) {
-      if (streams.size >= maxStreams)
-        {throw new ViewError("resource_exhausted", "too many view streams", 503);}
+      if (streams.size >= maxStreams) {
+        throw new ViewError("resource_exhausted", "too many view streams", 503);
+      }
       response.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-store",
@@ -70,7 +78,9 @@ function createViewGateway(viewStore, { heartbeatMs = 15000, maxStreams = 16 } =
       unsubscribe();
       for (const [response, timer] of streams) {
         clearInterval(timer);
-        if (!response.destroyed) {response.end("event: closing\ndata: {}\n\n");}
+        if (!response.destroyed) {
+          response.end("event: closing\ndata: {}\n\n");
+        }
       }
       streams.clear();
     },

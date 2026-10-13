@@ -131,13 +131,11 @@ describe("EmbeddedWorkspaceBridge", () => {
     } as never);
     selectedLayoutId = undefined;
     jest.mocked(useCurrentLayoutActions).mockReturnValue({ setSelectedLayoutId } as never);
-    jest
-      .mocked(useCurrentLayoutSelector)
-      .mockImplementation((selector) =>
-        selector({
-          selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined,
-        } as never),
-      );
+    jest.mocked(useCurrentLayoutSelector).mockImplementation((selector) =>
+      selector({
+        selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined,
+      } as never),
+    );
     jest.mocked(useLayoutManager).mockReturnValue({ getLayout } as never);
     FakeEventSource.instances = [];
     Object.defineProperty(globalThis, "EventSource", {
@@ -630,13 +628,11 @@ describe("EmbeddedWorkspaceBridge desired view", () => {
     } as never);
     selectedLayoutId = undefined;
     jest.mocked(useCurrentLayoutActions).mockReturnValue({ setSelectedLayoutId } as never);
-    jest
-      .mocked(useCurrentLayoutSelector)
-      .mockImplementation((selector) =>
-        selector({
-          selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined,
-        } as never),
-      );
+    jest.mocked(useCurrentLayoutSelector).mockImplementation((selector) =>
+      selector({
+        selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined,
+      } as never),
+    );
     jest.mocked(useLayoutManager).mockReturnValue({ getLayout } as never);
     getLayout.mockResolvedValue({ id: "camera-ar" });
     FakeEventSource.instances = [];

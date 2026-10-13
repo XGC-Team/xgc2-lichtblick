@@ -11,7 +11,6 @@ import type {
   ManagedTransport,
 } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
-
 export type ManagedIPCReply<T> =
   | { ok: true; value: T }
   | {

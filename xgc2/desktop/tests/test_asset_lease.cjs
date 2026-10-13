@@ -76,16 +76,23 @@ function startChild(t, root, access = "read-write", asset) {
       const end = output.indexOf("\n");
       if (end >= 0) {
         const result = JSON.parse(output.slice(0, end));
-        if (result.error) {reject(Object.assign(new Error(result.message), { code: result.error }));}
-        else {resolve(result);}
+        if (result.error) {
+          reject(Object.assign(new Error(result.message), { code: result.error }));
+        } else {
+          resolve(result);
+        }
       }
     });
     child.once("exit", () => {
-      if (!output.includes("\n")) {reject(new Error("asset owner exited without readiness"));}
+      if (!output.includes("\n")) {
+        reject(new Error("asset owner exited without readiness"));
+      }
     });
   });
   t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) {child.kill("SIGKILL");}
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
     await exited;
   });
   return {

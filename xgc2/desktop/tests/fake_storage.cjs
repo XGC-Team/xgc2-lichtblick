@@ -28,13 +28,14 @@ function createFakeStorage({
       { name: "page", documents: new Map(), receipts: new Map(), revision: 0n },
     ],
   ]);
-  if (viewScope)
-    {scopes.set(JSON.stringify(viewScope), {
+  if (viewScope) {
+    scopes.set(JSON.stringify(viewScope), {
       name: "view",
       documents: new Map(),
       receipts: new Map(),
       revision: 0n,
-    });}
+    });
+  }
   const named = (name) => [...scopes.values()].find((entry) => entry.name === name);
   const state = { calls: [], failNextBatch: undefined, beforeBatch: undefined, failSnapshots: 0 };
   const current = (entry) => ({
@@ -55,12 +56,17 @@ function createFakeStorage({
   const host = createRPCHost(
     async (request, response, context) => {
       const chunks = [];
-      for await (const chunk of request) {chunks.push(chunk);}
-      if (request.headers.authorization !== `Bearer ${token}`)
-        {return fail(response, 403, "permission_denied", "storage credential rejected");}
+      for await (const chunk of request) {
+        chunks.push(chunk);
+      }
+      if (request.headers.authorization !== `Bearer ${token}`) {
+        return fail(response, 403, "permission_denied", "storage credential rejected");
+      }
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
       const entry = scopes.get(JSON.stringify(body.scope));
-      if (!entry) {return fail(response, 403, "permission_denied", "scope rejected");}
+      if (!entry) {
+        return fail(response, 403, "permission_denied", "scope rejected");
+      }
       state.calls.push({
         route: request.url,
         body,
@@ -74,17 +80,23 @@ function createFakeStorage({
           return fail(response, 503, "unavailable", "injected failure");
         }
         const query = body.queries[0];
-        if (body.at && body.at.revision !== String(entry.revision))
-          {return fail(response, 409, "conflict", "snapshot revision is gone");}
+        if (body.at && body.at.revision !== String(entry.revision)) {
+          return fail(response, 409, "conflict", "snapshot revision is gone");
+        }
         let keys = query.keys;
-        if (!keys)
-          {keys = [...documents.keys()]
+        if (!keys) {
+          keys = [...documents.keys()]
             .filter((key) => documents.get(key).data?.family === query.equal[0])
-            .sort();}
+            .sort();
+        }
         const records = keys.map((key) => {
           const document = documents.get(key);
-          if (!document) {return { key, version: "0", missing: true };}
-          if (document.deleted) {return { key, version: String(document.version), deleted: true };}
+          if (!document) {
+            return { key, version: "0", missing: true };
+          }
+          if (document.deleted) {
+            return { key, version: String(document.version), deleted: true };
+          }
           return { key, version: String(document.version), data: document.data };
         });
         return reply(response, 200, {
@@ -93,11 +105,15 @@ function createFakeStorage({
         });
       }
       if (request.url === "/v1/batch") {
-        if (state.beforeBatch) {await state.beforeBatch(body);}
+        if (state.beforeBatch) {
+          await state.beforeBatch(body);
+        }
         if (state.failNextBatch) {
           const failure = state.failNextBatch;
           state.failNextBatch = undefined;
-          if (failure.commit) {apply(entry, body);}
+          if (failure.commit) {
+            apply(entry, body);
+          }
           return failure.destroy
             ? response.destroy()
             : fail(
@@ -111,12 +127,14 @@ function createFakeStorage({
           body.expected.database_id !== databaseId ||
           body.expected.schema !== schema ||
           body.expected.revision !== String(entry.revision)
-        )
-          {return fail(response, 409, "conflict", "database revision conflict");}
+        ) {
+          return fail(response, 409, "conflict", "database revision conflict");
+        }
         for (const mutation of body.mutations) {
           const document = documents.get(mutation.key);
-          if (String(document?.version ?? 0) !== mutation.expected_version)
-            {return fail(response, 409, "conflict", `version conflict at ${mutation.key}`);}
+          if (String(document?.version ?? 0) !== mutation.expected_version) {
+            return fail(response, 409, "conflict", `version conflict at ${mutation.key}`);
+          }
         }
         return reply(response, 200, apply(entry, body));
       }
@@ -133,9 +151,11 @@ function createFakeStorage({
   function apply(entry, body) {
     entry.revision += 1n;
     const versions = body.mutations.map((mutation) => {
-      if (mutation.delete)
-        {entry.documents.set(mutation.key, { version: entry.revision, deleted: true });}
-      else {entry.documents.set(mutation.key, { version: entry.revision, data: mutation.data });}
+      if (mutation.delete) {
+        entry.documents.set(mutation.key, { version: entry.revision, deleted: true });
+      } else {
+        entry.documents.set(mutation.key, { version: entry.revision, data: mutation.data });
+      }
       return { collection: "documents", key: mutation.key, version: String(entry.revision) };
     });
     const receipt = {
