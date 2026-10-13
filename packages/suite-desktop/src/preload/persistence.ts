@@ -6,7 +6,6 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
-
 import { managedIPCFailure } from "../common/managedIPC";
 import type { ManagedIPCReply, PersistenceBridge } from "../common/types";
 
@@ -25,11 +24,7 @@ export function createPersistenceBridge(invoke: Invoke): PersistenceBridge {
       return managedIPCFailure(
         error instanceof ManagedRequestError
           ? error
-          : new ManagedRequestError(
-              "Invalid managed IPC payload",
-              "invalid_request",
-              "not_sent",
-            ),
+          : new ManagedRequestError("Invalid managed IPC payload", "invalid_request", "not_sent"),
       );
     }
     try {
@@ -41,9 +36,11 @@ export function createPersistenceBridge(invoke: Invoke): PersistenceBridge {
   return {
     async domainRequest(request) {
       return await call("managed-domain-request", [request], () => {
+        const serialized = JSON.stringify(request);
         if (
+          serialized == undefined ||
           !["snapshot", "batch", "receipt"].includes(request.operation) ||
-          Buffer.byteLength(JSON.stringify(request), "utf8") > 4 * 1024 * 1024
+          Buffer.byteLength(serialized, "utf8") > 4 * 1024 * 1024
         ) {
           throw new ManagedRequestError(
             "Invalid or oversized domain request",

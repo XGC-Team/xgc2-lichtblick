@@ -76,7 +76,7 @@ const scopedAuthority: LayoutData = {
 
 describe("xgc managed layout import", () => {
   it("accepts only the stable Experiment and product-panel scope tuple", () => {
-    expect(parseXgc2LayoutScope(JSON.stringify(scope))).toEqual(scope);
+    expect(parseXgc2LayoutScope(JSON.stringify(scope)!)).toEqual(scope);
     for (const raw of [
       null,
       "",

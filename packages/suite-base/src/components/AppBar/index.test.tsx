@@ -22,6 +22,15 @@ import { makeMockAppConfiguration } from "@lichtblick/suite-base/util/makeMockAp
 
 import { AppBar } from ".";
 
+// These component tests start with an empty, already loaded document store.
+// Persistence bootstrap and commit behavior have their own contract tests.
+jest.mock("@lichtblick/suite-base/services/persistence/ManagedPersistence", () => ({
+  getManagedDocumentStore: () => ({
+    get: () => undefined,
+    commit: jest.fn(async () => undefined),
+  }),
+}));
+
 function Wrapper({ children }: React.PropsWithChildren): React.JSX.Element {
   const appConfiguration = makeMockAppConfiguration();
   const providers = [

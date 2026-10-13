@@ -32,6 +32,13 @@ import { parseAppURLState } from "@lichtblick/suite-base/util/appURLState";
 
 import Workspace from "./Workspace";
 
+// Desired-view SSE transport is tested by EmbeddedDesiredView; this suite
+// exercises workspace composition without opening a live connection.
+jest.mock("./components/EmbeddedDesiredView", () => ({
+  ...jest.requireActual("./components/EmbeddedDesiredView"),
+  connectDesiredView: jest.fn(() => () => undefined),
+}));
+
 // ── style ─────────────────────────────────────────────────────────────────────
 jest.mock("@lichtblick/suite-base/Workspace.style", () => ({
   useStyles: () => ({ classes: { container: "" } }),

@@ -2,7 +2,7 @@
   "extends": "@lichtblick/tsconfig/base",
   "include": ["./**/*", "../common/**/*", "../../package.json"],
   "compilerOptions": {
-    "rootDir": "../../",
+    "rootDir": "../../../..",
     "noEmit": true,
     "jsx": "react-jsx",
     "experimentalDecorators": true,

@@ -5,9 +5,8 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
-
 import { createPersistenceBridge } from "./persistence";
+import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 import { unwrapManagedIPC } from "../common/managedIPC";
 
 it("preserves code, status and uncertain request identity through a plain IPC reply", async () => {
@@ -22,7 +21,7 @@ it("preserves code, status and uncertain request identity through a plain IPC re
           outcome: "outcome_unknown",
           requestId: "write-7",
         },
-      }),
+      })!,
     ),
   );
   const reply = await createPersistenceBridge(invoke).domainRequest({
@@ -98,11 +97,7 @@ it("exposes only product document operations and immutable archive calls", async
     value: new Uint8Array([1, 2]),
   }));
   const bridge = createPersistenceBridge(invoke);
-  expect(Object.keys(bridge).sort()).toEqual([
-    "domainRequest",
-    "load",
-    "publish",
-  ]);
+  expect(Object.keys(bridge).sort()).toEqual(["domainRequest", "load", "publish"]);
   const bytes = new Uint8Array([1, 2]);
   const info = { id: "example.extension", version: "1.0.0" };
   await bridge.publish(bytes, info);

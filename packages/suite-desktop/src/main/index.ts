@@ -9,8 +9,6 @@ import { Diagnostics } from "@xgc2/xrpc";
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from "electron";
 
 import Logger from "@lichtblick/log";
-import { AppSetting } from "../../../suite-base/src/AppSetting";
-import { initI18n, sharedI18nObject as i18n } from "../../../suite-base/src/i18n";
 
 import StudioAppUpdater from "./StudioAppUpdater";
 import StudioWindow from "./StudioWindow";
@@ -33,6 +31,8 @@ import {
   SHUTDOWN_MS,
 } from "../../../../xgc2/desktop/managed-storage.cjs";
 import { loadStartupInput } from "../../../../xgc2/desktop/startup-input.cjs";
+import { AppSetting } from "../../../suite-base/src/AppSetting";
+import { initI18n, sharedI18nObject as i18n } from "../../../suite-base/src/i18n";
 import {
   LICHTBLICK_PRODUCT_HOMEPAGE,
   LICHTBLICK_PRODUCT_NAME,
@@ -304,8 +304,12 @@ export async function main(options: {
   });
   // Supervisors stop the process with a signal, so use the same persistence
   // drain as the desktop's Quit action before releasing the native owner.
-  process.once("SIGTERM", () => app.quit());
-  process.once("SIGINT", () => app.quit());
+  process.once("SIGTERM", () => {
+    app.quit();
+  });
+  process.once("SIGINT", () => {
+    app.quit();
+  });
   const managedClient = createManagedDomainClientFromInput(input, { diagnostics });
   runtime.client = managedClient;
   registerManagedPersistenceIPC(managedClient);

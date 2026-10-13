@@ -56,7 +56,7 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
   const listeners = new Map<string, Set<(...args: any[]) => void>>();
   const defaultRenderer = {
     dispose: jest.fn(),
-    config: {},
+    config: {} as RendererConfig,
     setTopics: jest.fn(),
     setParameters: jest.fn(),
     setCurrentTime: jest.fn(),
@@ -543,9 +543,9 @@ describe("ThreeDeeRender", () => {
     const renderer = mockedRenderer.mock.results[0]!.value;
     const onSubmit = jest
       .mocked(renderer.publishClickTool.addEventListener)
-      .mock.calls.find(([type]) => type === "foxglove.publish-submit")![1] as unknown as (
-      event: PublishClickEventMap["foxglove.publish-submit"],
-    ) => void;
+      .mock.calls.find(
+        ([type]: [string, ...unknown[]]) => type === "foxglove.publish-submit",
+      )![1] as unknown as (event: PublishClickEventMap["foxglove.publish-submit"]) => void;
     const pose = { position: { x: 1, y: 2, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
     act(() => {
       onSubmit({ publishClickType: "pose", pose, frameId: "world" });
@@ -633,9 +633,9 @@ describe("ThreeDeeRender", () => {
     );
     const onSubmit = jest
       .mocked(renderer.publishClickTool.addEventListener)
-      .mock.calls.find(([type]) => type === "foxglove.publish-submit")![1] as unknown as (
-      event: PublishClickEventMap["foxglove.publish-submit"],
-    ) => void;
+      .mock.calls.find(
+        ([type]: [string, ...unknown[]]) => type === "foxglove.publish-submit",
+      )![1] as unknown as (event: PublishClickEventMap["foxglove.publish-submit"]) => void;
     const point = { x: 1, y: 2, z: 0 };
     act(() => {
       onSubmit({ publishClickType: "point", point, frameId: "base_link" });
@@ -854,13 +854,17 @@ describe("ThreeDeeRender", () => {
         <ThreeDeeRender {...props} />
       </EmbeddedWorkspaceControlsProvider>,
     );
-    act(() => controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" }));
+    act(() => {
+      controls.setHostTheme({ colorScheme: "light", backgroundColor: "#ffffff" });
+    });
     const first = mockedRenderer.mock.results[0]!.value;
     act(() => {
       first.config = { ...first.config, scene: { obstacleScene: { namespace: "/changed" } } };
       first.emit("configChange", first);
     });
-    const replacement = mockedRenderer.mock.results.at(-1)!.value;
+    const replacement = mockedRenderer.mock.results.at(-1)!.value as ReturnType<
+      typeof createMockRenderer
+    >;
     expect(replacement).not.toBe(first);
     expect(first.dispose).toHaveBeenCalled();
     expect(replacement.setColorScheme).toHaveBeenCalledWith("light", "#ffffff");

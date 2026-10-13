@@ -35,7 +35,7 @@ function setup(cameraType: "2D" | "3D" = "3D") {
     cameraType === "2D"
       ? new THREE.OrthographicCamera(-20, 20, 15, -15, 0.1, 100)
       : new THREE.PerspectiveCamera(60, 4 / 3, 0.1, 100);
-  camera.position.set(...(cameraType === "2D" ? [0, 0, 15] : [6, -8, 15]));
+  camera.position.set(cameraType === "2D" ? 0 : 6, cameraType === "2D" ? 0 : -8, 15);
   camera.up.set(0, 1, 0);
   camera.lookAt(0, 0, 0);
   camera.updateMatrixWorld(true);
@@ -70,7 +70,7 @@ function setup(cameraType: "2D" | "3D" = "3D") {
       "robot",
       "world",
       time,
-      new Transform(position.toArray(), quaternion.toArray()),
+      new Transform([position.x, position.y, position.z], [quaternion.x, quaternion.y, quaternion.z, quaternion.w]),
     );
     renderer.currentTime = time;
   }

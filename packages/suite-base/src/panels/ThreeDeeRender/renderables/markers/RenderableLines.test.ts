@@ -8,6 +8,8 @@
 import * as THREE from "three";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 
+import { ObjectPool } from "@lichtblick/den/collection";
+
 import { RenderableLineList } from "./RenderableLineList";
 import {
   RenderableLineStrip,
@@ -18,8 +20,8 @@ import { RenderableMarker } from "./RenderableMarker";
 import { DynamicLineGeometry } from "../../DynamicLineGeometry";
 import type { IRenderer } from "../../IRenderer";
 import { Marker, MarkerType } from "../../ros";
+import { Transform, TransformTree } from "../../transforms";
 import { TopicMarkers, MarkersNamespace, type LayerSettingsMarker } from "../TopicMarkers";
-import { TransformTree } from "../../transforms";
 
 type TestRenderer = Omit<IRenderer, "config"> & {
   config: Omit<IRenderer["config"], "topics"> & {
@@ -65,22 +67,35 @@ function geometryData(geometry: DynamicLineGeometry, name: string): THREE.Interl
 describe("trajectory sampling point visibility", () => {
   it("hides sampling spheres while keeping the line and restores them without changing messages", () => {
     const renderer = makeRenderer();
-    const tree = new TransformTree();
+    const tree = new TransformTree(new ObjectPool(Transform.Empty));
     tree.getOrCreateFrame("map");
     Object.assign(renderer, {
       transformTree: tree,
-      settings: { errors: { removeFromTopic: jest.fn(), addToTopic: jest.fn(), clearTopic: jest.fn() } },
+      settings: {
+        errors: { removeFromTopic: jest.fn(), addToTopic: jest.fn(), clearTopic: jest.fn() },
+      },
     });
-    const settings = { visible: true, showPoints: false, namespaces: {}, color: undefined,
-      showOutlines: false, selectedIdVariable: undefined };
+    const settings = {
+      visible: true,
+      showPoints: false,
+      namespaces: {},
+      color: undefined,
+      showOutlines: false,
+      selectedIdVariable: undefined,
+    };
     const line = makeMarker(MarkerType.LINE_STRIP, 4);
     const points = makeMarker(MarkerType.SPHERE_LIST, 4);
     points.id = 2;
     const lineRenderable = new RenderableMarker("/prediction", line, 1n, renderer);
     const pointsRenderable = new RenderableMarker("/prediction", points, 1n, renderer);
     const topic = new TopicMarkers("/prediction", renderer, {
-      topic: "/prediction", receiveTime: 1n, messageTime: 1n, frameId: "map", pose: line.pose,
-      settingsPath: ["topics", "/prediction"], settings,
+      topic: "/prediction",
+      receiveTime: 1n,
+      messageTime: 1n,
+      frameId: "map",
+      pose: line.pose,
+      settingsPath: ["topics", "/prediction"],
+      settings,
     });
     const ns = new MarkersNamespace("/prediction", line.ns, renderer);
     ns.markersById.set(1, lineRenderable);

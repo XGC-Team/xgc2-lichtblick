@@ -133,7 +133,7 @@ it.each([
   window.history.replaceState(
     {},
     "",
-    `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(["experiment-a", "viewer"]))}`,
+    `/?xgc2Embed=1&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(["experiment-a", "viewer"])!)}`,
   );
   const pending = deferred<ReturnType<typeof asset>>();
   const { extension, renderer, modelCache } = setup(pending.promise, {

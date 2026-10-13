@@ -331,9 +331,9 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
       { bytes: [8] },
     ]);
     // A silent producer's layer is not cleared yet...
-    expect(
-      collectMessages(states).filter((message) => message.topic === "/markers"),
-    ).toHaveLength(0);
+    expect(collectMessages(states).filter((message) => message.topic === "/markers")).toHaveLength(
+      0,
+    );
     // ...but its missed deletions cannot linger either: the fallback timer
     // clears the layer without waiting for a publish.
     jest.advanceTimersByTime(RESUME_SCENE_CLEAR_FALLBACK_MS);
@@ -414,7 +414,7 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
       send(
         client,
         subIdByChannel.get(TF_CHANNEL)!,
-        new Uint8Array(Buffer.from(JSON.stringify({ transforms: batch }))),
+        new Uint8Array(Buffer.from(JSON.stringify({ transforms: batch })!)),
       );
     }
     reporter.setVisible(true);

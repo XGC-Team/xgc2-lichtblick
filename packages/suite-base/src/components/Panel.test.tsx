@@ -26,6 +26,15 @@ import { PanelsActions } from "@lichtblick/suite-base/context/CurrentLayoutConte
 import PanelSetup from "@lichtblick/suite-base/stories/PanelSetup";
 import { BasicBuilder } from "@lichtblick/test-builders";
 
+// These component tests start with an empty, already loaded document store.
+// Persistence bootstrap and commit behavior have their own contract tests.
+jest.mock("@lichtblick/suite-base/services/persistence/ManagedPersistence", () => ({
+  getManagedDocumentStore: () => ({
+    get: () => undefined,
+    commit: jest.fn(async () => undefined),
+  }),
+}));
+
 type DummyConfig = { someString: string };
 // eslint-disable-next-line react/no-unused-prop-types
 type DummyProps = { config: DummyConfig; saveConfig: (arg0: Partial<DummyConfig>) => void };

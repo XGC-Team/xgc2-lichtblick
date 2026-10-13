@@ -40,6 +40,9 @@ function handler(): Handler {
 function client(requestFn: ManagedDomainClient["request"]): ManagedDomainClient {
   return {
     request: requestFn,
+    scope: { namespace: "lichtblick", user: "test", workspace: "test" },
+    viewScope: undefined,
+    requestView: jest.fn(),
     ready: Promise.resolve(),
     publish: jest.fn(),
     load: jest.fn(),

@@ -3,10 +3,9 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
+import { act, render, waitFor } from "@testing-library/react";
 import { readFileSync } from "fs";
 import path from "path";
-
-import { act, render, waitFor } from "@testing-library/react";
 import { useMedia } from "react-use";
 
 import { useAppConfigurationValue } from "@lichtblick/suite-base/hooks";
@@ -127,12 +126,12 @@ describe("embedded pending startup surface", () => {
   );
 
   it("makes pending html and body transparent without changing the standalone startup colors", () => {
-    expect(pendingRule).toContain("html[data-xgc2-embed=\"pending\"],");
+    expect(pendingRule).toContain('html[data-xgc2-embed="pending"],');
     expect(pendingRule).toContain('html[data-xgc2-embed="pending"] body');
     expect(pendingRule).toContain("background-color: transparent;");
     expect(source).toContain("@media (prefers-color-scheme: dark)");
     expect(source).toContain("background-color: ${palette.light.background?.default};");
-    expect(source).toContain("background-color: ${palette.dark.background?.default}};");
+    expect(source).toContain("background-color: ${palette.dark.background?.default};");
     const outsidePending = source.slice(0, source.indexOf('html[data-xgc2-embed="pending"]'));
     expect(outsidePending).not.toContain("html, body");
   });
