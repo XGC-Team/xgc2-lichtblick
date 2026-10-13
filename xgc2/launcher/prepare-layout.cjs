@@ -414,12 +414,9 @@ function prepareLayout(input) {
     }
     return settings;
   };
-  const physicalPixels = ["/usb_cam/video_h264", "/usb_cam/image_raw/compressed"].includes(
-    p.cameraImageTopic,
-  );
-  const obstacleProjection =
-    Boolean(p.sceneNamespace) && (p.runMode !== "simulation" || physicalPixels);
-  const simulatedProjection = p.runMode === "simulation" && physicalPixels;
+  // AR depicts the simulated roster independently of camera topic names.
+  const obstacleProjection = Boolean(p.sceneNamespace);
+  const simulatedProjection = p.runMode === "simulation";
   const label = () => ({
     visible: true,
     showOutlines: false,
@@ -816,6 +813,11 @@ function prepareLayout(input) {
         : p.runMode === "hybrid"
           ? robots.filter((r) => source(r) === "simulation")
           : [],
+      {
+        scout_mini: p.scoutModelScale,
+        px4_multirotor: p.px4ModelScale,
+        mecanum_ugv: p.mecanumModelScale,
+      },
     );
     if (Object.keys(imageLayers).length) {
       image.layers = imageLayers;

@@ -69,6 +69,40 @@ test("robot models consume latched descriptions for every robot kind and view", 
   assert.ok(kinds.has("px4_multirotor") && kinds.has("scout_mini") && kinds.has("mecanum_ugv"));
 });
 
+test("camera AR renders the simulated roster independently of camera topic names", () => {
+  const input = structuredClone(
+    fixtures.find((f) => f.name === "replay-pixels").input,
+  );
+  input.camera = {
+    imageTopic: "/xgc/camera/world/video_h264",
+    infoTopic: "/xgc/camera/world/camera_info",
+  };
+  input.parameters.mecanumModelScale = 1.5;
+  for (const runMode of ["simulation", "hybrid", "physical"]) {
+    input.runMode = runMode;
+    const ar = prepareLayout(mapViewInput(input)).layout.configById[
+      "Image!xgc2-camera-ar"
+    ];
+    const expected = input.robots.filter(
+      (r) =>
+        runMode === "simulation" ||
+        (runMode === "hybrid" && r.binding.hybridSource === "simulation"),
+    );
+    const layers = Object.values(ar.layers ?? {});
+    assert.equal(layers.length, expected.length, runMode);
+    for (const robot of expected) {
+      const layer = layers.find(
+        (value) =>
+          value.topic === `${robot.namespace}/visual_robot_description`,
+      );
+      assert.ok(layer, robot.namespace);
+      if (robot.kind === "mecanum_ugv") {
+        assert.equal(layer.scale, 1.5);
+      }
+    }
+  }
+});
+
 test("RobotFact maps binding and asset fields and derives the slot name from its namespace", () => {
   const fact = structuredClone(fixtures[0].input.robots[0]);
   fact.binding.scout = { lidarSimulationEnabled: false, imageSimulationEnabled: true };
