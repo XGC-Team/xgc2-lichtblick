@@ -70,9 +70,7 @@ test("robot models consume latched descriptions for every robot kind and view", 
 });
 
 test("camera AR renders the simulated roster independently of camera topic names", () => {
-  const input = structuredClone(
-    fixtures.find((f) => f.name === "replay-pixels").input,
-  );
+  const input = structuredClone(fixtures.find((f) => f.name === "replay-pixels").input);
   input.camera = {
     imageTopic: "/xgc/camera/world/video_h264",
     infoTopic: "/xgc/camera/world/camera_info",
@@ -80,9 +78,7 @@ test("camera AR renders the simulated roster independently of camera topic names
   input.parameters.mecanumModelScale = 1.5;
   for (const runMode of ["simulation", "hybrid", "physical"]) {
     input.runMode = runMode;
-    const ar = prepareLayout(mapViewInput(input)).layout.configById[
-      "Image!xgc2-camera-ar"
-    ];
+    const ar = prepareLayout(mapViewInput(input)).layout.configById["Image!xgc2-camera-ar"];
     const expected = input.robots.filter(
       (r) =>
         runMode === "simulation" ||
@@ -92,8 +88,7 @@ test("camera AR renders the simulated roster independently of camera topic names
     assert.equal(layers.length, expected.length, runMode);
     for (const robot of expected) {
       const layer = layers.find(
-        (value) =>
-          value.topic === `${robot.namespace}/visual_robot_description`,
+        (value) => value.topic === `${robot.namespace}/visual_robot_description`,
       );
       assert.ok(layer, robot.namespace);
       if (robot.kind === "mecanum_ugv") {
