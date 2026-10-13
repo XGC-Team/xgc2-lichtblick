@@ -172,7 +172,7 @@ test("history parameters keep the author path style and record the send ceiling"
   assert.equal(base.parameters.historyVisible, true);
   assert.equal(base.parameters.historyShowPoseAxes, false);
   assert.deepEqual(base.layout.configById["3D!xgc2"].topics["/uav1/path"], {
-    visible: true, type: "line", lineWidth: 0.08, gradient: ["#f2003c80", "#f2003cff"],
+    visible: true, type: "line", lineWidth: 0.04, gradient: ["#f2003c80", "#f2003cff"],
   });
   input.parameters = { historyLineWidth: 0.12 };
   const adjusted = prepareLayout(mapViewInput(input));
@@ -262,7 +262,7 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
     visible: true, color: `${palette[2]}ff`, lineWidth: 0.04, showPoints: false, showOutlines: false,
   });
   assert.deepEqual(topics["/xgc/display/drone_2/native_markers"], {
-    visible: true, color: `${palette[2]}ee`, lineWidth: 0.08, showPoints: false, showOutlines: false,
+    visible: true, color: `${palette[2]}ee`, lineWidth: 0.04, showPoints: false, showOutlines: false,
   });
   assert.deepEqual(topics["/drone_2/controls"], { visible: true });
   assert.deepEqual(topics["/drone_2/grid_occ"], { visible: true });
