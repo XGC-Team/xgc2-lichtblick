@@ -14,6 +14,7 @@ import {
 import useCallbackWithToast from "@lichtblick/suite-base/hooks/useCallbackWithToast";
 import { useLayoutNavigation } from "@lichtblick/suite-base/hooks/useLayoutNavigation";
 import { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
+import { isLayoutEqual } from "@lichtblick/suite-base/services/LayoutManager/utils/isLayoutEqual";
 import { validateManagedLayoutData } from "@lichtblick/suite-base/services/persistence/validateManagedLayout";
 import { Namespace } from "@lichtblick/suite-base/types";
 import { downloadTextFile } from "@lichtblick/suite-base/util/download";
@@ -85,6 +86,14 @@ export function useLayoutTransfer(): UseLayoutTransfer {
           ? mergeManagedLayoutFromUrl(parsedState, parked, options.xgc2LayoutScope)
           : sanitizeImportedLayoutData(parsedState, parked)
       ) as LayoutData;
+      if (options?.managedAuthority === true) {
+        const current = getCurrentLayoutState().selectedLayout;
+        if (current?.data && isLayoutEqual(current.data, data)) {
+          // The managed document is already active. Re-importing it would switch
+          // layout identity and unmount every panel for no visible change.
+          return undefined;
+        }
+      }
       const newLayout = await layoutManager.saveNewLayout({
         name: layoutName,
         data,

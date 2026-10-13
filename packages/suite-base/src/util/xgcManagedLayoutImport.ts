@@ -32,6 +32,18 @@ export function layoutHasXgc2Scope(data: LayoutData | undefined, scope: Xgc2Layo
   );
 }
 
+/** Display name shared by every managed import of the same layoutUrl document. */
+export function layoutNameFromLayoutUrl(layoutUrl: string): string {
+  try {
+    const rawFilename = new URL(layoutUrl).pathname.split("/").pop();
+    const filename = rawFilename != undefined && rawFilename !== "" ? rawFilename : "layout.json";
+    const dotIndex = filename.lastIndexOf(".");
+    return dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
+  } catch {
+    return "layout";
+  }
+}
+
 function declaredRobotFrame(config: Record<string, unknown>, frameId: unknown): frameId is string {
   return (
     typeof frameId === "string" &&

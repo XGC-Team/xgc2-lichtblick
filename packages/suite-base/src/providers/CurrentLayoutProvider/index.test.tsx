@@ -645,6 +645,139 @@ describe("CurrentLayoutProvider", () => {
     });
   });
 
+  describe("Managed layoutUrl seed", () => {
+    afterEach(() => {
+      window.history.replaceState(null, "", "/");
+    });
+
+    it("seeds the injected default layout instead of restoring a stored layout", async () => {
+      // Given a managed embed URL with layoutUrl and an Experiment layout scope
+      const scope = JSON.stringify(["exp-1", "lichtblick"]);
+      window.history.replaceState(
+        null,
+        "",
+        `/?layoutUrl=${encodeURIComponent("http://core.example/layout.json")}&xgc2LayoutScope=${encodeURIComponent(scope)}`,
+      );
+      const manager = makeMockLayoutManager();
+      const seededLayout = {
+        id: "seeded",
+        name: "layout",
+        permission: "CREATOR_WRITE",
+        baseline: { data: TEST_LAYOUT, savedAt: undefined },
+        working: undefined,
+        syncInfo: undefined,
+      };
+      manager.getLayouts.mockResolvedValue([]);
+      manager.saveNewLayout.mockResolvedValue(seededLayout);
+      manager.getLayout.mockResolvedValue(seededLayout);
+      const profile = makeMockUserProfile();
+      profile.setUserProfile.mockResolvedValue(undefined);
+
+      // When the provider mounts
+      const { result } = renderTest({ mockLayoutManager: manager, mockUserProfile: profile });
+      await act(async () => {
+        await result.current.childMounted;
+      });
+      await waitFor(() => {
+        expect(result.current.layoutState.selectedLayout?.id).toBe("seeded");
+      });
+
+      // Then the injected default layout is seeded with the scope identity, and no
+      // stored layout or profile selection is restored first
+      expect(manager.saveNewLayout).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "layout",
+          permission: "CREATOR_WRITE",
+          activate: true,
+          data: expect.objectContaining({
+            metadata: { xgc2LayoutScope: ["exp-1", "lichtblick"] },
+          }),
+        }),
+      );
+      expect(profile.getUserProfile).not.toHaveBeenCalled();
+    });
+
+    it("reuses the stored scoped layout instead of seeding a new one", async () => {
+      // Given a managed embed URL and a stored layout carrying the same scope
+      const scope = JSON.stringify(["exp-1", "lichtblick"]);
+      window.history.replaceState(
+        null,
+        "",
+        `/?layoutUrl=${encodeURIComponent("http://core.example/layout.json")}&xgc2LayoutScope=${encodeURIComponent(scope)}`,
+      );
+      const manager = makeMockLayoutManager();
+      const scopedLayout = {
+        id: "scoped",
+        name: "layout",
+        permission: "CREATOR_WRITE",
+        baseline: {
+          data: { ...TEST_LAYOUT, metadata: { xgc2LayoutScope: ["exp-1", "lichtblick"] } },
+          savedAt: "2026-10-13T00:00:00.000Z",
+        },
+        working: undefined,
+        syncInfo: undefined,
+      };
+      const otherLayout = {
+        id: "other",
+        name: "other",
+        permission: "CREATOR_WRITE",
+        baseline: { data: TEST_LAYOUT, savedAt: undefined },
+        working: undefined,
+        syncInfo: undefined,
+      };
+      manager.getLayouts.mockResolvedValue([otherLayout, scopedLayout]);
+      manager.getLayout.mockResolvedValue(scopedLayout);
+      const profile = makeMockUserProfile();
+      profile.setUserProfile.mockResolvedValue(undefined);
+
+      // When the provider mounts
+      const { result } = renderTest({ mockLayoutManager: manager, mockUserProfile: profile });
+      await act(async () => {
+        await result.current.childMounted;
+      });
+      await waitFor(() => {
+        expect(result.current.layoutState.selectedLayout?.id).toBe("scoped");
+      });
+
+      // Then no new layout is seeded
+      expect(manager.saveNewLayout).not.toHaveBeenCalled();
+    });
+
+    it("falls back to profile restore when the scope parameter is absent", async () => {
+      // Given a layoutUrl without the managed scope parameter
+      window.history.replaceState(
+        null,
+        "",
+        `/?layoutUrl=${encodeURIComponent("http://core.example/layout.json")}`,
+      );
+      const manager = makeMockLayoutManager();
+      const stored = {
+        id: "stored",
+        name: "stored",
+        permission: "CREATOR_WRITE",
+        baseline: { data: TEST_LAYOUT, savedAt: undefined },
+        working: undefined,
+        syncInfo: undefined,
+      };
+      manager.getLayouts.mockResolvedValue([stored]);
+      manager.getLayout.mockResolvedValue(stored);
+      const profile = makeMockUserProfile();
+      profile.getUserProfile.mockResolvedValue({ currentLayoutId: "stored" });
+
+      // When the provider mounts
+      const { result } = renderTest({ mockLayoutManager: manager, mockUserProfile: profile });
+      await act(async () => {
+        await result.current.childMounted;
+      });
+      await waitFor(() => {
+        expect(result.current.layoutState.selectedLayout?.id).toBe("stored");
+      });
+
+      // Then the managed seed path is skipped
+      expect(manager.saveNewLayout).not.toHaveBeenCalled();
+    });
+  });
+
   describe("Fallback Default layout creation", () => {
     it("creates a personal Default layout when no layouts exist", async () => {
       // Given a layout manager with no existing layouts and a user profile without a selection

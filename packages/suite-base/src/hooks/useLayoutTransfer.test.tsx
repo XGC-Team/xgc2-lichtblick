@@ -159,7 +159,6 @@ describe("useLayoutTransfer", () => {
         xgc2LayoutScope: scope,
       });
     });
-    expect(getCurrentLayoutStateMock).not.toHaveBeenCalled();
     expect(saveNewLayoutMock).toHaveBeenCalledWith({
       name: "layout",
       permission: "CREATOR_WRITE",
@@ -170,6 +169,43 @@ describe("useLayoutTransfer", () => {
     expect(onSelectLayoutMock).toHaveBeenCalledWith(
       expect.objectContaining({ id: "scoped", name: "layout" }),
     );
+  });
+
+  it("skips the import when the managed document is already active", async () => {
+    // Given the active layout already matches the managed document for the scope
+    const scope = ["experiment-a", "viewer"] as const;
+    const core = {
+      configById: {
+        "3D!xgc2": {
+          followMode: "follow-none",
+          followTf: "world",
+          cameraState: { distance: 12 },
+        },
+      },
+      layout: "3D!xgc2",
+    };
+    getCurrentLayoutStateMock.mockReturnValue({
+      selectedLayout: { data: { ...core, metadata: { xgc2LayoutScope: scope } } },
+    });
+    const content = JSON.stringify(core)!;
+    const file = new File([content], "layout.json", { type: "application/json" });
+    file.text = async () => content;
+
+    // When the same document arrives via layoutUrl again
+    const { result } = renderHook(() => useLayoutTransfer());
+    let installed: unknown;
+    await act(async () => {
+      installed = await result.current.parseAndInstallLayout(file, "local", {
+        managedAuthority: true,
+        xgc2LayoutScope: scope,
+        previousScopedLayout: { ...core, metadata: { xgc2LayoutScope: scope } },
+      });
+    });
+
+    // Then nothing is saved or selected, so panels keep running undisturbed
+    expect(installed).toBeUndefined();
+    expect(saveNewLayoutMock).not.toHaveBeenCalled();
+    expect(onSelectLayoutMock).not.toHaveBeenCalled();
   });
 
   it("restores managed followTf from the current layout while keeping imported camera state", async () => {

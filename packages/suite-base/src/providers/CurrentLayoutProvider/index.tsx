@@ -56,8 +56,14 @@ import { isLayoutEqual } from "@lichtblick/suite-base/services/LayoutManager/uti
 import { PanelConfig, PlaybackConfig, UserScripts } from "@lichtblick/suite-base/types/panels";
 import { windowAppURLState } from "@lichtblick/suite-base/util/appURLState";
 import { getPanelTypeFromId } from "@lichtblick/suite-base/util/layout";
+import {
+  layoutHasXgc2Scope,
+  layoutNameFromLayoutUrl,
+  parseXgc2LayoutScope,
+} from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
 import { IncompatibleLayoutVersionAlert } from "./IncompatibleLayoutVersionAlert";
+import { defaultLayout as staticDefaultLayout } from "./defaultLayout";
 
 /**
  * Concrete implementation of CurrentLayoutContext.Provider which handles
@@ -299,6 +305,49 @@ export default function CurrentLayoutProvider({
   useAsync(async () => {
     // Don't restore the layout if there's one specified in the app state url.
     if (windowAppURLState()?.layoutId) {
+      return;
+    }
+
+    // XGC2 managed embed: the launcher injects the Experiment wiring as the static
+    // default layout and serves the same document again via layoutUrl. Seed the
+    // injected layout immediately so the viewer never activates an unrelated stored
+    // layout first — switching layouts a moment later would unmount every panel
+    // (blank 3D viewport) while the managed import lands. A previously seeded or
+    // imported layout for the same scope is reused so its parked view survives and
+    // storage does not accumulate one layout per Run.
+    const layoutUrl = windowAppURLState()?.layoutUrl;
+    const managedScope = parseXgc2LayoutScope(
+      new URLSearchParams(window.location.search).get("xgc2LayoutScope"),
+    );
+    if (layoutUrl != undefined && layoutUrl !== "" && managedScope) {
+      const layouts = await layoutManager.getLayouts();
+      const scoped = layouts
+        .filter((layout) =>
+          layoutHasXgc2Scope(layout.working?.data ?? layout.baseline.data, managedScope),
+        )
+        .sort((first, second) =>
+          (second.working?.savedAt ?? second.baseline.savedAt ?? "").localeCompare(
+            first.working?.savedAt ?? first.baseline.savedAt ?? "",
+          ),
+        );
+      const reusable = scoped[0];
+      if (reusable) {
+        await setSelectedLayoutId(reusable.id);
+        return;
+      }
+      const seeded = await layoutManager.saveNewLayout({
+        name: layoutNameFromLayoutUrl(layoutUrl),
+        data: {
+          ...staticDefaultLayout,
+          metadata: {
+            ...staticDefaultLayout.metadata,
+            xgc2LayoutScope: [...managedScope],
+          },
+        },
+        permission: "CREATOR_WRITE",
+        activate: true,
+      });
+      await setSelectedLayoutId(seeded.id);
       return;
     }
 

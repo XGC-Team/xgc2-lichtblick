@@ -101,6 +101,7 @@ import useBroadcast from "@lichtblick/suite-base/util/broadcast/useBroadcast";
 import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
 import {
   layoutHasXgc2Scope,
+  layoutNameFromLayoutUrl,
   parseXgc2LayoutScope,
 } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
@@ -603,11 +604,8 @@ function WorkspaceContent(props: WorkspaceProps): React.JSX.Element {
         }
 
         // Derive filename from sanitized pathname (no credentials in name)
-        const rawFilename = parsedUrl.pathname.split("/").pop();
-        const filename =
-          rawFilename != undefined && rawFilename !== "" ? rawFilename : "layout.json";
-        const dotIndex = filename.lastIndexOf(".");
-        const layoutName = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
+        const layoutName = layoutNameFromLayoutUrl(layoutUrl);
+        const filename = `${layoutName}.json`;
 
         // Scoped layouts share the display name; their stable identity stays in internal metadata.
         const existingLayouts = await layoutManager.getLayouts();
