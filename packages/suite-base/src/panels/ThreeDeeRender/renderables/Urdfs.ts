@@ -301,22 +301,6 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   #urdfsByTopic = new Map<string, string>();
   #pendingLoads = new Set<Promise<void>>();
 
-  public override isPresentationReady(): boolean {
-    for (const [id, layer] of Object.entries(this.renderer.config.layers)) {
-      if (!id.startsWith(MANAGED_URDF_LAYER_PREFIX) || layer?.visible === false) {
-        continue;
-      }
-      const root = this.#rootFramesByInstanceId.get(id);
-      if (!root || this.#pendingLoads.size > 0) {
-        return false;
-      }
-      const frame = this.renderer.transformTree.frame(root);
-      if (!frame || frame.root().id !== this.renderer.fixedFrameId) {
-        return false;
-      }
-    }
-    return true;
-  }
   /** The currently selected robot, if any; its static links render per-link. */
   #selectedUrdf: UrdfRenderable | undefined;
   /**

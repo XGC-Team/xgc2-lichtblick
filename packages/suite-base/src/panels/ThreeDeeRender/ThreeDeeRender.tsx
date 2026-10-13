@@ -775,25 +775,16 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   // only pauses drawing; it does not hide or unmount the canvas. Standalone stays visible.
   useLayoutEffect(() => {
     if (!renderer || !effectiveColorScheme) {
-      return undefined;
+      return;
     }
     renderer.setColorScheme(effectiveColorScheme, backgroundColor);
     if (embedded) {
-      // Present the authored robot set together after model parsing and TF delivery.
-      const present = () => {
-        if (Array.from(renderer.sceneExtensions.values()).every((ext) => ext.isPresentationReady())) {
-          setPaintedRenderer(renderer);
-          renderer.removeListener("endFrame", present);
-        }
-      };
-      renderer.addListener("endFrame", present);
+      // Show the themed base scene immediately; robot models and data arrive independently.
       renderer.animationFrame();
-      present();
-      return () => { renderer.removeListener("endFrame", present); };
+      setPaintedRenderer(renderer);
     } else {
       renderRef.current.needsRender = true;
     }
-    return undefined;
   }, [backgroundColor, effectiveColorScheme, embedded, renderer]);
 
   // Keep the passive repaint cap in sync with the config (layout load, scene reset)

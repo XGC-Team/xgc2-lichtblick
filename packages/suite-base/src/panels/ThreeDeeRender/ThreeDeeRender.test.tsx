@@ -321,7 +321,7 @@ describe("ThreeDeeRender", () => {
     mockedRenderer.mockImplementationOnce(
       () =>
         createMockRenderer({
-          sceneExtensions: new Map([["foxglove.Urdfs", { robotFollowFrames, isPresentationReady: () => true }]]),
+          sceneExtensions: new Map([["foxglove.Urdfs", { robotFollowFrames }]]),
         }) as unknown as Renderer,
     );
     const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
@@ -809,16 +809,7 @@ describe("ThreeDeeRender", () => {
     expect(renderer.config.scene.backgroundColor).toBeUndefined();
   });
 
-  it("waits for the authored robot cohort before exposing the first embedded frame", () => {
-    let ready = false;
-    mockedRenderer.mockImplementationOnce(
-      () =>
-        createMockRenderer({
-          sceneExtensions: new Map([
-            ["foxglove.Urdfs", { isPresentationReady: () => ready }],
-          ]),
-        }) as unknown as Renderer,
-    );
+  it("shows the themed base scene before robot messages arrive", () => {
     let controls!: ReturnType<typeof useEmbeddedWorkspaceControls>;
     const view = render(
       <EmbeddedWorkspaceControlsProvider embedded>
@@ -833,20 +824,8 @@ describe("ThreeDeeRender", () => {
         backgroundColor: "#ffffff",
       });
     });
-    expect(view.container.querySelector("canvas")).toHaveStyle({
-      visibility: "hidden",
-    });
-    act(() => {
-      ready = true;
-      renderer.emit("endFrame");
-    });
-    expect(view.container.querySelector("canvas")).toHaveStyle({
-      visibility: "visible",
-    });
-    act(() => {
-      ready = false;
-      renderer.emit("endFrame");
-    });
+    expect(renderer.addMessageEvent).not.toHaveBeenCalled();
+    expect(renderer.animationFrame).toHaveBeenCalled();
     expect(view.container.querySelector("canvas")).toHaveStyle({
       visibility: "visible",
     });

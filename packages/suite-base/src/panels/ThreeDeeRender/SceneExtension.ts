@@ -98,11 +98,6 @@ export class SceneExtension<
     return [];
   }
 
-  /** Whether the first authored scene can be presented, without partial assets. */
-  public isPresentationReady(): boolean {
-    return true;
-  }
-
   /**
    * Called when seeking or a new data source is loaded. The base class implementation removes all
    * `renderables` and calls `updateSettingsTree()`.
