@@ -226,6 +226,7 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
     declared("/drone_2/poses", "geometry_msgs/PoseArray", "prediction", { robotNamespace: "/uav3", paletteAlpha: "ee" }),
     declared("/drone_2/poses_plain", "geometry_msgs/PoseArray", "prediction", { robotNamespace: "/uav3", showPoseAxes: false }),
     declared("/drone_2/markers", "visualization_msgs/Marker", "prediction", { robotNamespace: "/uav3", showPoseAxes: true, lineWidth: 0.04 }),
+    declared("/drone_2/native_markers", "visualization_msgs/MarkerArray", "prediction", { robotNamespace: "/uav3", paletteAlpha: "ee" }),
     declared("/drone_2/controls", "visualization_msgs/Marker", "semantic", { robotNamespace: "/uav3", showPoseAxes: true }),
     declared("/drone_2/grid_occ", "nav_msgs/OccupancyGrid", "obstacle", { robotNamespace: "/uav3" }),
     declared("/ugv1/scan", "sensor_msgs/PointCloud2", "obstacle", { robotNamespace: "/ugv1", paletteAlpha: "ff" }),
@@ -247,15 +248,18 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
   assert.equal(topics["/drone_2/plan"], undefined);
   assert.deepEqual(topics["/xgc/display/drone_2/plan"], {
     visible: true, type: "line-axes", lineWidth: 0.07, axisScale: 0.15,
-    gradient: ["#aaaa0080", "#aaaa00ee"],
+    gradient: ["#ffbf00ff", "#ffbf0040"],
   });
   assert.deepEqual(topics["/xgc/display/drone_2/poses"], {
-    visible: true, type: "arrow", gradient: ["#aaaa0080", "#aaaa00ee"],
+    visible: true, type: "arrow", gradient: ["#ffbf00ff", "#ffbf0040"],
   });
   assert.equal(topics["/xgc/display/drone_2/poses_plain"].type, "line");
   assert.equal(topics["/drone_2/markers"], undefined);
   assert.deepEqual(topics["/xgc/display/drone_2/markers"], {
-    visible: true, color: "#aaaa00ff", lineWidth: 0.04, showPoints: false, showOutlines: false,
+    visible: true, color: "#ffbf00ff", lineWidth: 0.04, showPoints: false, showOutlines: false,
+  });
+  assert.deepEqual(topics["/xgc/display/drone_2/native_markers"], {
+    visible: true, color: "#ffbf00ff", lineWidth: 0.01, showPoints: false, showOutlines: false,
   });
   assert.deepEqual(topics["/drone_2/controls"], { visible: true });
   assert.deepEqual(topics["/drone_2/grid_occ"], { visible: true });

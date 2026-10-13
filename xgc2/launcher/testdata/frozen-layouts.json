@@ -483,6 +483,10 @@
               "visible": false,
               "showOutlines": false
             },
+            "/uav1/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
+            },
             "/uav1/path": {
               "visible": true,
               "type": "line",
@@ -534,7 +538,9 @@
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
               "showPoints": false,
-              "showOutlines": false
+              "showOutlines": false,
+              "lineWidth": 0.01,
+              "color": "#ffbf00ff"
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
@@ -549,10 +555,6 @@
             },
             "/algorithm/tf": {
               "visible": true
-            },
-            "/uav1/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
             }
           },
           "followMode": "follow-none",
@@ -603,11 +605,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav1/visual_robot_description",
               "framePrefix": "xgc/robots/uav1/",
               "displayMode": "visual",
               "order": 2,
-              "scale": 2,
-              "topic": "/uav1/visual_robot_description"
+              "scale": 2
             },
             "xgc2-grid": {
               "visible": true,
@@ -615,6 +617,7 @@
               "label": "Grid",
               "instanceId": "xgc2-grid",
               "layerId": "foxglove.Grid",
+              "frameId": "world",
               "size": 30,
               "divisions": 30,
               "lineWidth": 1,
@@ -629,8 +632,7 @@
                 0,
                 0
               ],
-              "order": 1,
-              "frameId": "world"
+              "order": 1
             }
           }
         },
@@ -693,7 +695,9 @@
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
               "showPoints": false,
-              "showOutlines": false
+              "showOutlines": false,
+              "lineWidth": 0.01,
+              "color": "#ffbf00ff"
             },
             "/robot_0/graph": {
               "visible": true
@@ -753,7 +757,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "618a10a68bb1fb5725d0bdedd3b6ae3abea04d20c569d3a58e0cadd8de4e9e2d"
+    "layoutSha256": "43a1db7d1a626d5477388f9f054836b232a9043585d9d3f490c676313e3b3b42"
   },
   {
     "input": {
@@ -3841,6 +3845,10 @@
               "visible": false,
               "showOutlines": false
             },
+            "/uav1/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
+            },
             "/uav1/path": {
               "visible": true,
               "type": "line",
@@ -3849,6 +3857,10 @@
                 "#f2003c80",
                 "#f2003cff"
               ]
+            },
+            "/uav2/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
             },
             "/uav2/path": {
               "visible": true,
@@ -3859,6 +3871,10 @@
                 "#ff7043ff"
               ]
             },
+            "/uav3/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
+            },
             "/uav3/path": {
               "visible": true,
               "type": "line",
@@ -3867,6 +3883,10 @@
                 "#ab47bc80",
                 "#ab47bcff"
               ]
+            },
+            "/uav4/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
             },
             "/uav4/path": {
               "visible": true,
@@ -3877,6 +3897,10 @@
                 "#ec407aff"
               ]
             },
+            "/uav5/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
+            },
             "/uav5/path": {
               "visible": true,
               "type": "line",
@@ -3885,6 +3909,10 @@
                 "#7e57c280",
                 "#7e57c2ff"
               ]
+            },
+            "/uav6/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
             },
             "/uav6/path": {
               "visible": true,
@@ -3895,6 +3923,10 @@
                 "#ef5350ff"
               ]
             },
+            "/uav7/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
+            },
             "/uav7/path": {
               "visible": true,
               "type": "line",
@@ -3903,6 +3935,10 @@
                 "#ffa72680",
                 "#ffa726ff"
               ]
+            },
+            "/uav8/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
             },
             "/uav8/path": {
               "visible": true,
@@ -3913,6 +3949,10 @@
                 "#d4e157ff"
               ]
             },
+            "/uav9/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
+            },
             "/uav9/path": {
               "visible": true,
               "type": "line",
@@ -3921,6 +3961,10 @@
                 "#f2003c80",
                 "#f2003cff"
               ]
+            },
+            "/uav10/visual_robot_description": {
+              "visible": false,
+              "showOutlines": false
             },
             "/uav10/path": {
               "visible": true,
@@ -4053,7 +4097,9 @@
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
               "showPoints": false,
-              "showOutlines": false
+              "showOutlines": false,
+              "lineWidth": 0.01,
+              "color": "#ffbf00ff"
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
@@ -4068,46 +4114,6 @@
             },
             "/algorithm/tf": {
               "visible": true
-            },
-            "/uav1/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav2/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav3/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav4/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav5/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav6/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav7/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav8/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav9/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
-            },
-            "/uav10/visual_robot_description": {
-              "visible": false,
-              "showOutlines": false
             }
           },
           "followMode": "follow-none",
@@ -4158,11 +4164,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav1/visual_robot_description",
               "framePrefix": "xgc/robots/uav1/",
               "displayMode": "visual",
               "order": 2,
-              "scale": 2,
-              "topic": "/uav1/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav2": {
               "layerId": "foxglove.Urdf",
@@ -4171,11 +4177,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav2/visual_robot_description",
               "framePrefix": "xgc/robots/uav2/",
               "displayMode": "visual",
               "order": 3,
-              "scale": 2,
-              "topic": "/uav2/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav3": {
               "layerId": "foxglove.Urdf",
@@ -4184,11 +4190,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav3/visual_robot_description",
               "framePrefix": "xgc/robots/uav3/",
               "displayMode": "visual",
               "order": 4,
-              "scale": 2,
-              "topic": "/uav3/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav4": {
               "layerId": "foxglove.Urdf",
@@ -4197,11 +4203,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav4/visual_robot_description",
               "framePrefix": "xgc/robots/uav4/",
               "displayMode": "visual",
               "order": 5,
-              "scale": 2,
-              "topic": "/uav4/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav5": {
               "layerId": "foxglove.Urdf",
@@ -4210,11 +4216,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav5/visual_robot_description",
               "framePrefix": "xgc/robots/uav5/",
               "displayMode": "visual",
               "order": 6,
-              "scale": 2,
-              "topic": "/uav5/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav6": {
               "layerId": "foxglove.Urdf",
@@ -4223,11 +4229,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav6/visual_robot_description",
               "framePrefix": "xgc/robots/uav6/",
               "displayMode": "visual",
               "order": 7,
-              "scale": 2,
-              "topic": "/uav6/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav7": {
               "layerId": "foxglove.Urdf",
@@ -4236,11 +4242,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav7/visual_robot_description",
               "framePrefix": "xgc/robots/uav7/",
               "displayMode": "visual",
               "order": 8,
-              "scale": 2,
-              "topic": "/uav7/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav8": {
               "layerId": "foxglove.Urdf",
@@ -4249,11 +4255,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav8/visual_robot_description",
               "framePrefix": "xgc/robots/uav8/",
               "displayMode": "visual",
               "order": 9,
-              "scale": 2,
-              "topic": "/uav8/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav9": {
               "layerId": "foxglove.Urdf",
@@ -4262,11 +4268,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav9/visual_robot_description",
               "framePrefix": "xgc/robots/uav9/",
               "displayMode": "visual",
               "order": 10,
-              "scale": 2,
-              "topic": "/uav9/visual_robot_description"
+              "scale": 2
             },
             "xgc2-urdf-uav10": {
               "layerId": "foxglove.Urdf",
@@ -4275,11 +4281,11 @@
               "visible": true,
               "frameLocked": true,
               "sourceType": "topic",
+              "topic": "/uav10/visual_robot_description",
               "framePrefix": "xgc/robots/uav10/",
               "displayMode": "visual",
               "order": 11,
-              "scale": 2,
-              "topic": "/uav10/visual_robot_description"
+              "scale": 2
             },
             "xgc2-grid": {
               "visible": true,
@@ -4287,6 +4293,7 @@
               "label": "Grid",
               "instanceId": "xgc2-grid",
               "layerId": "foxglove.Grid",
+              "frameId": "world",
               "size": 30,
               "divisions": 30,
               "lineWidth": 1,
@@ -4301,8 +4308,7 @@
                 0,
                 0
               ],
-              "order": 1,
-              "frameId": "world"
+              "order": 1
             }
           }
         },
@@ -4446,7 +4452,9 @@
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
               "showPoints": false,
-              "showOutlines": false
+              "showOutlines": false,
+              "lineWidth": 0.01,
+              "color": "#ffbf00ff"
             },
             "/robot_0/graph": {
               "visible": true
@@ -4506,7 +4514,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "357d512f198ef3479988fe63c08ab3342737a22d95088a51c82708aed10ae707"
+    "layoutSha256": "92eeb77abae662ef1afccf363f3ba943218de0fd0fe0e0f91d609505fb8765a1"
   },
   {
     "input": {

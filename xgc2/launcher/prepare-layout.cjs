@@ -442,7 +442,7 @@ function prepareLayout(input) {
     const gradient = (fallback) =>
       t.color
         ? [t.color, t.color]
-        : tint
+        : tint && t.role !== "prediction"
           ? [tint + "80", tint + (alpha || "ff")]
           : fallback;
     if (t.messageType === "sensor_msgs/PointCloud2")
@@ -482,9 +482,11 @@ function prepareLayout(input) {
       if (t.role === "prediction") {
         s.showPoints = false;
         s.showOutlines = false;
-      }
-      if (t.color || (tint && (t.role === "prediction" || t.role === "obstacle" || alpha)))
+        s.lineWidth = p.predictionLineWidth;
+        s.color = t.color || "#ffbf00ff";
+      } else if (t.color || (tint && (t.role === "obstacle" || alpha))) {
         s.color = t.color || tint + (alpha || "ff");
+      }
     }
     for (const k of ["lineWidth", "markerScale"]) if (t[k] != null) s[k] = t[k];
     if (t.color) {
