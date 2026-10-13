@@ -174,8 +174,11 @@ test("history parameters keep the author path style and record the send ceiling"
   assert.deepEqual(base.layout.configById["3D!xgc2"].topics["/uav1/path"], {
     visible: true, type: "line", lineWidth: 0.08, gradient: ["#f2003c80", "#f2003cff"],
   });
+  input.parameters = { historyLineWidth: 0.12 };
+  const adjusted = prepareLayout(mapViewInput(input));
+  assert.equal(adjusted.layout.configById["3D!xgc2"].topics["/uav1/path"].lineWidth, 0.12);
   input.robots[0].derived.visualization.pathLineWidthMeters = 0.05;
-  input.parameters = { historyMaxRateHz: 5, historyShowPoseAxes: true };
+  input.parameters = { historyMaxRateHz: 5, historyShowPoseAxes: true, historyLineWidth: 0.12 };
   const shown = prepareLayout(mapViewInput(input));
   assert.equal(shown.parameters.historyMaxRateHz, 5);
   assert.deepEqual(shown.layout.configById["3D!xgc2"].topics["/uav1/path"], {

@@ -73,6 +73,7 @@ const VIEWER_DEFAULTS = Object.freeze({
   simpleLidarMaxMessageBytes: 0,
   frameWorldBoundary: false,
   historyMaxRateHz: 2,
+  historyLineWidth: 0.08,
   historyVisible: true,
   historyShowPoseAxes: false,
   predictionShowPoseAxes: true,
@@ -229,6 +230,7 @@ function prepareLayout(input) {
     ["px4ModelScale", 0.1, 20],
     ["mecanumModelScale", 0.1, 20],
     ["predictionLineWidth", 0.001, 1],
+    ["historyLineWidth", 0.001, 1],
     ["predictionAxisScale", 0.01, 10],
   ])
     assert(within(p[key], low, high), `invalid ${key}`);
@@ -373,7 +375,7 @@ function prepareLayout(input) {
     const settings = {
       visible: true,
       type: axes ? "line-axes" : "line",
-      lineWidth: robot.visualization.pathLineWidthMeters || 0.08,
+      lineWidth: robot.visualization.pathLineWidthMeters || p.historyLineWidth,
       gradient: [color + "80", color + "ff"],
     };
     if (axes) settings.axisScale = p.predictionAxisScale;
