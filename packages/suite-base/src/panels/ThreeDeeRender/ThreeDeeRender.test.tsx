@@ -439,9 +439,13 @@ describe("ThreeDeeRender", () => {
     act(() => {
       mockOverlayProps.onFollowRobot("robot1");
     });
+    renderer.setCameraState.mockClear();
     act(() => {
       mockOverlayProps.onTogglePerspective();
     });
+    // The getter already echoes the changed config. The real orthographic
+    // camera still needs this application before any wheel/drag interaction.
+    expect(renderer.setCameraState).toHaveBeenCalledWith({ ...cameraState, perspective: false });
     const selected = renderer.config;
     expect(selected).toMatchObject({
       followMode: "follow-position",

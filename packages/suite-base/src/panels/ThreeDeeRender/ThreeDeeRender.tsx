@@ -820,10 +820,11 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
 
   // Update the renderer when the camera moves
   useEffect(() => {
-    if (!_.isEqual(cameraState, renderer?.getCameraState())) {
-      renderer?.setCameraState(cameraState);
-      renderRef.current.needsRender = true;
-    }
+    // Settings update renderer.config before this effect runs. getCameraState()
+    // reads projection from that config, so equality does not prove the actual
+    // camera was initialized (especially on the first switch to orthographic).
+    renderer?.setCameraState(cameraState);
+    renderRef.current.needsRender = true;
   }, [cameraState, renderer]);
 
   // Sync camera with shared state, if enabled.
