@@ -3,6 +3,8 @@
 
 import { createRequire } from "module";
 
+import { describe, expect, it } from "@jest/globals";
+
 const require = createRequire(__filename);
 const braces = require("braces") as (input: string, options?: { expand?: boolean }) => string[];
 const installed = require("braces/package.json") as { version: string };
