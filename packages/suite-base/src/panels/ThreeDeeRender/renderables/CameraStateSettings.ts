@@ -467,8 +467,8 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     const { transformTree } = this.renderer;
     this.#updateFollowTfError();
 
-    const followTfFrameExists = followTf != undefined && transformTree.hasFrame(followTf);
-    if (followTfFrameExists) {
+    // Preserve the authored frame while TF arrives; a temporary robot frame moves the camera.
+    if (followTf != undefined) {
       this.renderer.setFollowFrameId(followTf);
       return;
     }

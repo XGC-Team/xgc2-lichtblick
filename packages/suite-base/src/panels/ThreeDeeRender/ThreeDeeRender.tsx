@@ -779,10 +779,17 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     }
     renderer.setColorScheme(effectiveColorScheme, backgroundColor);
     if (embedded) {
-      // Paint the themed drawing buffer before exposing it. Renderer recreation
-      // during layout import must not inherit the previous canvas's readiness.
+      // Present the authored robot set together after model parsing and TF delivery.
+      const present = () => {
+        if (Array.from(renderer.sceneExtensions.values()).every((ext) => ext.isPresentationReady())) {
+          setPaintedRenderer(renderer);
+          renderer.removeListener("endFrame", present);
+        }
+      };
+      renderer.addListener("endFrame", present);
       renderer.animationFrame();
-      setPaintedRenderer(renderer);
+      present();
+      return () => { renderer.removeListener("endFrame", present); };
     } else {
       renderRef.current.needsRender = true;
     }

@@ -57,6 +57,7 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
   const defaultRenderer = {
     dispose: jest.fn(),
     config: {} as RendererConfig,
+    sceneExtensions: new Map(),
     setTopics: jest.fn(),
     setParameters: jest.fn(),
     setCurrentTime: jest.fn(),
@@ -320,7 +321,7 @@ describe("ThreeDeeRender", () => {
     mockedRenderer.mockImplementationOnce(
       () =>
         createMockRenderer({
-          sceneExtensions: new Map([["foxglove.Urdfs", { robotFollowFrames }]]),
+          sceneExtensions: new Map([["foxglove.Urdfs", { robotFollowFrames, isPresentationReady: () => true }]]),
         }) as unknown as Renderer,
     );
     const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
@@ -806,6 +807,49 @@ describe("ThreeDeeRender", () => {
     });
     expect(renderer.setColorScheme).toHaveBeenLastCalledWith("light", "#ffffff");
     expect(renderer.config.scene.backgroundColor).toBeUndefined();
+  });
+
+  it("waits for the authored robot cohort before exposing the first embedded frame", () => {
+    let ready = false;
+    mockedRenderer.mockImplementationOnce(
+      () =>
+        createMockRenderer({
+          sceneExtensions: new Map([
+            ["foxglove.Urdfs", { isPresentationReady: () => ready }],
+          ]),
+        }) as unknown as Renderer,
+    );
+    let controls!: ReturnType<typeof useEmbeddedWorkspaceControls>;
+    const view = render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <CaptureEmbeddedControls capture={(value) => (controls = value)} />
+        <ThreeDeeRender {...setup()} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    act(() => {
+      controls.setHostTheme({
+        colorScheme: "light",
+        backgroundColor: "#ffffff",
+      });
+    });
+    expect(view.container.querySelector("canvas")).toHaveStyle({
+      visibility: "hidden",
+    });
+    act(() => {
+      ready = true;
+      renderer.emit("endFrame");
+    });
+    expect(view.container.querySelector("canvas")).toHaveStyle({
+      visibility: "visible",
+    });
+    act(() => {
+      ready = false;
+      renderer.emit("endFrame");
+    });
+    expect(view.container.querySelector("canvas")).toHaveStyle({
+      visibility: "visible",
+    });
   });
 
   it("hides the embedded canvas until the host theme is applied", () => {

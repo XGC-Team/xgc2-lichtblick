@@ -168,6 +168,15 @@ describe("CameraStateSettings", () => {
   });
 
   describe("constructor", () => {
+    it("keeps an explicit world frame while the first robot frames arrive", () => {
+      renderer.updateConfig((draft) => {
+        draft.followTf = "world";
+      });
+      renderer.addCoordinateFrame("uav1/base_link");
+      expect(renderer.followFrameId).toBe("world");
+      renderer.addCoordinateFrame("world");
+      expect(renderer.followFrameId).toBe("world");
+    });
     it("creates an instance with correct default settings", () => {
       // Given
       const aspect = 16 / 9;

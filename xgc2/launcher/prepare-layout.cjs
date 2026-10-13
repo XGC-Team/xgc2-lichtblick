@@ -71,6 +71,7 @@ const VIEWER_DEFAULTS = Object.freeze({
   scoutPalette: palettes.scout_mini,
   mecanumPalette: palettes.mecanum_ugv,
   sceneNamespace: "",
+  obstacleSceneVisible: true,
   transformTopics: [],
   plotPaths: [],
   simpleLidarMaxRateHz: 0,
@@ -282,6 +283,7 @@ function prepareLayout(input) {
   assert(Number.isInteger(p.gridDivisions), "integer gridDivisions required");
   for (const key of [
     "gridVisible",
+    "obstacleSceneVisible",
     "axesVisible",
     "uavHeightProjection",
     "markerBackgroundVisible",
@@ -775,7 +777,7 @@ function prepareLayout(input) {
     },
     cameraState,
   };
-  if (p.sceneNamespace) {
+  if (p.sceneNamespace && p.obstacleSceneVisible) {
     three.scene.obstacleScene = { namespace: p.sceneNamespace };
   }
   if (Object.keys(layers).length) {
@@ -801,7 +803,7 @@ function prepareLayout(input) {
       },
       cameraState,
     };
-    if (obstacleProjection) {
+    if (obstacleProjection && p.obstacleSceneVisible) {
       image.scene.obstacleScene = {
         namespace: p.sceneNamespace,
         color: [1, 0.5, 0.1, 0.4],

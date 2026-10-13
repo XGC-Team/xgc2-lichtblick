@@ -17,6 +17,21 @@ const {
 } = require("../launcher/prepare-layout.cjs");
 const fixtures = require("../launcher/testdata/frozen-layouts.json");
 
+test("obstacle geometry visibility is independent of scene binding and cloud topics", () => {
+  const input = structuredClone(
+    fixtures.find((f) => f.input.parameters.sceneNamespace)?.input,
+  );
+  assert.ok(input);
+  input.parameters.obstacleSceneVisible = false;
+  const { layout } = prepareLayout(mapViewInput(input));
+  assert.equal(layout.configById["3D!xgc2"].scene.obstacleScene, undefined);
+  input.parameters.obstacleSceneVisible = true;
+  assert.ok(
+    prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].scene
+      .obstacleScene,
+  );
+});
+
 for (const f of fixtures) {
   test(`preserves the layout bytes of ${f.name}`, () => {
     const before = structuredClone(f.input);

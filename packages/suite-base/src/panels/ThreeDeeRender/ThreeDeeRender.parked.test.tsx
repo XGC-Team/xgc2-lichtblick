@@ -37,6 +37,7 @@ const createMockRenderer = () => {
   return {
     dispose: jest.fn(),
     config: {},
+    sceneExtensions: new Map(),
     setTopics: jest.fn(),
     setParameters: jest.fn(),
     setCurrentTime: jest.fn(),
