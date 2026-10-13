@@ -373,7 +373,7 @@ function prepareLayout(input) {
     const settings = {
       visible: true,
       type: axes ? "line-axes" : "line",
-      lineWidth: robot.visualization.pathLineWidthMeters || 0.02,
+      lineWidth: robot.visualization.pathLineWidthMeters || 0.03,
       gradient: [color + "80", color + "ff"],
     };
     if (axes) settings.axisScale = p.predictionAxisScale;
