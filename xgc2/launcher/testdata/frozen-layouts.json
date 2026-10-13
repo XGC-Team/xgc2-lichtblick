@@ -533,7 +533,7 @@
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
-              "showPoints": true,
+              "showPoints": false,
               "showOutlines": false
             },
             "/xgc/display/robot_0/poses": {
@@ -692,7 +692,7 @@
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
-              "showPoints": true,
+              "showPoints": false,
               "showOutlines": false
             },
             "/robot_0/graph": {
@@ -753,7 +753,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "06c2f720261b48c166dc265a9a97bcc4f445586c64ccda195163ccf1881d973c"
+    "layoutSha256": "618a10a68bb1fb5725d0bdedd3b6ae3abea04d20c569d3a58e0cadd8de4e9e2d"
   },
   {
     "input": {
@@ -4052,7 +4052,7 @@
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
-              "showPoints": true,
+              "showPoints": false,
               "showOutlines": false
             },
             "/xgc/display/robot_0/poses": {
@@ -4445,7 +4445,7 @@
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
-              "showPoints": true,
+              "showPoints": false,
               "showOutlines": false
             },
             "/robot_0/graph": {
@@ -4506,7 +4506,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "15c235682703ee3a6f47e11f55932feafda8ea2a1c03679faba0b48d112caadc"
+    "layoutSha256": "357d512f198ef3479988fe63c08ab3342737a22d95088a51c82708aed10ae707"
   },
   {
     "input": {

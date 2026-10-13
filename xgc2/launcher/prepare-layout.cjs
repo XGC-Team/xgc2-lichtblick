@@ -480,7 +480,7 @@ function prepareLayout(input) {
     if (t.messageType === "visualization_msgs/Marker" ||
         t.messageType === "visualization_msgs/MarkerArray") {
       if (t.role === "prediction") {
-        s.showPoints = true;
+        s.showPoints = false;
         s.showOutlines = false;
       }
       if (t.color || (tint && (t.role === "prediction" || t.role === "obstacle" || alpha)))

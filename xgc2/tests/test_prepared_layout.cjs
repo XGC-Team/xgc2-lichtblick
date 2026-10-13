@@ -255,7 +255,7 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
   assert.equal(topics["/xgc/display/drone_2/poses_plain"].type, "line");
   assert.equal(topics["/drone_2/markers"], undefined);
   assert.deepEqual(topics["/xgc/display/drone_2/markers"], {
-    visible: true, color: "#aaaa00ff", lineWidth: 0.04, showPoints: true, showOutlines: false,
+    visible: true, color: "#aaaa00ff", lineWidth: 0.04, showPoints: false, showOutlines: false,
   });
   assert.deepEqual(topics["/drone_2/controls"], { visible: true });
   assert.deepEqual(topics["/drone_2/grid_occ"], { visible: true });
