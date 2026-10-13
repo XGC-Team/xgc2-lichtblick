@@ -70,7 +70,10 @@ function setup(cameraType: "2D" | "3D" = "3D") {
       "robot",
       "world",
       time,
-      new Transform([position.x, position.y, position.z], [quaternion.x, quaternion.y, quaternion.z, quaternion.w]),
+      new Transform(
+        [position.x, position.y, position.z],
+        [quaternion.x, quaternion.y, quaternion.z, quaternion.w],
+      ),
     );
     renderer.currentTime = time;
   }
