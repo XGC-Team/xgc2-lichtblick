@@ -36,6 +36,7 @@ function createViewGateway(viewStore, { heartbeatMs = 15000, maxStreams = 16 } =
     }
   });
   return {
+    // eslint-disable-next-line no-restricted-syntax -- Read-only property is part of the native control interface.
     get streamCount() {
       return streams.size;
     },

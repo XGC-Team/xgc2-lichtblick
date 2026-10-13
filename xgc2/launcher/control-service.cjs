@@ -187,6 +187,7 @@ function createControlService({
 
   return {
     instanceId,
+    // eslint-disable-next-line no-restricted-syntax -- Read-only property is part of the native control interface.
     get ready() {
       return launcherReady;
     },

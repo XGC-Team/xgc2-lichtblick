@@ -50,7 +50,7 @@ function openStream(base, pathname, headers = { Origin: ORIGIN }) {
             stream.frames.push({
               comment: block.startsWith(":"),
               ...fields,
-              data: fields.data === undefined ? undefined : JSON.parse(fields.data),
+              data: Object.is(fields.data, undefined) ? undefined : JSON.parse(fields.data),
             });
           }
         });

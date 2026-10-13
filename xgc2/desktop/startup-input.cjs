@@ -192,10 +192,9 @@ function loadStartupInput(filePath) {
   checkUnixAddress(reference.endpoint.address, "storage endpoint address");
   const scope = checkScope(storage.scope, "storage scope");
   // The desired view lives in a scope of its own: its writes move that scope's revision, never the one the pages' saves are fenced by.
-  const viewScope =
-    storage.view_scope === undefined
-      ? undefined
-      : checkScope(storage.view_scope, "storage view_scope");
+  const viewScope = Object.is(storage.view_scope, undefined)
+    ? undefined
+    : checkScope(storage.view_scope, "storage view_scope");
   if (viewScope && viewScope.user === scope.user && viewScope.workspace === scope.workspace) {
     invalid("storage view_scope must differ from the storage scope");
   }

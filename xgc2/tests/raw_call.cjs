@@ -17,12 +17,11 @@ function rawCall(
   { instance, body, headers = {}, timeoutMs = 3000 } = {},
 ) {
   return new Promise((resolve, reject) => {
-    const payload =
-      body === undefined
-        ? undefined
-        : typeof body === "string" || Buffer.isBuffer(body)
-          ? body
-          : JSON.stringify(body);
+    const payload = Object.is(body, undefined)
+      ? undefined
+      : typeof body === "string" || Buffer.isBuffer(body)
+        ? body
+        : JSON.stringify(body);
     const request = http.request(
       {
         socketPath,
@@ -32,7 +31,7 @@ function rawCall(
           "X-Request-ID": randomUUID(),
           "X-Xrpc-Timeout-Ms": String(timeoutMs),
           ...(instance ? { "X-Xrpc-Instance-ID": instance } : {}),
-          ...(payload === undefined
+          ...(Object.is(payload, undefined)
             ? {}
             : {
                 "Content-Type":

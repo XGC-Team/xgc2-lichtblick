@@ -13,10 +13,6 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { startLauncher } = require("./launcher_fixture.cjs");
-
-process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT = "/tmp/unused";
-process.env.XGC2_LICHTBLICK_WEB_ENV_FILE = "/tmp/unused.env";
-
 const {
   buildAutoConnectScript,
   createIndexLoader,
@@ -35,6 +31,9 @@ const {
   validateFrameAncestors,
   websocketOriginAllowed,
 } = require("../launcher/xgc2-lichtblick-web.js");
+
+process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT = "/tmp/unused";
+process.env.XGC2_LICHTBLICK_WEB_ENV_FILE = "/tmp/unused.env";
 
 test("parses the browser server command line", () => {
   assert.deepEqual(

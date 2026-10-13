@@ -30,7 +30,14 @@ const SURFACES = Object.freeze([
 const LEFT_SIDEBAR = Object.freeze(["panel-settings", "alerts", "topics", "layouts"]);
 const FIELDS = Object.freeze(["layoutId", "followRobot", "perspective", "visibleSurfaces"]);
 const ROBOT = /^[A-Za-z_][A-Za-z0-9_]{0,126}$/;
-const LAYOUT_ID = /^[^\u0000-\u001f\u007f]{1,256}$/u;
+function validLayoutId(value) {
+  const characters = Array.from(value);
+  return (
+    characters.length >= 1 &&
+    characters.length <= 256 &&
+    characters.every((c) => c.charCodeAt(0) > 31 && c.charCodeAt(0) !== 127)
+  );
+}
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
 const EMPTY_VIEW = Object.freeze({
   layoutId: null,
@@ -57,17 +64,20 @@ function normalizeView(value) {
     }
   }
   const { layoutId = null, followRobot = null, perspective = null, visibleSurfaces = null } = value;
-  if (layoutId !== null && (typeof layoutId !== "string" || !LAYOUT_ID.test(layoutId))) {
+  if (!Object.is(layoutId, null) && (typeof layoutId !== "string" || !validLayoutId(layoutId))) {
     invalid("layoutId must be a layout identity or null");
   }
-  if (followRobot !== null && (typeof followRobot !== "string" || !ROBOT.test(followRobot))) {
+  if (
+    !Object.is(followRobot, null) &&
+    (typeof followRobot !== "string" || !ROBOT.test(followRobot))
+  ) {
     invalid("followRobot must be a robot identifier or null");
   }
-  if (perspective !== null && typeof perspective !== "boolean") {
+  if (!Object.is(perspective, null) && typeof perspective !== "boolean") {
     invalid("perspective must be a boolean or null");
   }
   let surfaces = null;
-  if (visibleSurfaces !== null) {
+  if (!Object.is(visibleSurfaces, null)) {
     if (
       !Array.isArray(visibleSurfaces) ||
       visibleSurfaces.some((surface) => !SURFACES.includes(surface)) ||
@@ -90,6 +100,7 @@ class ViewStore {
   #queue = Promise.resolve();
 
   /** Decimal-string revision of this process's desired view, "0" before its first statement. */
+  // eslint-disable-next-line no-restricted-syntax -- Read-only property is part of the native control interface.
   get state() {
     return this.#state;
   }
@@ -106,13 +117,13 @@ class ViewStore {
   async set(input, { expectedRevision } = {}) {
     const view = normalizeView(input);
     if (
-      expectedRevision !== undefined &&
+      !Object.is(expectedRevision, undefined) &&
       (typeof expectedRevision !== "string" || !DECIMAL.test(expectedRevision))
     ) {
       invalid("expectedRevision must be a decimal string");
     }
     const work = this.#queue.then(() => {
-      if (expectedRevision !== undefined && expectedRevision !== this.#state.revision) {
+      if (!Object.is(expectedRevision, undefined) && expectedRevision !== this.#state.revision) {
         throw new ViewError("conflict", "view revision conflict", 409);
       }
       if (this.#stated && isDeepStrictEqual(this.#state.view, view)) {

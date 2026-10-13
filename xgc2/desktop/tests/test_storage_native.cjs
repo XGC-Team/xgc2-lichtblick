@@ -32,7 +32,7 @@ test("actual managed document client restores camera after browser replacement a
   const manifest = path.resolve(__dirname, "../contracts/storage-manifest.json");
   let child;
   async function stop() {
-    if (!child || child.exitCode !== null) {
+    if (!child || !Object.is(child.exitCode, null)) {
       return;
     }
     const owner = child;
@@ -83,7 +83,7 @@ test("actual managed document client restores camera after browser replacement a
       failure += chunk.toString();
     });
     for (let attempt = 0; attempt < 100; attempt++) {
-      if (child.exitCode !== null) {
+      if (!Object.is(child.exitCode, null)) {
         throw Error(`storage provider failed: ${failure}`);
       }
       try {
@@ -109,7 +109,7 @@ test("actual managed document client restores camera after browser replacement a
     entryPoints: [
       path.resolve(
         __dirname,
-        "../../packages/suite-base/src/services/persistence/ManagedDocumentStore.ts",
+        "../../../packages/suite-base/src/services/persistence/ManagedDocumentStore.ts",
       ),
     ],
     bundle: true,

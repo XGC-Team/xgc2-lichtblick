@@ -97,7 +97,7 @@ async function startLauncher(
     child.once("close", (code, signal) => resolve({ code, signal })),
   );
   t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) {
+    if (Object.is(child.exitCode, null) && Object.is(child.signalCode, null)) {
       child.kill("SIGTERM");
     }
     const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
@@ -105,7 +105,7 @@ async function startLauncher(
       await launcher.exited;
     } finally {
       clearTimeout(timer);
-      if (runtimeDirectory === undefined) {
+      if (Object.is(runtimeDirectory, undefined)) {
         fs.rmSync(root, { recursive: true, force: true });
       }
     }
@@ -121,7 +121,7 @@ async function startLauncher(
         launcher.base = `http://127.0.0.1:${launcher.port}`;
         return launcher.port;
       }
-      if (child.exitCode !== null) {
+      if (!Object.is(child.exitCode, null)) {
         throw new Error(
           `launcher exited ${child.exitCode}\n${launcher.output}\n${launcher.errors}`,
         );
@@ -144,7 +144,7 @@ async function startLauncher(
             rawCall(socketPath, method, target, { instance, ...options }),
         };
       } catch (error) {
-        if (Date.now() > deadline || child.exitCode !== null) {
+        if (Date.now() > deadline || !Object.is(child.exitCode, null)) {
           throw error;
         }
         await new Promise((resolve) => setTimeout(resolve, 20));

@@ -243,7 +243,7 @@ test("the socket is private, a stale one is reclaimed and a live one is never ta
   );
   const exited = new Promise((resolve) => owner.once("close", resolve));
   t.after(async () => {
-    if (owner.exitCode === null && owner.signalCode === null) {
+    if (Object.is(owner.exitCode, null) && Object.is(owner.signalCode, null)) {
       owner.kill("SIGKILL");
     }
     await exited;

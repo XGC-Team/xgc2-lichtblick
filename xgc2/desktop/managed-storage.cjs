@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
-const fs = require("node:fs/promises");
-const constants = require("node:fs").constants;
-const path = require("node:path");
-const { createHash, randomUUID } = require("node:crypto");
 const { spawn } = require("node:child_process");
+const { createHash, randomUUID } = require("node:crypto");
+const constants = require("node:fs").constants;
+const fs = require("node:fs/promises");
+const path = require("node:path");
 
 const MAX_WIRE_BYTES = 4 * 1024 * 1024;
 const MAX_ASSET_BYTES = 8 * 1024 * 1024;
@@ -88,7 +88,7 @@ function identity(family, key) {
     typeof key !== "string" ||
     key.length === 0 ||
     Buffer.byteLength(key) > 480 ||
-    /[\x00-\x1f\x7f]/.test(key)
+    Array.from(key).some((c) => c.charCodeAt(0) <= 31 || c.charCodeAt(0) === 127)
   ) {
     invalid("invalid document key");
   }
@@ -166,7 +166,7 @@ class ManagedDomainClient {
     assetAccess = "read-write",
   }) {
     checkScope(scope, "scope");
-    if (viewScope !== undefined) {
+    if (!Object.is(viewScope, undefined)) {
       checkScope(viewScope, "view scope");
       if (viewScope.user === scope.user && viewScope.workspace === scope.workspace) {
         invalid("the view scope must differ from the document scope");
@@ -208,7 +208,7 @@ class ManagedDomainClient {
     this.call = call;
     this.scope = Object.freeze({ ...scope });
     this.assetRoot = assetRoot;
-    this.viewScope = viewScope === undefined ? undefined : Object.freeze({ ...viewScope });
+    this.viewScope = Object.is(viewScope, undefined) ? undefined : Object.freeze({ ...viewScope });
     this.closeTransport = close;
     this.assetCount = 0;
     this.assetBytes = 0;
@@ -384,11 +384,11 @@ class ManagedDomainClient {
       }
       if (input.operation === "snapshot") {
         fields(input, ["operation", "keys", "families", "after", "limit", "at"]);
-        if ((input.keys !== undefined) === (input.families !== undefined)) {
+        if (!Object.is(input.keys, undefined) === !Object.is(input.families, undefined)) {
           invalid("choose explicit keys or one family");
         }
         const query = { collection: "documents" };
-        if (input.keys !== undefined) {
+        if (!Object.is(input.keys, undefined)) {
           if (!Array.isArray(input.keys) || input.keys.length < 1 || input.keys.length > 64) {
             invalid("snapshot requires 1..64 keys");
           }
@@ -400,7 +400,7 @@ class ManagedDomainClient {
           if (new Set(query.keys).size !== query.keys.length) {
             invalid("duplicate snapshot keys");
           }
-          if (input.after !== undefined || input.limit !== undefined) {
+          if (!Object.is(input.after, undefined) || !Object.is(input.limit, undefined)) {
             invalid("explicit keys do not accept pagination");
           }
         } else {
@@ -417,7 +417,7 @@ class ManagedDomainClient {
           if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 128) {
             invalid("page limit must be 1..128");
           }
-          if (input.after !== undefined) {
+          if (!Object.is(input.after, undefined)) {
             decoded(input.after);
             query.after = input.after;
           }
@@ -459,7 +459,7 @@ class ManagedDomainClient {
           if (typeof change.expectedVersion !== "string" || !DECIMAL.test(change.expectedVersion)) {
             invalid("canonical expected version required");
           }
-          if (change.delete !== undefined && change.delete !== true) {
+          if (!Object.is(change.delete, undefined) && change.delete !== true) {
             invalid("delete must be true or omitted");
           }
           if (change.delete && Object.hasOwn(change, "value")) {
@@ -524,7 +524,7 @@ class ManagedDomainClient {
       !Array.isArray(result.versions) ||
       result.versions.some(
         (v) =>
-          (v.collection !== undefined && v.collection !== "documents") ||
+          (!Object.is(v.collection, undefined) && v.collection !== "documents") ||
           typeof v.version !== "string" ||
           !DECIMAL.test(v.version),
       )

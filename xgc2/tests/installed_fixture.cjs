@@ -298,9 +298,11 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
       const request = pending.get(message.id);
       if (request) {
         pending.delete(message.id);
-        message.error
-          ? request.reject(Error(JSON.stringify(message.error)))
-          : request.resolve(message.result);
+        if (message.error) {
+          request.reject(Error(JSON.stringify(message.error)));
+        } else {
+          request.resolve(message.result);
+        }
       }
     });
     const call = (method, params = {}) =>
@@ -420,7 +422,7 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
 async function main() {
   const [command, root, log, seconds] = process.argv.slice(2);
   assert.ok(root && path.isAbsolute(root), "absolute private fixture root required");
-  if (seconds !== undefined) {
+  if (!Object.is(seconds, undefined)) {
     assert.ok(
       Number.isFinite(Number(seconds)) && Number(seconds) > 0 && Number(seconds) <= 120,
       "readiness timeout must be 1..120 seconds",
@@ -430,7 +432,11 @@ async function main() {
   if (command === "prepare") {
     await fixture.prepare(root);
   } else if (command === "verify-desktop") {
-    await fixture.verifyDesktop(root, log, seconds === undefined ? undefined : Number(seconds));
+    await fixture.verifyDesktop(
+      root,
+      log,
+      Object.is(seconds, undefined) ? undefined : Number(seconds),
+    );
   } else if (command === "verify-closed") {
     await fixture.verifyClosed(root);
   } else if (command === "stop") {

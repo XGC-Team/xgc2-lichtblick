@@ -90,6 +90,7 @@ async function bridge(t, port, sessionId = "first") {
     stop,
     info,
     advertisement,
+    // eslint-disable-next-line no-restricted-syntax -- Read-only property is part of the native control interface.
     get connections() {
       return connections;
     },

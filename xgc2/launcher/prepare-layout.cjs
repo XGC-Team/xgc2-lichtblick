@@ -124,11 +124,11 @@ function mapRobotFact(fact) {
   check(object(fact.binding.initialPose), "binding.initialPose required");
   // Core omits a zero-valued simulationSensors member: absent means no authored sensors.
   check(
-    fact.binding.simulationSensors === undefined || object(fact.binding.simulationSensors),
+    Object.is(fact.binding.simulationSensors, undefined) || object(fact.binding.simulationSensors),
     "binding.simulationSensors must be an object",
   );
   check(
-    fact.binding.scout === undefined || object(fact.binding.scout),
+    Object.is(fact.binding.scout, undefined) || object(fact.binding.scout),
     "binding.scout must be an object",
   );
   check(
@@ -172,13 +172,13 @@ function mapViewInput(input) {
   );
   assert(array(input.robots), "robots must be an array of frozen RobotFact rows");
   assert(
-    input.parameters === undefined || object(input.parameters),
+    Object.is(input.parameters, undefined) || object(input.parameters),
     "parameters must be an object",
   );
   for (const key of Object.keys(input.parameters ?? {})) {
     assert(Object.hasOwn(VIEWER_DEFAULTS, key), `unknown viewer parameter ${key}`);
   }
-  if (input.camera !== undefined) {
+  if (!Object.is(input.camera, undefined)) {
     assert(object(input.camera), "camera must be an object");
     for (const key of Object.keys(input.camera)) {
       assert(["imageTopic", "infoTopic"].includes(key), `unknown camera member ${key}`);
@@ -191,7 +191,7 @@ function mapViewInput(input) {
     );
   }
   assert(
-    input.layoutMode === "3d" || input.camera !== undefined,
+    input.layoutMode === "3d" || !Object.is(input.camera, undefined),
     "camera required for a layout containing a camera panel",
   );
   const robots = input.robots.map(mapRobotFact);
@@ -251,8 +251,8 @@ function prepareLayout(input) {
   );
   if (
     p.layoutMode !== "3d" ||
-    p.cameraImageTopic !== undefined ||
-    p.cameraInfoTopic !== undefined
+    !Object.is(p.cameraImageTopic, undefined) ||
+    !Object.is(p.cameraInfoTopic, undefined)
   ) {
     assert(
       topic(p.cameraImageTopic) &&

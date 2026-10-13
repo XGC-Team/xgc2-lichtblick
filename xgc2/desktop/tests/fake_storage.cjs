@@ -185,9 +185,11 @@ function createFakeStorage({
       endpoint: { kind: "unix", address: socketPath },
     },
     /** The revision of the document scope, which the pages' saves are fenced by. */
+    // eslint-disable-next-line no-restricted-syntax -- Read-only property is part of the native control interface.
     get revision() {
       return named("page").revision;
     },
+    // eslint-disable-next-line no-restricted-syntax -- Read-only property is part of the native control interface.
     get viewRevision() {
       return named("view")?.revision;
     },

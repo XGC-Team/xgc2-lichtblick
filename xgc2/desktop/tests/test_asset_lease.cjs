@@ -90,7 +90,7 @@ function startChild(t, root, access = "read-write", asset) {
     });
   });
   t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) {
+    if (Object.is(child.exitCode, null) && Object.is(child.signalCode, null)) {
       child.kill("SIGKILL");
     }
     await exited;
