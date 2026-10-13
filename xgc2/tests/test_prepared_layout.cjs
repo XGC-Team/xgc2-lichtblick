@@ -172,7 +172,7 @@ test("history parameters keep the author path style and record the send ceiling"
   assert.equal(base.parameters.historyVisible, true);
   assert.equal(base.parameters.historyShowPoseAxes, false);
   assert.deepEqual(base.layout.configById["3D!xgc2"].topics["/uav1/path"], {
-    visible: true, type: "line", lineWidth: 0.03, gradient: ["#f2003c80", "#f2003cff"],
+    visible: true, type: "line", lineWidth: 0.08, gradient: ["#f2003c80", "#f2003cff"],
   });
   input.robots[0].derived.visualization.pathLineWidthMeters = 0.05;
   input.parameters = { historyMaxRateHz: 5, historyShowPoseAxes: true };

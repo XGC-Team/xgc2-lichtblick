@@ -161,7 +161,7 @@
                 "#f2003c80",
                 "#f2003cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -253,7 +253,7 @@
                 "#f2003c80",
                 "#f2003cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -299,7 +299,7 @@
       "userNodes": {}
     },
     "name": "defaults-one-uav",
-    "layoutSha256": "c1b8e0d09fd22685d89a5d18e857b1322f8b57b5f312f29f73158c772f45b8da"
+    "layoutSha256": "7d49fe665ee5a3a0d9f152caf765037b411743dba911db0d01677d6c25859e08"
   },
   {
     "input": {
@@ -490,7 +490,7 @@
             "/uav1/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -675,7 +675,7 @@
             "/uav1/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -755,7 +755,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "e23bbacc2b7dd86065e8bf20e8f801b7377e3037991d0a253b3099a653099a46"
+    "layoutSha256": "8d27204225400ac6df2d6ce0b2ffc69b242b3686e1b49fb46430c7df9817ec40"
   },
   {
     "input": {
@@ -1025,7 +1025,7 @@
             "/uav1/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -1034,7 +1034,7 @@
             "/uav2/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -1043,7 +1043,7 @@
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#cbab0180",
                 "#cbab01ff"
@@ -1052,7 +1052,7 @@
             "/ugv2/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#288f8c80",
                 "#288f8cff"
@@ -1224,7 +1224,7 @@
             "/uav1/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -1233,7 +1233,7 @@
             "/uav2/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -1242,7 +1242,7 @@
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#cbab0180",
                 "#cbab01ff"
@@ -1251,7 +1251,7 @@
             "/ugv2/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#288f8c80",
                 "#288f8cff"
@@ -1330,7 +1330,7 @@
       }
     },
     "name": "physical-usb-camera",
-    "layoutSha256": "677c5c5f6426c0f06fc79df31bd13cadb4ce387f83251e60d0c28fce964c552b"
+    "layoutSha256": "59494ec32fb8cc652d58f2cd9fe71a47e2249d6bc5ee46c9420abf01ce26e36f"
   },
   {
     "input": {
@@ -1702,7 +1702,7 @@
                 "#11223380",
                 "#112233ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1719,7 +1719,7 @@
                 "#44556680",
                 "#445566ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1736,7 +1736,7 @@
                 "#cbab0180",
                 "#cbab01ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1745,7 +1745,7 @@
                 "#288f8c80",
                 "#288f8cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1849,7 +1849,7 @@
                 "#11223380",
                 "#112233ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1858,7 +1858,7 @@
                 "#44556680",
                 "#445566ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1867,7 +1867,7 @@
                 "#cbab0180",
                 "#cbab01ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1876,7 +1876,7 @@
                 "#288f8c80",
                 "#288f8cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -1949,7 +1949,7 @@
       "userNodes": {}
     },
     "name": "scene-plot-palette",
-    "layoutSha256": "10ee3fd8758ecd8dce13effeecb75e633ead1063e0a5f580920ad42b3e0465ec"
+    "layoutSha256": "02f4b17ebed7d8e834e3aab8e4a090af196f5b6437b1b11123b4eb77eb0a9924"
   },
   {
     "input": {
@@ -2293,7 +2293,7 @@
                 "#f2003c80",
                 "#f2003cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2310,7 +2310,7 @@
                 "#ff704380",
                 "#ff7043ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2327,7 +2327,7 @@
                 "#cbab0180",
                 "#cbab01ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2336,7 +2336,7 @@
                 "#288f8c80",
                 "#288f8cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2502,7 +2502,7 @@
                 "#f2003c80",
                 "#f2003cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2511,7 +2511,7 @@
                 "#ff704380",
                 "#ff7043ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2520,7 +2520,7 @@
                 "#cbab0180",
                 "#cbab01ff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2529,7 +2529,7 @@
                 "#288f8c80",
                 "#288f8cff"
               ],
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "type": "line",
               "visible": true
             },
@@ -2575,7 +2575,7 @@
       "userNodes": {}
     },
     "name": "replay-pixels",
-    "layoutSha256": "991a19af0facd4a0879e423c9ec8d8e543ee98d4dec4d11a97a9e1c37510f480"
+    "layoutSha256": "1443df847235aeb513feac185d69f26e132e940a3894acafc509cdff51b30cf7"
   },
   {
     "input": {
@@ -2857,7 +2857,7 @@
             "/uav1/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -2866,7 +2866,7 @@
             "/uav2/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -2875,7 +2875,7 @@
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#cbab0180",
                 "#cbab01ff"
@@ -2884,7 +2884,7 @@
             "/ugv2/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#288f8c80",
                 "#288f8cff"
@@ -3101,7 +3101,7 @@
             "/uav1/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -3110,7 +3110,7 @@
             "/uav2/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -3119,7 +3119,7 @@
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#cbab0180",
                 "#cbab01ff"
@@ -3128,7 +3128,7 @@
             "/ugv2/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#288f8c80",
                 "#288f8cff"
@@ -3245,7 +3245,7 @@
       }
     },
     "name": "hybrid-mixed",
-    "layoutSha256": "148e12e91465ae5d2c00926a8562bba257c5c5e0797803ee49b4f495ff692bd3"
+    "layoutSha256": "d49589193859caa6cf48da72439c722f7879756ae4ebd94f631b5a99d106dba9"
   },
   {
     "input": {
@@ -3850,7 +3850,7 @@
             "/uav1/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -3863,7 +3863,7 @@
             "/uav2/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -3876,7 +3876,7 @@
             "/uav3/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ab47bc80",
                 "#ab47bcff"
@@ -3889,7 +3889,7 @@
             "/uav4/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ec407a80",
                 "#ec407aff"
@@ -3902,7 +3902,7 @@
             "/uav5/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#7e57c280",
                 "#7e57c2ff"
@@ -3915,7 +3915,7 @@
             "/uav6/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ef535080",
                 "#ef5350ff"
@@ -3928,7 +3928,7 @@
             "/uav7/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ffa72680",
                 "#ffa726ff"
@@ -3941,7 +3941,7 @@
             "/uav8/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#d4e15780",
                 "#d4e157ff"
@@ -3954,7 +3954,7 @@
             "/uav9/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -3967,7 +3967,7 @@
             "/uav10/path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -4349,7 +4349,7 @@
             "/uav1/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -4358,7 +4358,7 @@
             "/uav2/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -4367,7 +4367,7 @@
             "/uav3/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ab47bc80",
                 "#ab47bcff"
@@ -4376,7 +4376,7 @@
             "/uav4/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ec407a80",
                 "#ec407aff"
@@ -4385,7 +4385,7 @@
             "/uav5/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#7e57c280",
                 "#7e57c2ff"
@@ -4394,7 +4394,7 @@
             "/uav6/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ef535080",
                 "#ef5350ff"
@@ -4403,7 +4403,7 @@
             "/uav7/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ffa72680",
                 "#ffa726ff"
@@ -4412,7 +4412,7 @@
             "/uav8/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#d4e15780",
                 "#d4e157ff"
@@ -4421,7 +4421,7 @@
             "/uav9/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#f2003c80",
                 "#f2003cff"
@@ -4430,7 +4430,7 @@
             "/uav10/ar_path": {
               "visible": true,
               "type": "line",
-              "lineWidth": 0.03,
+              "lineWidth": 0.08,
               "gradient": [
                 "#ff704380",
                 "#ff7043ff"
@@ -4510,7 +4510,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "dd03361394e778ba09b6199dc4d86ea8a8ce200b30204444649a159b584f28ea"
+    "layoutSha256": "2b37d430914d54921156460211dd7ca65723e5dad63348d57536da4020cfb70c"
   },
   {
     "input": {
