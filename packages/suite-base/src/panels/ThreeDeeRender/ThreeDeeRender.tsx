@@ -775,7 +775,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   // only pauses drawing; it does not hide or unmount the canvas. Standalone stays visible.
   useLayoutEffect(() => {
     if (!renderer || !effectiveColorScheme) {
-      return;
+      return undefined;
     }
     renderer.setColorScheme(effectiveColorScheme, backgroundColor);
     if (embedded) {
@@ -793,6 +793,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     } else {
       renderRef.current.needsRender = true;
     }
+    return undefined;
   }, [backgroundColor, effectiveColorScheme, embedded, renderer]);
 
   // Keep the passive repaint cap in sync with the config (layout load, scene reset)
