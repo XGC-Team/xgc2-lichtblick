@@ -546,8 +546,8 @@
               "visible": true,
               "type": "arrow",
               "gradient": [
-                "#123456ff",
-                "#123456ff"
+                "#ffbf00ff",
+                "#ffbf0040"
               ]
             },
             "/robot_0/grid": {
@@ -757,7 +757,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "43a1db7d1a626d5477388f9f054836b232a9043585d9d3f490c676313e3b3b42"
+    "layoutSha256": "ce3170a404fb44a12bed0a305e9a2b31e26b0d0767dd56922c0dd9219565091c"
   },
   {
     "input": {
@@ -4105,8 +4105,8 @@
               "visible": true,
               "type": "arrow",
               "gradient": [
-                "#123456ff",
-                "#123456ff"
+                "#ffbf00ff",
+                "#ffbf0040"
               ]
             },
             "/robot_0/grid": {
@@ -4514,7 +4514,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "92eeb77abae662ef1afccf363f3ba943218de0fd0fe0e0f91d609505fb8765a1"
+    "layoutSha256": "ae5f7dbebe289c1694f2959658e14eb51d25da55b5571489b88555e37a418a49"
   },
   {
     "input": {

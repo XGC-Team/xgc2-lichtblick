@@ -222,7 +222,7 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
     declared("/drone_0/grid_explicit", "sensor_msgs/PointCloud2", "obstacle", {
       robotNamespace: "/uav1", paletteAlpha: "ff", color: "#ff550099", pointSize: 0.1, pointSizeMode: "world", pointShape: "square",
     }),
-    declared("/drone_2/plan", "nav_msgs/Path", "prediction", { robotNamespace: "/uav3", lineWidth: 0.07, paletteAlpha: "ee" }),
+    declared("/drone_2/plan", "nav_msgs/Path", "prediction", { robotNamespace: "/uav3", lineWidth: 0.07, color: "#123456ff", paletteAlpha: "ee" }),
     declared("/drone_2/poses", "geometry_msgs/PoseArray", "prediction", { robotNamespace: "/uav3", paletteAlpha: "ee" }),
     declared("/drone_2/poses_plain", "geometry_msgs/PoseArray", "prediction", { robotNamespace: "/uav3", showPoseAxes: false }),
     declared("/drone_2/markers", "visualization_msgs/Marker", "prediction", { robotNamespace: "/uav3", showPoseAxes: true, lineWidth: 0.04 }),
@@ -247,7 +247,7 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
   assert.equal(topics["/drone_0/grid_explicit"].flatColor, "#ff550099");
   assert.equal(topics["/drone_2/plan"], undefined);
   assert.deepEqual(topics["/xgc/display/drone_2/plan"], {
-    visible: true, type: "line-axes", lineWidth: 0.07, axisScale: 0.15,
+    visible: true, type: "line-axes", lineWidth: 0.01, axisScale: 0.15,
     gradient: ["#ffbf00ff", "#ffbf0040"],
   });
   assert.deepEqual(topics["/xgc/display/drone_2/poses"], {
@@ -256,7 +256,7 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
   assert.equal(topics["/xgc/display/drone_2/poses_plain"].type, "line");
   assert.equal(topics["/drone_2/markers"], undefined);
   assert.deepEqual(topics["/xgc/display/drone_2/markers"], {
-    visible: true, color: "#ffbf00ff", lineWidth: 0.04, showPoints: false, showOutlines: false,
+    visible: true, color: "#ffbf00ff", lineWidth: 0.01, showPoints: false, showOutlines: false,
   });
   assert.deepEqual(topics["/xgc/display/drone_2/native_markers"], {
     visible: true, color: "#ffbf00ff", lineWidth: 0.01, showPoints: false, showOutlines: false,
