@@ -1,9 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
-import { createRequire } from "module";
-
 import { describe, expect, it } from "@jest/globals";
+import { createRequire } from "module";
 
 const require = createRequire(__filename);
 const braces = require("braces") as (input: string, options?: { expand?: boolean }) => string[];
