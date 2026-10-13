@@ -23,14 +23,13 @@ import type { MessageEvent } from "@lichtblick/suite-base/players/types";
  * - Deletion-semantic schemas (foxglove.SceneUpdate, visualization_msgs/Marker
  *   and MarkerArray, in all encoding/name variants): latest-wins coalescing
  *   would drop deletions and leave ghost entities, so instead the player
- *   UNSUBSCRIBES those channels while parked and, on resume, enqueues a
- *   synthesized layer-clear event (this file) BEFORE resubscribing. The
- *   foxglove websocket server does not replay non-latched channels on
- *   subscribe, so the producer's next full publish repopulates current truth;
- *   latched channels (the rare, cheap Marker case) replay their last message
- *   after the subscribe, which lands after the clear and is therefore equally
- *   correct. The clear-then-subscribe order makes missed deletions impossible
- *   to survive either way.
+ *   UNSUBSCRIBES those channels while parked and, on resume, resubscribes with
+ *   a DEFERRED synthesized layer-clear event (this file): the clear is held
+ *   until the topic's first post-resubscribe message and drains immediately
+ *   before it in the same emitted frame, so clear and repopulation apply
+ *   atomically and labels do not blink through an empty layer. A fallback
+ *   timer (RESUME_SCENE_CLEAR_FALLBACK_MS) still clears layers whose producer
+ *   stays silent, so deletions missed while parked cannot linger as ghosts.
  * - Image/video schemas are snapshot class; decode stays deferred by
  *   canvasVisibility as before.
  *
@@ -45,6 +44,14 @@ import type { MessageEvent } from "@lichtblick/suite-base/players/types";
 
 /** Hard memory bound for the deferred live queue while the embed is parked. */
 export const PARKED_FRAME_MAXIMUM_SIZE_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Upper bound for holding a resume-time layer clear while waiting for the
+ * topic's first post-resubscribe message. Long enough for latched replays
+ * and normal control-rate republishes; short enough that a silent producer's
+ * missed deletions cannot be observed as ghosts for more than a moment.
+ */
+export const RESUME_SCENE_CLEAR_FALLBACK_MS = 2_000;
 
 /**
  * Schema leaf names whose message streams carry deletion semantics and must

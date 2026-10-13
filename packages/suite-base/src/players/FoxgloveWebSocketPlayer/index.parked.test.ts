@@ -15,6 +15,7 @@ import {
 import type { MessageEvent, PlayerState } from "@lichtblick/suite-base/players/types";
 
 import FoxgloveWebSocketPlayer from "./index";
+import { RESUME_SCENE_CLEAR_FALLBACK_MS } from "./parkedParsePause";
 
 // A shared spy stands in for every channel's deserializer. Parked assertions
 // check it is never called while hidden and exactly once per retained message
@@ -200,6 +201,7 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     for (const harness of harnesses) {
       harness.player.close();
       harness.reporter.dispose();
@@ -297,6 +299,7 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
     expect(collectMessages(states)).toHaveLength(0);
 
     const subscribeCallsBeforeResume = client.subscribe.mock.calls.length;
+    jest.useFakeTimers();
     reporter.setVisible(true);
     await flush();
 
@@ -310,20 +313,34 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
     const resumedSceneSubId = client.subscribe.mock.results[subscribeCallsBeforeResume]!
       .value as number;
 
+    // No layer is cleared before fresh truth arrives: each clear is deferred
+    // so it can drain atomically with the topic's first post-resubscribe
+    // message instead of painting an empty layer in between.
+    expect(collectMessages(states).filter((message) => message.sizeInBytes === 0)).toHaveLength(0);
+
     // The producer's next full publish repopulates without the deleted entity.
+    states.length = 0;
     send(client, resumedSceneSubId, [8]);
     await flush();
 
-    const sceneMessages = collectMessages(states).filter((message) => message.topic === "/scene");
-    const markersMessages = collectMessages(states).filter(
-      (message) => message.topic === "/markers",
-    );
-    // Clear-ALL lands first, so a missed deletion cannot survive as a ghost;
-    // only then does fresh truth arrive.
-    expect(sceneMessages.map((message) => message.message)).toEqual([
+    // Clear-ALL lands first IN THE SAME EMIT, so a missed deletion cannot
+    // survive as a ghost and no empty layer is ever painted; only then does
+    // fresh truth arrive.
+    expect(states.at(-1)?.activeData?.messages.map((message) => message.message)).toEqual([
       { deletions: [{ type: 1 }], entities: [] },
       { bytes: [8] },
     ]);
+    // A silent producer's layer is not cleared yet...
+    expect(
+      collectMessages(states).filter((message) => message.topic === "/markers"),
+    ).toHaveLength(0);
+    // ...but its missed deletions cannot linger either: the fallback timer
+    // clears the layer without waiting for a publish.
+    jest.advanceTimersByTime(RESUME_SCENE_CLEAR_FALLBACK_MS);
+    await flush();
+    const markersMessages = collectMessages(states).filter(
+      (message) => message.topic === "/markers",
+    );
     expect(markersMessages.map((message) => message.message)).toEqual([
       { markers: [{ action: 3, ns: "", id: 0 }] },
     ]);
@@ -335,12 +352,19 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
       [CLOUD_CHANNEL, TF_CHANNEL].sort(),
     );
 
+    jest.useFakeTimers();
     reporter.setVisible(true);
     await flush();
 
     expect(client.subscribe.mock.calls.map((call: unknown[]) => call[0]).sort()).toEqual(
       [CLOUD_CHANNEL, TF_CHANNEL, SCENE_CHANNEL, MARKERS_CHANNEL].sort(),
     );
+    // Clears stay deferred while producers are silent...
+    expect(collectMessages(states).filter((message) => message.sizeInBytes === 0)).toHaveLength(0);
+    // ...and the fallback timer still resets both layers so deletions missed
+    // while parked cannot survive as ghosts.
+    jest.advanceTimersByTime(RESUME_SCENE_CLEAR_FALLBACK_MS);
+    await flush();
     const clearedTopics = collectMessages(states)
       .filter((message) => message.sizeInBytes === 0)
       .map((message) => message.topic);

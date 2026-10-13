@@ -86,6 +86,7 @@ import {
   isDeletionSemanticSchema,
   makeSceneLayerClearEvent,
   PARKED_FRAME_MAXIMUM_SIZE_BYTES,
+  RESUME_SCENE_CLEAR_FALLBACK_MS,
 } from "./parkedParsePause";
 import { reconnectDelay } from "./reconnect";
 import {
@@ -137,6 +138,17 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #parked = false;
   /** Deletion-semantic topics whose server subscription is paused while parked (topic → schemaName). */
   #parkedSceneTopics = new Map<string, string>();
+  /**
+   * Resume-time layer clears held until the topic's first post-resubscribe
+   * message, so clear and repopulation drain in the same emitted frame and
+   * scene entities do not blink through an empty layer. A fallback timer
+   * clears layers whose producer stays silent, so deletions missed while
+   * parked cannot linger as ghosts.
+   */
+  #pendingSceneClears = new Map<
+    string,
+    { schemaName: string; timer: ReturnType<typeof setTimeout> }
+  >();
   /** Subscription ids canceled by the park pause; suppresses unknown-subscription alerts for in-flight messages. */
   #parkedUnsubscribedIds = new Set<SubscriptionId>();
   #unsubscribeParkedSignal?: () => void;
@@ -605,6 +617,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
           // must not be applied while hidden. Counts are emitted on resume.
           return;
         }
+
+        // A layer clear deferred at resume lands immediately before the
+        // topic's first post-resubscribe message, so both drain in the same
+        // emitted frame instead of showing an empty layer in between.
+        this.#flushPendingSceneClear(topic, receiveTime);
 
         // Snapshot-semantics topics: defer deserialization to drain time and
         // keep only the latest when every subscriber permits sampling. A stalled
@@ -1151,6 +1168,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#closed = true;
     this.#unsubscribeParkedSignal?.();
     this.#unsubscribeParkedSignal = undefined;
+    this.#cancelAllPendingSceneClears();
     this.#client?.close();
     this.#client = undefined;
     if (this.#connectionAttemptTimeout != undefined) {
@@ -1221,6 +1239,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
         // Already unsubscribed by the park pause; just forget the intent to resume.
         this.#parkedSceneTopics.delete(topic);
         topicStats.delete(topic);
+      }
+    }
+    for (const topic of [...this.#pendingSceneClears.keys()]) {
+      if (!newTopics.has(topic)) {
+        this.#cancelPendingSceneClear(topic);
       }
     }
     this.#topicsStats = topicStats;
@@ -1312,20 +1335,16 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   /**
-   * Reset each paused scene layer BEFORE resubscribing its channel. The clear
-   * events drain ahead of anything the server sends after the subscribe, so
-   * deletions missed while parked cannot survive as ghosts; the producer's
-   * next full publish (or the server replay of a latched channel) then
-   * repopulates current truth.
+   * Resubscribe each paused scene layer with a DEFERRED clear: the layer
+   * reset is held until the topic's first post-resubscribe message and
+   * drains immediately before it in the same emitted frame, so the layer
+   * never paints empty between clear and repopulation. Deletions missed
+   * while parked still cannot survive: the clear always lands before fresh
+   * truth, and a fallback timer clears layers whose producer stays silent.
    */
   #resumeDeletionSemanticSubscriptions(): void {
-    const receiveTime = this.#getCurrentTime();
     for (const [topic, schemaName] of this.#parkedSceneTopics) {
-      this.#parsedMessages.enqueue({
-        value: makeSceneLayerClearEvent({ topic, schemaName, receiveTime }),
-        sizeInBytes: 0,
-        retention: "replaceable",
-      });
+      this.#deferSceneLayerClear(topic, schemaName);
       const chanInfo = this.#channelsByTopic.get(topic);
       if (this.#client && chanInfo) {
         const subId = this.#client.subscribe(chanInfo.channel.id);
@@ -1347,6 +1366,64 @@ export default class FoxgloveWebSocketPlayer implements Player {
       );
     }
     this.#parkedUnsubscribedIds.clear();
+  }
+
+  /**
+   * Hold a resume-time layer clear until the topic's first post-resubscribe
+   * message (see #flushPendingSceneClear). The fallback timer covers silent
+   * producers; on a re-park the clear is re-deferred through
+   * #parkedSceneTopics, and a closed player has no layers left to protect.
+   */
+  #deferSceneLayerClear(topic: string, schemaName: string): void {
+    this.#cancelPendingSceneClear(topic);
+    const timer = setTimeout(() => {
+      this.#pendingSceneClears.delete(topic);
+      if (this.#closed || this.#parked) {
+        return;
+      }
+      this.#parsedMessages.enqueue({
+        value: makeSceneLayerClearEvent({
+          topic,
+          schemaName,
+          receiveTime: this.#getCurrentTime(),
+        }),
+        sizeInBytes: 0,
+        retention: "replaceable",
+      });
+      this.#emitState();
+    }, RESUME_SCENE_CLEAR_FALLBACK_MS);
+    this.#pendingSceneClears.set(topic, { schemaName, timer });
+  }
+
+  /** Flush a deferred clear so it drains immediately before the message that triggered it. */
+  #flushPendingSceneClear(topic: string, receiveTime: Time): void {
+    const pending = this.#pendingSceneClears.get(topic);
+    if (pending == undefined) {
+      return;
+    }
+    this.#pendingSceneClears.delete(topic);
+    clearTimeout(pending.timer);
+    this.#parsedMessages.enqueue({
+      value: makeSceneLayerClearEvent({ topic, schemaName: pending.schemaName, receiveTime }),
+      sizeInBytes: 0,
+      retention: "replaceable",
+    });
+  }
+
+  #cancelPendingSceneClear(topic: string): void {
+    const pending = this.#pendingSceneClears.get(topic);
+    if (pending == undefined) {
+      return;
+    }
+    clearTimeout(pending.timer);
+    this.#pendingSceneClears.delete(topic);
+  }
+
+  #cancelAllPendingSceneClears(): void {
+    for (const pending of this.#pendingSceneClears.values()) {
+      clearTimeout(pending.timer);
+    }
+    this.#pendingSceneClears.clear();
   }
 
   public setPublishers(publishers: AdvertiseOptions[]): void {
@@ -1654,6 +1731,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#clockTime = undefined;
     this.#topicsStats = new Map();
     this.#parsedMessages.clear();
+    // A reconnect rebuilds every layer from server replay; a stale deferred
+    // clear must not fire into the fresh session.
+    this.#cancelAllPendingSceneClears();
     this.#receivedBytes = 0;
     this.#alerts.clear();
     this.#parameters = new Map();
