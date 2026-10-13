@@ -10,4 +10,7 @@ export interface ViewGateway {
   events(request: IncomingMessage, response: ServerResponse, headers?: OutgoingHttpHeaders): void;
   close(): void;
 }
-export function createViewGateway(viewStore: ViewStore, options?: { heartbeatMs?: number; maxStreams?: number }): ViewGateway;
+export function createViewGateway(
+  viewStore: ViewStore,
+  options?: { heartbeatMs?: number; maxStreams?: number },
+): ViewGateway;

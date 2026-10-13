@@ -86,7 +86,9 @@ export function makeDeferredSnapshotEvent(args: {
   return { deferred: true, ...args };
 }
 
-export function isDeferredSnapshotEvent(message: LiveQueueMessage): message is DeferredSnapshotEvent {
+export function isDeferredSnapshotEvent(
+  message: LiveQueueMessage,
+): message is DeferredSnapshotEvent {
   return "deferred" in message;
 }
 

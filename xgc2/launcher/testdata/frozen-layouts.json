@@ -86,22 +86,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              0,
-              0,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [0, 0, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-none",
@@ -116,16 +103,8 @@
               "layerId": "foxglove.Grid",
               "lineWidth": 1,
               "order": 1,
-              "position": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                0,
-                0
-              ],
+              "position": [0, 0, 0],
+              "rotation": [0, 0, 0],
               "size": 30,
               "visible": true,
               "frameId": "world"
@@ -157,10 +136,7 @@
               "visible": true
             },
             "/uav1/path": {
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ],
+              "gradient": ["#f2003c80", "#f2003cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -209,22 +185,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              0,
-              0,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [0, 0, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-pose",
@@ -249,10 +212,7 @@
               "visible": true
             },
             "/uav1/ar_path": {
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ],
+              "gradient": ["#f2003c80", "#f2003cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -446,9 +406,7 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "transformTopics": [
-          "/algorithm/tf"
-        ]
+        "transformTopics": ["/algorithm/tf"]
       }
     },
     "layout": {
@@ -491,10 +449,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/venue/reference_cloud": {
               "visible": true,
@@ -520,20 +475,14 @@
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             },
             "/robot_0/reference": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#00ff00ff",
-                "#00ff00ff"
-              ]
+              "gradient": ["#00ff00ff", "#00ff00ff"]
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
@@ -544,10 +493,7 @@
             "/xgc/display/robot_0/poses": {
               "visible": true,
               "type": "arrow",
-              "gradient": [
-                "#123456ff",
-                "#123456ff"
-              ]
+              "gradient": ["#123456ff", "#123456ff"]
             },
             "/robot_0/grid": {
               "visible": true
@@ -576,22 +522,9 @@
             "distance": 12,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              0,
-              0,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [0, 0, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -621,16 +554,8 @@
               "divisions": 30,
               "lineWidth": 1,
               "color": "#9e9e9e",
-              "position": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                0,
-                0
-              ],
+              "position": [0, 0, 0],
+              "rotation": [0, 0, 0],
               "order": 1
             }
           }
@@ -676,19 +601,13 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             },
             "/xgc/display/robot_0/plan_list": {
@@ -719,22 +638,9 @@
             "distance": 12,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              0,
-              0,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [0, 0, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -1026,37 +932,25 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav2/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ]
+              "gradient": ["#cbab0180", "#cbab01ff"]
             },
             "/ugv2/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ]
+              "gradient": ["#288f8c80", "#288f8cff"]
             },
             "/venue/obstacles": {
               "visible": true,
@@ -1072,10 +966,7 @@
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             },
             "/uav1/visual_robot_description": {
@@ -1111,22 +1002,9 @@
             "distance": 45.5001524669458,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -1225,37 +1103,25 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav2/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ]
+              "gradient": ["#cbab0180", "#cbab01ff"]
             },
             "/ugv2/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ]
+              "gradient": ["#288f8c80", "#288f8cff"]
             },
             "/venue/obstacles": {
               "visible": true,
@@ -1272,10 +1138,7 @@
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             }
           },
@@ -1294,22 +1157,9 @@
             "distance": 45.5001524669458,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -1540,10 +1390,7 @@
       ],
       "parameters": {
         "sceneNamespace": "/xgc/scene",
-        "uavPalette": [
-          "#112233",
-          "#445566"
-        ],
+        "uavPalette": ["#112233", "#445566"],
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -1561,10 +1408,7 @@
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
         "transformTopics": [],
-        "plotPaths": [
-          "/uav1/pose.pose.position.x",
-          "/robot_0/stats.solve_time"
-        ]
+        "plotPaths": ["/uav1/pose.pose.position.x", "/robot_0/stats.solve_time"]
       }
     },
     "layout": {
@@ -1577,22 +1421,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-none",
@@ -1607,16 +1438,8 @@
               "layerId": "foxglove.Grid",
               "lineWidth": 1,
               "order": 1,
-              "position": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                0,
-                0
-              ],
+              "position": [0, 0, 0],
+              "rotation": [0, 0, 0],
               "size": 30,
               "visible": true,
               "frameId": "world"
@@ -1698,10 +1521,7 @@
               "visible": true
             },
             "/uav1/path": {
-              "gradient": [
-                "#11223380",
-                "#112233ff"
-              ],
+              "gradient": ["#11223380", "#112233ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -1715,10 +1535,7 @@
               "visible": true
             },
             "/uav2/path": {
-              "gradient": [
-                "#44556680",
-                "#445566ff"
-              ],
+              "gradient": ["#44556680", "#445566ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -1732,19 +1549,13 @@
               "visible": true
             },
             "/ugv1/history/path": {
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ],
+              "gradient": ["#cbab0180", "#cbab01ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/ugv2/path": {
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ],
+              "gradient": ["#288f8c80", "#288f8cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -1805,22 +1616,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-pose",
@@ -1845,37 +1643,25 @@
               "visible": true
             },
             "/uav1/ar_path": {
-              "gradient": [
-                "#11223380",
-                "#112233ff"
-              ],
+              "gradient": ["#11223380", "#112233ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/uav2/ar_path": {
-              "gradient": [
-                "#44556680",
-                "#445566ff"
-              ],
+              "gradient": ["#44556680", "#445566ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/ugv1/history/path": {
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ],
+              "gradient": ["#cbab0180", "#cbab01ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/ugv2/path": {
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ],
+              "gradient": ["#288f8c80", "#288f8cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -2178,22 +1964,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-none",
@@ -2208,16 +1981,8 @@
               "layerId": "foxglove.Grid",
               "lineWidth": 1,
               "order": 1,
-              "position": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                0,
-                0
-              ],
+              "position": [0, 0, 0],
+              "rotation": [0, 0, 0],
               "size": 30,
               "visible": true,
               "frameId": "world"
@@ -2289,10 +2054,7 @@
               "visible": true
             },
             "/uav1/path": {
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ],
+              "gradient": ["#f2003c80", "#f2003cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -2306,10 +2068,7 @@
               "visible": true
             },
             "/uav2/path": {
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ],
+              "gradient": ["#ff704380", "#ff7043ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -2323,19 +2082,13 @@
               "visible": true
             },
             "/ugv1/history/path": {
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ],
+              "gradient": ["#cbab0180", "#cbab01ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/ugv2/path": {
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ],
+              "gradient": ["#288f8c80", "#288f8cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -2396,22 +2149,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-pose",
@@ -2476,12 +2216,7 @@
             "labelScaleFactor": 1.25,
             "meshUpAxis": "z_up",
             "obstacleScene": {
-              "color": [
-                1,
-                0.5,
-                0.1,
-                0.4
-              ],
+              "color": [1, 0.5, 0.1, 0.4],
               "namespace": "/xgc/scene"
             },
             "transforms": {
@@ -2498,37 +2233,25 @@
               "visible": true
             },
             "/uav1/ar_path": {
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ],
+              "gradient": ["#f2003c80", "#f2003cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/uav2/ar_path": {
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ],
+              "gradient": ["#ff704380", "#ff7043ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/ugv1/history/path": {
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ],
+              "gradient": ["#cbab0180", "#cbab01ff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
             },
             "/ugv2/path": {
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ],
+              "gradient": ["#288f8c80", "#288f8cff"],
               "lineWidth": 0.04,
               "type": "line",
               "visible": true
@@ -2858,37 +2581,25 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav2/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ]
+              "gradient": ["#cbab0180", "#cbab01ff"]
             },
             "/ugv2/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ]
+              "gradient": ["#288f8c80", "#288f8cff"]
             },
             "/uav1/simple_lidar/points": {
               "visible": true,
@@ -2922,10 +2633,7 @@
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             },
             "/uav1/visual_robot_description": {
@@ -2965,22 +2673,9 @@
             "distance": 45.5001524669458,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -3046,16 +2741,8 @@
               "divisions": 30,
               "lineWidth": 1,
               "color": "#9e9e9e",
-              "position": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                0,
-                0
-              ],
+              "position": [0, 0, 0],
+              "rotation": [0, 0, 0],
               "order": 1,
               "frameId": "world"
             }
@@ -3102,37 +2789,25 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav2/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/ugv1/history/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#cbab0180",
-                "#cbab01ff"
-              ]
+              "gradient": ["#cbab0180", "#cbab01ff"]
             },
             "/ugv2/path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#288f8c80",
-                "#288f8cff"
-              ]
+              "gradient": ["#288f8c80", "#288f8cff"]
             },
             "/robot_0/private_map": {
               "visible": true,
@@ -3149,10 +2824,7 @@
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             }
           },
@@ -3171,22 +2843,9 @@
             "distance": 45.5001524669458,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              -11,
-              0,
-              0.5
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [-11, 0, 0.5],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -3806,9 +3465,7 @@
         "predictionAxisScale": 0.15,
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
-        "transformTopics": [
-          "/algorithm/tf"
-        ]
+        "transformTopics": ["/algorithm/tf"]
       }
     },
     "layout": {
@@ -3851,10 +3508,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav2/visual_robot_description": {
               "visible": false,
@@ -3864,10 +3518,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/uav3/visual_robot_description": {
               "visible": false,
@@ -3877,10 +3528,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ab47bc80",
-                "#ab47bcff"
-              ]
+              "gradient": ["#ab47bc80", "#ab47bcff"]
             },
             "/uav4/visual_robot_description": {
               "visible": false,
@@ -3890,10 +3538,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ec407a80",
-                "#ec407aff"
-              ]
+              "gradient": ["#ec407a80", "#ec407aff"]
             },
             "/uav5/visual_robot_description": {
               "visible": false,
@@ -3903,10 +3548,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#7e57c280",
-                "#7e57c2ff"
-              ]
+              "gradient": ["#7e57c280", "#7e57c2ff"]
             },
             "/uav6/visual_robot_description": {
               "visible": false,
@@ -3916,10 +3558,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ef535080",
-                "#ef5350ff"
-              ]
+              "gradient": ["#ef535080", "#ef5350ff"]
             },
             "/uav7/visual_robot_description": {
               "visible": false,
@@ -3929,10 +3568,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ffa72680",
-                "#ffa726ff"
-              ]
+              "gradient": ["#ffa72680", "#ffa726ff"]
             },
             "/uav8/visual_robot_description": {
               "visible": false,
@@ -3942,10 +3578,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#d4e15780",
-                "#d4e157ff"
-              ]
+              "gradient": ["#d4e15780", "#d4e157ff"]
             },
             "/uav9/visual_robot_description": {
               "visible": false,
@@ -3955,10 +3588,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav10/visual_robot_description": {
               "visible": false,
@@ -3968,10 +3598,7 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/uav1/simple_lidar/points": {
               "visible": true,
@@ -4077,20 +3704,14 @@
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             },
             "/robot_0/reference": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#00ff00ff",
-                "#00ff00ff"
-              ]
+              "gradient": ["#00ff00ff", "#00ff00ff"]
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
@@ -4101,10 +3722,7 @@
             "/xgc/display/robot_0/poses": {
               "visible": true,
               "type": "arrow",
-              "gradient": [
-                "#123456ff",
-                "#123456ff"
-              ]
+              "gradient": ["#123456ff", "#123456ff"]
             },
             "/robot_0/grid": {
               "visible": true
@@ -4133,22 +3751,9 @@
             "distance": 13.85280264206968,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              4.5,
-              1,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [4.5, 1, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -4295,16 +3900,8 @@
               "divisions": 30,
               "lineWidth": 1,
               "color": "#9e9e9e",
-              "position": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                0,
-                0
-              ],
+              "position": [0, 0, 0],
+              "rotation": [0, 0, 0],
               "order": 1
             }
           }
@@ -4350,100 +3947,67 @@
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav2/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/uav3/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ab47bc80",
-                "#ab47bcff"
-              ]
+              "gradient": ["#ab47bc80", "#ab47bcff"]
             },
             "/uav4/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ec407a80",
-                "#ec407aff"
-              ]
+              "gradient": ["#ec407a80", "#ec407aff"]
             },
             "/uav5/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#7e57c280",
-                "#7e57c2ff"
-              ]
+              "gradient": ["#7e57c280", "#7e57c2ff"]
             },
             "/uav6/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ef535080",
-                "#ef5350ff"
-              ]
+              "gradient": ["#ef535080", "#ef5350ff"]
             },
             "/uav7/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ffa72680",
-                "#ffa726ff"
-              ]
+              "gradient": ["#ffa72680", "#ffa726ff"]
             },
             "/uav8/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#d4e15780",
-                "#d4e157ff"
-              ]
+              "gradient": ["#d4e15780", "#d4e157ff"]
             },
             "/uav9/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#f2003c80",
-                "#f2003cff"
-              ]
+              "gradient": ["#f2003c80", "#f2003cff"]
             },
             "/uav10/ar_path": {
               "visible": true,
               "type": "line",
               "lineWidth": 0.04,
-              "gradient": [
-                "#ff704380",
-                "#ff7043ff"
-              ]
+              "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
               "type": "line-axes",
               "lineWidth": 0.01,
-              "gradient": [
-                "#ffbf00ff",
-                "#ffbf0040"
-              ],
+              "gradient": ["#ffbf00ff", "#ffbf0040"],
               "axisScale": 0.15
             },
             "/xgc/display/robot_0/plan_list": {
@@ -4474,22 +4038,9 @@
             "distance": 13.85280264206968,
             "phi": 60,
             "thetaOffset": 45,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              4.5,
-              1,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [4.5, 1, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "fovy": 45,
             "near": 0.1,
             "far": 5000
@@ -4534,10 +4085,7 @@
       "robots": [],
       "parameters": {
         "sceneNamespace": "/xgc/scene",
-        "uavPalette": [
-          "#112233",
-          "#445566"
-        ],
+        "uavPalette": ["#112233", "#445566"],
         "gridVisible": true,
         "gridColor": "#9e9e9e",
         "gridSize": 30,
@@ -4555,10 +4103,7 @@
         "markerBackgroundColor": "#000000",
         "markerBackgroundVisible": true,
         "transformTopics": [],
-        "plotPaths": [
-          "/uav1/pose.pose.position.x",
-          "/robot_0/stats.solve_time"
-        ]
+        "plotPaths": ["/uav1/pose.pose.position.x", "/robot_0/stats.solve_time"]
       }
     },
     "layout": {
@@ -4571,22 +4116,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              0,
-              0,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [0, 0, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-none",
@@ -4601,16 +4133,8 @@
               "layerId": "foxglove.Grid",
               "lineWidth": 1,
               "order": 1,
-              "position": [
-                0,
-                0,
-                0
-              ],
-              "rotation": [
-                0,
-                0,
-                0
-              ],
+              "position": [0, 0, 0],
+              "rotation": [0, 0, 0],
               "size": 30,
               "visible": true,
               "frameId": "world"
@@ -4681,22 +4205,9 @@
             "near": 0.1,
             "perspective": true,
             "phi": 60,
-            "target": [
-              0,
-              0,
-              0
-            ],
-            "targetOffset": [
-              0,
-              0,
-              0
-            ],
-            "targetOrientation": [
-              0,
-              0,
-              0,
-              1
-            ],
+            "target": [0, 0, 0],
+            "targetOffset": [0, 0, 0],
+            "targetOrientation": [0, 0, 0, 1],
             "thetaOffset": 45
           },
           "followMode": "follow-pose",

@@ -14,10 +14,7 @@
     "lib": ["dom", "es2022", "esnext.disposable"],
     "paths": {
       "@xgc2/xrpc": ["/usr/lib/xgc2/node_modules/@xgc2/xrpc/index.d.cts"],
-      "@lichtblick/suite-base/*": [
-        "../../../suite-base/src/*",
-        "../../../suite-base/*"
-      ]
+      "@lichtblick/suite-base/*": ["../../../suite-base/src/*", "../../../suite-base/*"]
     }
   }
 }

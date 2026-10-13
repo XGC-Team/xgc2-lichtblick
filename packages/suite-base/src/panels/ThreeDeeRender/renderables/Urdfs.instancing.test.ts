@@ -287,7 +287,12 @@ function expectedSlotPose(
   const quaternion = rootQuat
     .clone()
     .multiply(
-      new THREE.Quaternion(rel.orientation.x, rel.orientation.y, rel.orientation.z, rel.orientation.w),
+      new THREE.Quaternion(
+        rel.orientation.x,
+        rel.orientation.y,
+        rel.orientation.z,
+        rel.orientation.w,
+      ),
     );
   const position = new THREE.Vector3(
     rel.position.x * scale,
@@ -296,7 +301,11 @@ function expectedSlotPose(
   )
     .applyQuaternion(rootQuat)
     .add(new THREE.Vector3(root.position.x, root.position.y, root.position.z))
-    .add(new THREE.Vector3(origin.x * scale, origin.y * scale, origin.z * scale).applyQuaternion(quaternion));
+    .add(
+      new THREE.Vector3(origin.x * scale, origin.y * scale, origin.z * scale).applyQuaternion(
+        quaternion,
+      ),
+    );
   return { position, quaternion };
 }
 
@@ -520,9 +529,9 @@ describe("Urdfs same-model instancing", () => {
     selectedRenderableHandler(renderer)(undefined);
     extension.startFrame(102n, "world", "world");
     expect(batch.allocatedCount()).toBe(6);
-    expect([...selected.userData.renderables.values()].map((child) => child.userData.frameId)).toEqual([
-      "r2/rotor_link",
-    ]);
+    expect(
+      [...selected.userData.renderables.values()].map((child) => child.userData.frameId),
+    ).toEqual(["r2/rotor_link"]);
     expectSlotPose(
       transformTree,
       staticLink(extension, "robot2", "r2/arm_link").visuals[0]!.slots[0]!,
@@ -573,12 +582,28 @@ describe("Urdfs same-model instancing", () => {
     extension.startFrame(100n, "world", "world");
 
     const arm1 = staticLink(extension, "robot1", "r1/arm_link").visuals[0]!;
-    expectSlotPose(transformTree, arm1.slots[0]!, "r1/base_link", "r1/arm_link", ARM_ORIGIN, 1, 100n);
+    expectSlotPose(
+      transformTree,
+      arm1.slots[0]!,
+      "r1/base_link",
+      "r1/arm_link",
+      ARM_ORIGIN,
+      1,
+      100n,
+    );
     const scale1 = slotScale(arm1.slots[0]!);
     expect(scale1.x).toBeCloseTo(0.2);
 
     const arm2 = staticLink(extension, "robot2", "r2/arm_link").visuals[0]!;
-    expectSlotPose(transformTree, arm2.slots[0]!, "r2/base_link", "r2/arm_link", ARM_ORIGIN, 2, 100n);
+    expectSlotPose(
+      transformTree,
+      arm2.slots[0]!,
+      "r2/base_link",
+      "r2/arm_link",
+      ARM_ORIGIN,
+      2,
+      100n,
+    );
     const scale2 = slotScale(arm2.slots[0]!);
     expect(scale2.x).toBeCloseTo(0.4);
     // The scaled robot's arm rides at twice the root->link offset.
@@ -646,9 +671,15 @@ describe("Urdfs same-model instancing", () => {
       renderer.fetchAsset.mock.calls.filter(([url]) => (url as string).endsWith(".dae")),
     ).toHaveLength(1);
     // The leaf's local offset lands in both instance matrices.
-    expect(slotPosition(staticLink(extension, "robot1", "r1/base_link").visuals[0]!.slots[0]!).x).toBeCloseTo(10.5);
-    expect(slotPosition(staticLink(extension, "robot1", "r1/base_link").visuals[0]!.slots[0]!).y).toBeCloseTo(0.25);
-    expect(slotPosition(staticLink(extension, "robot2", "r2/base_link").visuals[0]!.slots[0]!).x).toBeCloseTo(20.5);
+    expect(
+      slotPosition(staticLink(extension, "robot1", "r1/base_link").visuals[0]!.slots[0]!).x,
+    ).toBeCloseTo(10.5);
+    expect(
+      slotPosition(staticLink(extension, "robot1", "r1/base_link").visuals[0]!.slots[0]!).y,
+    ).toBeCloseTo(0.25);
+    expect(
+      slotPosition(staticLink(extension, "robot2", "r2/base_link").visuals[0]!.slots[0]!).x,
+    ).toBeCloseTo(20.5);
 
     extension.dispose();
     modelCache.dispose();
@@ -675,7 +706,9 @@ describe("Urdfs same-model instancing", () => {
       renderer.fetchAsset.mock.calls.filter(([url]) => (url as string).endsWith(".stl")),
     ).toHaveLength(1);
     expectColor(staticLink(extension, "robot1", "r1/base_link").visuals[0]!.slots[0]!, 0, 1, 0);
-    expect(slotPosition(staticLink(extension, "robot2", "r2/base_link").visuals[0]!.slots[0]!).x).toBeCloseTo(20);
+    expect(
+      slotPosition(staticLink(extension, "robot2", "r2/base_link").visuals[0]!.slots[0]!).x,
+    ).toBeCloseTo(20);
 
     extension.dispose();
     modelCache.dispose();
@@ -743,7 +776,15 @@ describe("Urdfs same-model instancing", () => {
 
     robot(extension, "robot1").visible = true;
     extension.startFrame(200n, "world", "world");
-    expectSlotPose(transformTree, baseSlot, "r1/base_link", "r1/base_link", ORIGIN_IDENTITY, 1, 200n);
+    expectSlotPose(
+      transformTree,
+      baseSlot,
+      "r1/base_link",
+      "r1/base_link",
+      ORIGIN_IDENTITY,
+      1,
+      200n,
+    );
 
     extension.dispose();
     modelCache.dispose();
@@ -779,7 +820,9 @@ describe("Urdfs same-model instancing", () => {
     deleteLayer(extension, "robot3");
     extension.startFrame(300n, "world", "world");
     expect(extension.instancePool.batches()).toHaveLength(0);
-    expect(extension.children.filter((child) => child instanceof THREE.InstancedMesh)).toHaveLength(0);
+    expect(extension.children.filter((child) => child instanceof THREE.InstancedMesh)).toHaveLength(
+      0,
+    );
 
     extension.dispose();
     modelCache.dispose();

@@ -27,5 +27,8 @@ export function normalizeView(value: unknown): DesiredView;
 export class ViewStore {
   readonly state: ViewState;
   subscribe(listener: (state: ViewState) => void): () => void;
-  set(view: unknown, options?: { expectedRevision?: string }): Promise<ViewState & { unchanged: boolean }>;
+  set(
+    view: unknown,
+    options?: { expectedRevision?: string },
+  ): Promise<ViewState & { unchanged: boolean }>;
 }

@@ -5,14 +5,10 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import { getAppSetting, initializeAppSettings, observeCommittedSettings } from "./settings";
 import { AppSetting } from "../../../suite-base/src/AppSetting";
 import type { ManagedRequest } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
-import {
-  getAppSetting,
-  initializeAppSettings,
-  observeCommittedSettings,
-} from "./settings";
 
 const token = {
   database_id: "desktop-test",
@@ -92,9 +88,7 @@ it("does not regress when an earlier committed reply arrives later", () => {
 
 it("retains a deletion version so a late reply cannot restore deleted settings", () => {
   const deleted = batch(undefined, "3");
-  deleted.changes = [
-    { family: "configuration", key, expectedVersion: "3", delete: true },
-  ];
+  deleted.changes = [{ family: "configuration", key, expectedVersion: "3", delete: true }];
   observeCommittedSettings(deleted, receipt("4", "6"));
   observeCommittedSettings(batch("dark"), receipt("3"));
   expect(getAppSetting(key)).toBeUndefined();

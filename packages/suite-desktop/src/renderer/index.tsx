@@ -22,13 +22,12 @@ import {
   IAppConfiguration,
   AppSetting,
 } from "@lichtblick/suite-base";
-import { sharedI18nObject } from "../../../suite-base/src/i18n";
 
 import Root from "./Root";
+import { sharedI18nObject } from "../../../suite-base/src/i18n";
 import { Desktop } from "../common/types";
 
-const desktopBridge = (global as unknown as { desktopBridge: Desktop })
-  .desktopBridge;
+const desktopBridge = (global as unknown as { desktopBridge: Desktop }).desktopBridge;
 
 const log = Logger.getLogger(__filename);
 

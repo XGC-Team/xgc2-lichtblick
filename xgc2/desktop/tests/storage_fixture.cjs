@@ -1,9 +1,13 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
 // Test-only: a managed client against the fake storage service, in a private directory.
 const fs = require("node:fs");
 const path = require("node:path");
+
 const { createManagedDomainClientFromInput } = require("../managed-storage.cjs");
 const { createFakeStorage } = require("./fake_storage.cjs");
 const { domainInput, privateDirectory } = require("./input_fixture.cjs");
@@ -13,13 +17,31 @@ const scope = { namespace: "lichtblick", user: "alice", workspace: "lab" };
 const viewScope = { namespace: "lichtblick", user: "alice", workspace: "lab.view" };
 
 /** The fake storage and, unless `client` is false, a managed client holding the asset grant. */
-async function startStorage(t, { access = "read-write", client: withClient = true, withViewScope = true } = {}) {
+async function startStorage(
+  t,
+  { access = "read-write", client: withClient = true, withViewScope = true } = {},
+) {
   const root = privateDirectory("lichtblick-storage-");
   const assets = path.join(root, "assets");
   fs.mkdirSync(assets, { mode: 0o700 });
-  const storage = createFakeStorage({ socketPath: path.join(root, "storage.sock"), scope, viewScope: withViewScope ? viewScope : undefined });
+  const storage = createFakeStorage({
+    socketPath: path.join(root, "storage.sock"),
+    scope,
+    viewScope: withViewScope ? viewScope : undefined,
+  });
   await storage.start();
-  const client = withClient ? createManagedDomainClientFromInput(domainInput(storage.reference, scope, assets, storage.token, access, withViewScope ? viewScope : undefined)) : undefined;
+  const client = withClient
+    ? createManagedDomainClientFromInput(
+        domainInput(
+          storage.reference,
+          scope,
+          assets,
+          storage.token,
+          access,
+          withViewScope ? viewScope : undefined,
+        ),
+      )
+    : undefined;
   t.after(async () => {
     await client?.close();
     await storage.close();

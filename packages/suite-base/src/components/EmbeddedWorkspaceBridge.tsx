@@ -174,9 +174,7 @@ function useEmbeddedDesiredView(
   const { setSelectedLayoutId } = useCurrentLayoutActions();
   const layoutId = useCurrentLayoutSelector(selectedLayoutIdSelector);
   const [desired, setDesired] = useState<DesiredViewState>();
-  const [panels, setPanels] = useState<ReadonlyMap<string, Xgc2EmbeddedNavigationState>>(
-    new Map(),
-  );
+  const [panels, setPanels] = useState<ReadonlyMap<string, Xgc2EmbeddedNavigationState>>(new Map());
   // The revision whose layout does not exist; the rest of that view is applied to the current one.
   const [missingLayoutRevision, setMissingLayoutRevision] = useState<string>();
   const progress = useRef<{ revision: string; pending: Set<ViewField> }>();
@@ -272,7 +270,9 @@ function useEmbeddedDesiredView(
 
     const observed: ObservedView = { layoutId, visibleSurfaces, panel };
     const layoutSettled =
-      view.layoutId == undefined || layoutId === view.layoutId || missingLayoutRevision === revision;
+      view.layoutId == undefined ||
+      layoutId === view.layoutId ||
+      missingLayoutRevision === revision;
     const plan = planDesiredView(view, observed, current.pending, { layoutSettled });
     current.pending = plan.pending;
     plan.steps.forEach(applyStep);

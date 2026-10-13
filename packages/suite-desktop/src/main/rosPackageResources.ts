@@ -13,9 +13,10 @@ import { pathToFileURL } from "url";
 import UTIF from "utif";
 
 import Logger from "@lichtblick/log";
-import { AppSetting } from "../../../suite-base/src/AppSetting";
 
 import { getAppSetting } from "./settings";
+import { AppSetting } from "../../../suite-base/src/AppSetting";
+
 
 const log = Logger.getLogger(__filename);
 

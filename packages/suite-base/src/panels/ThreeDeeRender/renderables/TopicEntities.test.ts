@@ -180,7 +180,16 @@ describe("TopicEntities content diff", () => {
     const { topicEntities, updateSpy } = setup();
     topicEntities.addOrUpdateEntity(makeEntity(), 100n);
     topicEntities.addOrUpdateEntity(
-      makeEntity({ lines: [makeLine({ points: [{ x: 0, y: 0, z: 0 }, { x: 2, y: 2, z: 2 }] })] }),
+      makeEntity({
+        lines: [
+          makeLine({
+            points: [
+              { x: 0, y: 0, z: 0 },
+              { x: 2, y: 2, z: 2 },
+            ],
+          }),
+        ],
+      }),
       200n,
     );
     expect(updateSpy).toHaveBeenCalledTimes(2);
@@ -348,10 +357,7 @@ describe("hashSceneEntityContent", () => {
     ],
     ["line thickness", () => makeEntity({ lines: [makeLine({ thickness: 0.2 })] })],
     ["line color", () => makeEntity({ lines: [makeLine({ color: { r: 0, g: 0, b: 0, a: 1 } })] })],
-    [
-      "line vertex colors",
-      () => makeEntity({ lines: [makeLine({ colors: [WHITE, WHITE] })] }),
-    ],
+    ["line vertex colors", () => makeEntity({ lines: [makeLine({ colors: [WHITE, WHITE] })] })],
     ["line indices", () => makeEntity({ lines: [makeLine({ indices: [0, 1] })] })],
     ["line type", () => makeEntity({ lines: [makeLine({ type: LineType.LINE_LIST })] })],
     ["line scale_invariant", () => makeEntity({ lines: [makeLine({ scale_invariant: true })] })],

@@ -7,19 +7,17 @@
 
 import { ipcMain } from "electron";
 
-import type { ManagedRequest } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
-import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
 import StudioWindow from "./StudioWindow";
 import { observeCommittedSettings } from "./settings";
 import type { ManagedDomainClient } from "../../../../xgc2/desktop/managed-storage.cjs";
+import { ManagedRequestError } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
+import type { ManagedRequest } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 import { managedIPCFailure } from "../common/managedIPC";
 import type { ManagedIPCReply } from "../common/types";
 
 /** One bounded main-process admission path; no arbitrary filesystem IPC. */
-export function registerManagedPersistenceIPC(
-  client: ManagedDomainClient,
-): void {
+export function registerManagedPersistenceIPC(client: ManagedDomainClient): void {
   let active = 0;
   async function invoke<T>(
     event: Electron.IpcMainInvokeEvent,

@@ -492,7 +492,15 @@ export function rootedIdentityPose(
     fixedFrame?.id === CoordinateFrame.FALLBACK_FRAME_ID;
   if (fallbackInvolved) {
     bypassRootedPose.applied = Boolean(
-      transformTree.apply(tempRootedPose, identityPose, frameId, rootFrameId, srcFrameId, time, time),
+      transformTree.apply(
+        tempRootedPose,
+        identityPose,
+        frameId,
+        rootFrameId,
+        srcFrameId,
+        time,
+        time,
+      ),
     );
     bypassRootedPose.rooted = false;
     const p = tempRootedPose.position;
@@ -614,7 +622,10 @@ const viaRootQuatC = new THREE.Quaternion();
 
 function poseValuesMatch(
   values: readonly [number, number, number, number, number, number, number],
-  pose: { position: { x: number; y: number; z: number }; orientation: { x: number; y: number; z: number; w: number } },
+  pose: {
+    position: { x: number; y: number; z: number };
+    orientation: { x: number; y: number; z: number; w: number };
+  },
 ): boolean {
   const p = pose.position;
   const q = pose.orientation;
@@ -665,7 +676,15 @@ export function updatePoseViaRoot(
     time,
   );
   if (!rel.rooted) {
-    return updatePose(renderable, transformTree, renderFrameId, fixedFrameId, srcFrameId, time, time);
+    return updatePose(
+      renderable,
+      transformTree,
+      renderFrameId,
+      fixedFrameId,
+      srcFrameId,
+      time,
+      time,
+    );
   }
   if (!rootPose.applied || !rel.applied) {
     renderable.visible = false;
@@ -697,9 +716,19 @@ export function updatePoseViaRoot(
     .applyQuaternion(viaRootQuatA)
     .add(viaRootVecB.set(rel.position.x, rel.position.y, rel.position.z));
   viaRootQuatA.multiply(
-    viaRootQuatC.set(pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w),
+    viaRootQuatC.set(
+      pose.orientation.x,
+      pose.orientation.y,
+      pose.orientation.z,
+      pose.orientation.w,
+    ),
   );
-  viaRootQuatB.set(rootPose.orientation.x, rootPose.orientation.y, rootPose.orientation.z, rootPose.orientation.w);
+  viaRootQuatB.set(
+    rootPose.orientation.x,
+    rootPose.orientation.y,
+    rootPose.orientation.z,
+    rootPose.orientation.w,
+  );
   viaRootVecA.applyQuaternion(viaRootQuatB);
   viaRootVecA.x += rootPose.position.x;
   viaRootVecA.y += rootPose.position.y;

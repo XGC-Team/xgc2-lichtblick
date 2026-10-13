@@ -249,9 +249,7 @@ function expectSlotMatchesScaledCompose(
     relTruth.position.z * scale,
   )
     .applyQuaternion(rootQuat)
-    .add(
-      new THREE.Vector3(rootTruth.position.x, rootTruth.position.y, rootTruth.position.z),
-    )
+    .add(new THREE.Vector3(rootTruth.position.x, rootTruth.position.y, rootTruth.position.z))
     .add(
       new THREE.Vector3(
         visual.pose.position.x * scale,
@@ -334,7 +332,14 @@ describe("Urdfs startFrame pose updates", () => {
 
     // Pooled instance matrices match the unhoisted full-tree query, including
     // the rotated joint and the two distinct arm visual origins.
-    expectSlotMatchesFullTreeQuery(transformTree, base.visuals[0]!.slots[0]!, base.visuals[0]!, "base_link", 1, 100n);
+    expectSlotMatchesFullTreeQuery(
+      transformTree,
+      base.visuals[0]!.slots[0]!,
+      base.visuals[0]!,
+      "base_link",
+      1,
+      100n,
+    );
     const basePos = new THREE.Vector3();
     slotWorldMatrix(base.visuals[0]!.slots[0]!).decompose(basePos, tempQuat, tempScale);
     expect(basePos.x).toBeCloseTo(10);
@@ -356,7 +361,14 @@ describe("Urdfs startFrame pose updates", () => {
     applySpy.mockClear();
     extension.startFrame(200n, "world", "world");
     expect(applySpy).not.toHaveBeenCalled();
-    expectSlotMatchesFullTreeQuery(transformTree, base.visuals[0]!.slots[0]!, base.visuals[0]!, "base_link", 1, 200n);
+    expectSlotMatchesFullTreeQuery(
+      transformTree,
+      base.visuals[0]!.slots[0]!,
+      base.visuals[0]!,
+      "base_link",
+      1,
+      200n,
+    );
     expectMatchesFullTreeQuery(transformTree, rotor, 200n);
 
     extension.dispose();

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
@@ -5,10 +8,18 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+
 const { loadStartupInput } = require("../startup-input.cjs");
 const { privateDirectory, writeStartupInput } = require("./input_fixture.cjs");
 
-const reference = { target_id: "fixture", service: "xgc2.storage.v1.Storage", api_version: "1", instance_id: "storage-1", profile: "http.v1", endpoint: { kind: "unix", address: "/run/xgc2/sockets/storage.sock" } };
+const reference = {
+  target_id: "fixture",
+  service: "xgc2.storage.v1.Storage",
+  api_version: "1",
+  instance_id: "storage-1",
+  profile: "http.v1",
+  endpoint: { kind: "unix", address: "/run/xgc2/sockets/storage.sock" },
+};
 const scope = { namespace: "lichtblick", user: "alice", workspace: "lab" };
 function fixture(t, options = {}) {
   const root = privateDirectory();
@@ -35,7 +46,11 @@ test("the desired view may have a scope of its own", (t) => {
   assert.deepEqual(input.storage.viewScope, viewScope);
   assert.ok(Object.isFrozen(input.storage.viewScope));
   // A different user is as good as a different workspace.
-  assert.deepEqual(loadStartupInput(fixture(t, { viewScope: { ...scope, user: "bob" } }).file).storage.viewScope.user, "bob");
+  assert.deepEqual(
+    loadStartupInput(fixture(t, { viewScope: { ...scope, user: "bob" } }).file).storage.viewScope
+      .user,
+    "bob",
+  );
   // Without one, the input is still valid (the desktop needs none); only the desktop reads this file now.
   assert.equal(loadStartupInput(fixture(t).file).storage.viewScope, undefined);
 });
@@ -71,25 +86,63 @@ test("only the declared schema is accepted", (t) => {
     const { file } = fixture(t, { change });
     assert.throws(() => loadStartupInput(file), pattern);
   };
-  rejected((input) => { input.schema_version = 2; }, /schema/);
-  rejected((input) => { input.extra = true; }, /unknown startup input field/);
-  rejected((input) => { delete input.assets; }, /missing startup input field assets/);
-  rejected((input) => { input.operator_time_zone = ""; }, /time zone/);
-  rejected((input) => { input.storage.reference.service = "xgc2.other"; }, /storage-v1/);
-  rejected((input) => { input.storage.reference.endpoint = { kind: "https", address: "https://127.0.0.1:1" }; }, /Unix/);
-  rejected((input) => { input.storage.reference.endpoint.address = "relative.sock"; }, /absolute/);
-  rejected((input) => { input.storage.reference.endpoint.address = `/${"x".repeat(120)}`; }, /shorter/);
-  rejected((input) => { input.storage.reference.instance_id = "has space"; }, /instance_id/);
-  rejected((input) => { input.storage.scope.namespace = "other"; }, /lichtblick/);
-  rejected((input) => { input.storage.scope.user = ""; }, /scope user/);
-  rejected((input) => { input.storage.scope.extra = 1; }, /unknown storage scope field/);
-  rejected((input) => { input.storage.view_scope = { ...scope }; }, /must differ/);
-  rejected((input) => { input.storage.view_scope = { ...scope, namespace: "other", workspace: "lab.view" }; }, /lichtblick namespace/);
-  rejected((input) => { input.storage.view_scope = { ...scope, workspace: "" }; }, /view_scope workspace/);
-  rejected((input) => { input.storage.view_scope = { ...scope, workspace: "lab.view", extra: 1 }; }, /unknown storage view_scope field/);
-  rejected((input) => { input.assets.access = "write"; }, /access/);
-  rejected((input) => { input.assets.root = "assets"; }, /canonical/);
-  rejected((input) => { input.assets.root = "/a/../b"; }, /canonical/);
+  rejected((input) => {
+    input.schema_version = 2;
+  }, /schema/);
+  rejected((input) => {
+    input.extra = true;
+  }, /unknown startup input field/);
+  rejected((input) => {
+    delete input.assets;
+  }, /missing startup input field assets/);
+  rejected((input) => {
+    input.operator_time_zone = "";
+  }, /time zone/);
+  rejected((input) => {
+    input.storage.reference.service = "xgc2.other";
+  }, /storage-v1/);
+  rejected((input) => {
+    input.storage.reference.endpoint = { kind: "https", address: "https://127.0.0.1:1" };
+  }, /Unix/);
+  rejected((input) => {
+    input.storage.reference.endpoint.address = "relative.sock";
+  }, /absolute/);
+  rejected((input) => {
+    input.storage.reference.endpoint.address = `/${"x".repeat(120)}`;
+  }, /shorter/);
+  rejected((input) => {
+    input.storage.reference.instance_id = "has space";
+  }, /instance_id/);
+  rejected((input) => {
+    input.storage.scope.namespace = "other";
+  }, /lichtblick/);
+  rejected((input) => {
+    input.storage.scope.user = "";
+  }, /scope user/);
+  rejected((input) => {
+    input.storage.scope.extra = 1;
+  }, /unknown storage scope field/);
+  rejected((input) => {
+    input.storage.view_scope = { ...scope };
+  }, /must differ/);
+  rejected((input) => {
+    input.storage.view_scope = { ...scope, namespace: "other", workspace: "lab.view" };
+  }, /lichtblick namespace/);
+  rejected((input) => {
+    input.storage.view_scope = { ...scope, workspace: "" };
+  }, /view_scope workspace/);
+  rejected((input) => {
+    input.storage.view_scope = { ...scope, workspace: "lab.view", extra: 1 };
+  }, /unknown storage view_scope field/);
+  rejected((input) => {
+    input.assets.access = "write";
+  }, /access/);
+  rejected((input) => {
+    input.assets.root = "assets";
+  }, /canonical/);
+  rejected((input) => {
+    input.assets.root = "/a/../b";
+  }, /canonical/);
   const { root, file } = fixture(t);
   fs.writeFileSync(path.join(root, "storage-token"), "token\n", { mode: 0o600 });
   assert.throws(() => loadStartupInput(file), /bearer token/);

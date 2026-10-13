@@ -134,7 +134,9 @@ describe("EmbeddedWorkspaceBridge", () => {
     jest
       .mocked(useCurrentLayoutSelector)
       .mockImplementation((selector) =>
-        selector({ selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined } as never),
+        selector({
+          selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined,
+        } as never),
       );
     jest.mocked(useLayoutManager).mockReturnValue({ getLayout } as never);
     FakeEventSource.instances = [];
@@ -237,7 +239,10 @@ describe("EmbeddedWorkspaceBridge", () => {
       const postMessage = jest.spyOn(window.parent, "postMessage").mockImplementation();
       render(<EmbeddedWorkspaceBridge />);
 
-      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "ready" }), parentOrigin);
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "ready" }),
+        parentOrigin,
+      );
 
       act(() => {
         dispatchHostMessage(hostCommand("topics"), { origin: parentOrigin });
@@ -593,7 +598,11 @@ describe("EmbeddedWorkspaceBridge desired view", () => {
   }
 
   /** What the native 3D panel publishes about its navigation. */
-  function reportPanel(state: { available?: boolean; perspective?: boolean; followFrameId?: string }) {
+  function reportPanel(state: {
+    available?: boolean;
+    perspective?: boolean;
+    followFrameId?: string;
+  }) {
     act(() => {
       publishNavigationState({
         channel: XGC2_EMBED_CHANNEL,
@@ -624,7 +633,9 @@ describe("EmbeddedWorkspaceBridge desired view", () => {
     jest
       .mocked(useCurrentLayoutSelector)
       .mockImplementation((selector) =>
-        selector({ selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined } as never),
+        selector({
+          selectedLayout: selectedLayoutId ? { id: selectedLayoutId } : undefined,
+        } as never),
       );
     jest.mocked(useLayoutManager).mockReturnValue({ getLayout } as never);
     getLayout.mockResolvedValue({ id: "camera-ar" });

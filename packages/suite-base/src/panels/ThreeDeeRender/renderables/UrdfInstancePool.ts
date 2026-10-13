@@ -436,10 +436,7 @@ export class UrdfInstanceBatch extends Renderable {
     (mesh.instanceMatrix.array as Float32Array).set(previous.instanceMatrix.array);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     if (previous.instanceColor) {
-      mesh.instanceColor = new THREE.InstancedBufferAttribute(
-        new Float32Array(newCapacity * 3),
-        3,
-      );
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(newCapacity * 3), 3);
       (mesh.instanceColor.array as Float32Array).set(previous.instanceColor.array);
       mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     }
@@ -454,10 +451,7 @@ export class UrdfInstanceBatch extends Renderable {
 
     if (this.#instanceOpacity) {
       const previousOpacity = this.#instanceOpacity;
-      this.#instanceOpacity = new THREE.InstancedBufferAttribute(
-        new Float32Array(newCapacity),
-        1,
-      );
+      this.#instanceOpacity = new THREE.InstancedBufferAttribute(new Float32Array(newCapacity), 1);
       (this.#instanceOpacity.array as Float32Array).set(previousOpacity.array);
       this.#instanceOpacity.setUsage(THREE.DynamicDrawUsage);
       this.#geometry.setAttribute("instanceOpacity", this.#instanceOpacity);

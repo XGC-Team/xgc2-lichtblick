@@ -25,14 +25,14 @@ import {
   UlogLocalDataSourceFactory,
   VelodyneDataSourceFactory,
 } from "@lichtblick/suite-base";
-import { ManagedExtensionLoader } from "../../../suite-base/src/services/persistence/ManagedExtensionLoader";
+
 
 import { NativeAppMenu } from "./services/NativeAppMenu";
 import { NativeWindow } from "./services/NativeWindow";
+import { ManagedExtensionLoader } from "../../../suite-base/src/services/persistence/ManagedExtensionLoader";
 import { CLIFlags, Desktop, NativeMenuBridge } from "../common/types";
 
-const desktopBridge = (global as unknown as { desktopBridge: Desktop })
-  .desktopBridge;
+const desktopBridge = (global as unknown as { desktopBridge: Desktop }).desktopBridge;
 const menuBridge = (global as { menuBridge?: NativeMenuBridge }).menuBridge;
 const ctxbridge = (global as { ctxbridge?: OsContext }).ctxbridge;
 const layoutLoaders: LayoutLoader[] = [];
@@ -105,8 +105,7 @@ export default function Root(props: RootProps): React.JSX.Element {
     // We treat presence of the `ds` or `layoutId` params as indicative of active state.
     const windowUrl = new URL(window.location.href);
     const hasActiveURLState =
-      windowUrl.searchParams.has("ds") ||
-      windowUrl.searchParams.has("layoutId");
+      windowUrl.searchParams.has("ds") || windowUrl.searchParams.has("layoutId");
     return hasActiveURLState ? [window.location.href] : props.startupDeepLinks;
   });
 
@@ -127,27 +126,18 @@ export default function Root(props: RootProps): React.JSX.Element {
   }, [nativeWindow]);
 
   useEffect(() => {
-    const unregisterFull = desktopBridge.addIpcEventListener(
-      "enter-full-screen",
-      () => {
-        setFullScreen(true);
-      },
-    );
-    const unregisterLeave = desktopBridge.addIpcEventListener(
-      "leave-full-screen",
-      () => {
-        setFullScreen(false);
-      },
-    );
+    const unregisterFull = desktopBridge.addIpcEventListener("enter-full-screen", () => {
+      setFullScreen(true);
+    });
+    const unregisterLeave = desktopBridge.addIpcEventListener("leave-full-screen", () => {
+      setFullScreen(false);
+    });
     const unregisterMax = desktopBridge.addIpcEventListener("maximize", () => {
       setMaximized(true);
     });
-    const unregisterUnMax = desktopBridge.addIpcEventListener(
-      "unmaximize",
-      () => {
-        setMaximized(false);
-      },
-    );
+    const unregisterUnMax = desktopBridge.addIpcEventListener("unmaximize", () => {
+      setMaximized(false);
+    });
     return () => {
       unregisterFull();
       unregisterLeave();
@@ -167,9 +157,7 @@ export default function Root(props: RootProps): React.JSX.Element {
       nativeAppMenu={nativeAppMenu}
       nativeWindow={nativeWindow}
       enableGlobalCss
-      appBarLeftInset={
-        ctxbridge?.platform === "darwin" && !isFullScreen ? 72 : undefined
-      }
+      appBarLeftInset={ctxbridge?.platform === "darwin" && !isFullScreen ? 72 : undefined}
       onAppBarDoubleClick={() => {
         nativeWindow.handleTitleBarDoubleClick();
       }}

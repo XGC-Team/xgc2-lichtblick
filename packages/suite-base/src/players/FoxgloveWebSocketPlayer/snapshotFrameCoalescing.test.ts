@@ -113,10 +113,13 @@ describe("snapshot subscriber semantics", () => {
     expect(deliveredSamples([renderSubscription])).toEqual([2]);
   });
 
-  it.each(["tf2_msgs/TFMessage", "visualization_msgs/Marker", "foxglove.SceneUpdate"])(
-    "never coalesces %s even for an authorized display subscription",
-    (schema) => { expect(deliveredSamples([renderSubscription], schema)).toEqual([1, 2]); },
-  );
+  it.each([
+    "tf2_msgs/TFMessage",
+    "visualization_msgs/Marker",
+    "foxglove.SceneUpdate",
+  ])("never coalesces %s even for an authorized display subscription", (schema) => {
+    expect(deliveredSamples([renderSubscription], schema)).toEqual([1, 2]);
+  });
 
   it("coalesces an authorized display-only subscription", () => {
     expect(snapshotCoalescingTopics(mergeSubscriptions([renderSubscription]))).toEqual(
@@ -124,29 +127,37 @@ describe("snapshot subscriber semantics", () => {
     );
   });
 
-  it.each(["partial", "full"] as const)(
-    "keeps all samples when a %s history consumer shares the display topic",
-    (preloadType) => {
-      const history: InternalSubscribePayload = { topic: "/path", preloadType };
-      for (const inputs of [[renderSubscription, history], [history, renderSubscription]]) {
-        expect(snapshotCoalescingTopics(mergeSubscriptions(inputs))).toEqual(new Set());
-      }
-    },
-  );
+  it.each([
+    "partial",
+    "full",
+  ] as const)("keeps all samples when a %s history consumer shares the display topic", (preloadType) => {
+    const history: InternalSubscribePayload = { topic: "/path", preloadType };
+    for (const inputs of [
+      [renderSubscription, history],
+      [history, renderSubscription],
+    ]) {
+      expect(snapshotCoalescingTopics(mergeSubscriptions(inputs))).toEqual(new Set());
+    }
+  });
 
   it("rejects an unapproved request and a full-history request even with approval", () => {
-    expect(snapshotCoalescingTopics([{ ...renderSubscription, samplingAuthorized: undefined }]))
-      .toEqual(new Set());
-    expect(snapshotCoalescingTopics([{ ...renderSubscription, preloadType: "full" }]))
-      .toEqual(new Set());
+    expect(
+      snapshotCoalescingTopics([{ ...renderSubscription, samplingAuthorized: undefined }]),
+    ).toEqual(new Set());
+    expect(snapshotCoalescingTopics([{ ...renderSubscription, preloadType: "full" }])).toEqual(
+      new Set(),
+    );
   });
 
   it("revokes sampling on subscription changes without changing unrelated topics", () => {
     const other = { ...renderSubscription, topic: "/cloud" };
-    expect(snapshotCoalescingTopics(mergeSubscriptions([renderSubscription, other])))
-      .toEqual(new Set(["/path", "/cloud"]));
-    expect(snapshotCoalescingTopics(mergeSubscriptions([
-      renderSubscription, other, { topic: "/path", preloadType: "partial" },
-    ]))).toEqual(new Set(["/cloud"]));
+    expect(snapshotCoalescingTopics(mergeSubscriptions([renderSubscription, other]))).toEqual(
+      new Set(["/path", "/cloud"]),
+    );
+    expect(
+      snapshotCoalescingTopics(
+        mergeSubscriptions([renderSubscription, other, { topic: "/path", preloadType: "partial" }]),
+      ),
+    ).toEqual(new Set(["/cloud"]));
   });
 });

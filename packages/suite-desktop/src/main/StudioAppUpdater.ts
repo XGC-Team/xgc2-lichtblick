@@ -10,9 +10,10 @@ import { autoUpdater, UpdateInfo } from "electron-updater";
 import { EventEmitter } from "eventemitter3";
 
 import Logger from "@lichtblick/log";
-import { AppSetting } from "../../../suite-base/src/AppSetting";
 
 import { getAppSetting } from "./settings";
+import { AppSetting } from "../../../suite-base/src/AppSetting";
+
 
 const log = Logger.getLogger(__filename);
 

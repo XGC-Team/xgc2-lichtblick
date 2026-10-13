@@ -5,12 +5,12 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import type { ManagedAsset } from "../../../../xgc2/desktop/managed-storage.cjs";
 import type {
   ManagedRequest,
   ManagedTransport,
 } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
-import type { ManagedAsset } from "../../../../xgc2/desktop/managed-storage.cjs";
 
 export type ManagedIPCReply<T> =
   | { ok: true; value: T }
@@ -48,7 +48,10 @@ export type ForwardedMenuEvent =
   | "open-help-general";
 
 export type ForwardedWindowEvent =
-  "enter-full-screen" | "leave-full-screen" | "maximize" | "unmaximize";
+  | "enter-full-screen"
+  | "leave-full-screen"
+  | "maximize"
+  | "unmaximize";
 
 /** Registering an event listener returns a function that will un-register the listener */
 export type UnregisterFn = () => void;
@@ -68,10 +71,7 @@ interface NativeMenuBridge {
    *
    * https://www.electronjs.org/docs/latest/api/context-bridge#parameter--error--return-type-support
    */
-  addIpcEventListener(
-    eventName: ForwardedMenuEvent,
-    handler: () => void,
-  ): UnregisterFn;
+  addIpcEventListener(eventName: ForwardedMenuEvent, handler: () => void): UnregisterFn;
 }
 
 export type CLIFlags = Readonly<Record<string, string>>;
@@ -80,10 +80,7 @@ interface Desktop {
   /** https://www.electronjs.org/docs/tutorial/represented-file */
   setRepresentedFilename(path: string | undefined): Promise<void>;
 
-  addIpcEventListener(
-    eventName: ForwardedWindowEvent,
-    handler: () => void,
-  ): UnregisterFn;
+  addIpcEventListener(eventName: ForwardedWindowEvent, handler: () => void): UnregisterFn;
 
   /**
    * Notify the app that the color scheme setting has changed and the native theme may need to be

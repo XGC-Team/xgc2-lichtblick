@@ -271,7 +271,9 @@ it("retains the diagnostic owner until its actual writer drains", async () => {
   await flush();
   expect(client.close).toHaveBeenCalledTimes(1);
   expect((app.quit as jest.Mock).mock.calls).toHaveLength(0);
-  diagnostics.close.mockImplementationOnce(async () => { await draining.promise; });
+  diagnostics.close.mockImplementationOnce(async () => {
+    await draining.promise;
+  });
   quit();
   await flush();
   expect((app.quit as jest.Mock).mock.calls).toHaveLength(0);
@@ -285,7 +287,9 @@ it("drains diagnostics when domain construction fails before an owned client exi
     throw new Error("invalid domain grant");
   });
   const draining = deferred();
-  diagnostics.close.mockImplementationOnce(async () => { await draining.promise; });
+  diagnostics.close.mockImplementationOnce(async () => {
+    await draining.promise;
+  });
   await expect(main(startupOptions)).rejects.toThrow("invalid domain grant");
   expect(quit()).toHaveBeenCalledTimes(1);
   await flush();

@@ -32,8 +32,7 @@ export class RenderScheduler {
   ) {
     this.#render = render;
     this.#minFrameIntervalMs = options.minFrameIntervalMs ?? 0;
-    this.#requestFrame =
-      options.requestFrame ?? ((callback) => requestAnimationFrame(callback));
+    this.#requestFrame = options.requestFrame ?? ((callback) => requestAnimationFrame(callback));
     this.#cancelFrame =
       options.cancelFrame ??
       ((handle) => {

@@ -12,40 +12,27 @@ import {
   ManagedTransport,
 } from "../../../suite-base/src/services/persistence/ManagedDocumentStore";
 
-let configuration:
-  | Map<string, { value?: unknown; version: string; deleted?: boolean }>
-  | undefined;
+let configuration: Map<string, { value?: unknown; version: string; deleted?: boolean }> | undefined;
 
 /** Main's read-only projection is loaded before creating any native windows. */
-export async function initializeAppSettings(
-  transport: ManagedTransport,
-): Promise<void> {
+export async function initializeAppSettings(transport: ManagedTransport): Promise<void> {
   const store = new ManagedDocumentStore(transport);
   await store.bootstrap(["configuration"]);
   configuration = new Map(
-    store
-      .records("configuration")
-      .map(({ key, value, version }) => [key, { value, version }]),
+    store.records("configuration").map(({ key, value, version }) => [key, { value, version }]),
   );
 }
 
 export function getAppSetting<T>(key: AppSetting): T | undefined {
   if (!configuration) {
-    throw new Error(
-      "Managed app settings must load before native initialization",
-    );
+    throw new Error("Managed app settings must load before native initialization");
   }
   const record = configuration.get(key);
-  return record?.deleted === true
-    ? undefined
-    : (structuredClone(record?.value) as T | undefined);
+  return record?.deleted === true ? undefined : (structuredClone(record?.value) as T | undefined);
 }
 
 /** Project an acknowledged product batch without a second persistent writer. */
-export function observeCommittedSettings(
-  request: ManagedRequest,
-  receipt: unknown,
-): void {
+export function observeCommittedSettings(request: ManagedRequest, receipt: unknown): void {
   if (request.operation !== "batch") {
     return;
   }
@@ -99,11 +86,8 @@ export function observeCommittedSettings(
   }
   for (const change of request.changes) {
     if (change.family === "configuration") {
-      const version = (
-        value.versions as { family: string; key: string; version: string }[]
-      ).find(
-        (record) =>
-          record.family === change.family && record.key === change.key,
+      const version = (value.versions as { family: string; key: string; version: string }[]).find(
+        (record) => record.family === change.family && record.key === change.key,
       )!.version;
       const existingVersion = configuration.get(change.key)?.version ?? "0";
       if (BigInt(version) > BigInt(existingVersion)) {

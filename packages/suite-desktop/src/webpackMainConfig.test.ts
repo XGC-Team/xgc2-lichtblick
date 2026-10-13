@@ -64,7 +64,6 @@ describe("webpackMainConfig", () => {
         "@xgc2/xrpc": "commonjs /usr/lib/xgc2/node_modules/@xgc2/xrpc",
       });
     });
-
   });
 
   describe("production mode", () => {
@@ -84,7 +83,6 @@ describe("webpackMainConfig", () => {
       expect(config.optimization?.minimizer).toBeDefined();
       expect(config.optimization?.removeAvailableModules).toBe(true);
     });
-
   });
 
   describe("configuration output", () => {

@@ -128,7 +128,9 @@ describe("planDesiredView", () => {
     ]);
     expect(first.pending).toEqual(new Set(["follow", "perspective"]));
     // A repeat evaluation does not state them again.
-    expect(planDesiredView(view, NO_PANEL, first.pending, { layoutSettled: false }).steps).toEqual([]);
+    expect(planDesiredView(view, NO_PANEL, first.pending, { layoutSettled: false }).steps).toEqual(
+      [],
+    );
   });
 
   it("does not select a layout that is already selected", () => {

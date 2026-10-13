@@ -1278,8 +1278,10 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
             position: "absolute",
             top: 0,
             left: 0,
-            visibility: !embedded || (renderer != undefined && paintedRenderer === renderer)
-              ? "visible" : "hidden",
+            visibility:
+              !embedded || (renderer != undefined && paintedRenderer === renderer)
+                ? "visible"
+                : "hidden",
             ...((measureActive || publishActive) && { cursor: "crosshair" }),
           }}
         />

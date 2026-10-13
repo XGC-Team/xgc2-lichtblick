@@ -42,7 +42,11 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 /** Reads one `{revision, view}` document of the stream; anything else is not a view and is ignored. */
 export function parseDesiredViewState(value: unknown): DesiredViewState | undefined {
-  if (!isPlainRecord(value) || typeof value.revision !== "string" || !REVISION.test(value.revision)) {
+  if (
+    !isPlainRecord(value) ||
+    typeof value.revision !== "string" ||
+    !REVISION.test(value.revision)
+  ) {
     return undefined;
   }
   const wire = value.view;
@@ -74,7 +78,8 @@ export function parseDesiredViewState(value: unknown): DesiredViewState | undefi
       !Array.isArray(visibleSurfaces) ||
       visibleSurfaces.some(
         (surface) =>
-          typeof surface !== "string" || !(XGC2_EMBED_SURFACES as readonly string[]).includes(surface),
+          typeof surface !== "string" ||
+          !(XGC2_EMBED_SURFACES as readonly string[]).includes(surface),
       )
     ) {
       return undefined;

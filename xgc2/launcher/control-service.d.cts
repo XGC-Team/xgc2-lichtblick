@@ -13,9 +13,19 @@ export interface ControlService {
   start(): Promise<void>;
   markReady(): void;
   markNotReady(reason: string): void;
-  describe(): { service: typeof SERVICE; api_version: typeof API_VERSION; instance_id: string; ready: boolean; facts: Record<string, unknown> };
+  describe(): {
+    service: typeof SERVICE;
+    api_version: typeof API_VERSION;
+    instance_id: string;
+    ready: boolean;
+    facts: Record<string, unknown>;
+  };
   close(): Promise<void>;
 }
-export function createControlService(
-  options: { socketPath: string; viewStore: ViewStore; diagnostics?: Diagnostics; shutdownMs?: number; facts?: () => Record<string, unknown> },
-): ControlService;
+export function createControlService(options: {
+  socketPath: string;
+  viewStore: ViewStore;
+  diagnostics?: Diagnostics;
+  shutdownMs?: number;
+  facts?: () => Record<string, unknown>;
+}): ControlService;

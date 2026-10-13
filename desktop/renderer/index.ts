@@ -6,9 +6,9 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { AppSetting } from "@lichtblick/suite-base";
+
 import { ManagedAppConfiguration } from "../../packages/suite-base/src/services/persistence/ManagedAppConfiguration";
 import { initializeManagedPersistence } from "../../packages/suite-base/src/services/persistence/ManagedPersistence";
-
 import { unwrapManagedIPC } from "../../packages/suite-desktop/src/common/managedIPC";
 import { PersistenceBridge } from "../../packages/suite-desktop/src/common/types";
 import { main as rendererMain } from "../../packages/suite-desktop/src/renderer/index";
@@ -16,16 +16,14 @@ import { main as rendererMain } from "../../packages/suite-desktop/src/renderer/
 const isDevelopment = process.env.NODE_ENV === "development";
 
 async function main() {
-  const bridge = (global as { persistenceBridge?: PersistenceBridge })
-    .persistenceBridge;
+  const bridge = (global as { persistenceBridge?: PersistenceBridge }).persistenceBridge;
   if (!bridge) {
     throw new Error("Managed persistence bridge is missing");
   }
   const store = await initializeManagedPersistence(
     async (request) => unwrapManagedIPC(await bridge.domainRequest(request)),
     {
-      publish: async (bytes, info) =>
-        unwrapManagedIPC(await bridge.publish(bytes, info)),
+      publish: async (bytes, info) => unwrapManagedIPC(await bridge.publish(bytes, info)),
       load: async (asset) => unwrapManagedIPC(await bridge.load(asset)),
     },
   );

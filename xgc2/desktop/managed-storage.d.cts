@@ -6,9 +6,15 @@ export type ManagedAsset = { owner: "lichtblick"; asset_id: string; sha256: stri
 export interface ManagedDomainClient {
   readonly ready: Promise<void>;
   /** The scope of the pages' documents (every family but the desired view). */
-  readonly scope: { readonly namespace: "lichtblick"; readonly user: string; readonly workspace: string };
+  readonly scope: {
+    readonly namespace: "lichtblick";
+    readonly user: string;
+    readonly workspace: string;
+  };
   /** The scope that holds only the desired view; undefined when none was granted. */
-  readonly viewScope: { readonly namespace: "lichtblick"; readonly user: string; readonly workspace: string } | undefined;
+  readonly viewScope:
+    | { readonly namespace: "lichtblick"; readonly user: string; readonly workspace: string }
+    | undefined;
   /** Document operations in the document scope; a request that names the view family is refused (403). */
   request(
     request: unknown,
@@ -38,7 +44,11 @@ export class PersistenceError extends Error {
   requestId?: string;
 }
 export function createManagedDomainClient(options: {
-  call: (route: string, body: unknown, context?: { requestId?: string; timeoutMs?: number; signal?: AbortSignal }) => Promise<unknown>;
+  call: (
+    route: string,
+    body: unknown,
+    context?: { requestId?: string; timeoutMs?: number; signal?: AbortSignal },
+  ) => Promise<unknown>;
   close?: () => void | Promise<void>;
   scope: { namespace: "lichtblick"; user: string; workspace: string };
   viewScope?: { namespace: "lichtblick"; user: string; workspace: string };
@@ -46,4 +56,7 @@ export function createManagedDomainClient(options: {
   timeZone?: string;
   assetAccess?: "read-only" | "read-write";
 }): ManagedDomainClient;
-export function createManagedDomainClientFromInput(input: StartupInput, options?: { diagnostics?: Diagnostics }): ManagedDomainClient;
+export function createManagedDomainClientFromInput(
+  input: StartupInput,
+  options?: { diagnostics?: Diagnostics },
+): ManagedDomainClient;

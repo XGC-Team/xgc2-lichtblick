@@ -118,10 +118,12 @@ export class TopicMarkers extends Renderable<MarkerTopicUserData> {
     for (const ns of this.namespaces.values()) {
       for (const renderable of ns.markersById.values()) {
         const markerType = renderable.userData.originalMarker.type;
-        const isPointList = markerType === MarkerType.POINTS ||
-          markerType === MarkerType.SPHERE_LIST || markerType === MarkerType.CUBE_LIST;
-        renderable.visible = ns.settings.visible &&
-          !(isPointList && this.userData.settings.showPoints === false);
+        const isPointList =
+          markerType === MarkerType.POINTS ||
+          markerType === MarkerType.SPHERE_LIST ||
+          markerType === MarkerType.CUBE_LIST;
+        renderable.visible =
+          ns.settings.visible && !(isPointList && this.userData.settings.showPoints === false);
         if (!renderable.visible) {
           continue;
         }

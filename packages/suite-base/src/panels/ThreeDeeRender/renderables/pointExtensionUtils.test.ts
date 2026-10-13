@@ -448,13 +448,38 @@ describe("PointCloud flat buffer updates", () => {
     expect(reads).not.toHaveBeenCalled();
     const [points, stixels] = geometries(renderable);
     expect(Array.from(points!.attributes.position!.array)).toEqual([
-      Number.NaN, 2, 3, 2, 3, 4, 3, 4, 5,
+      Number.NaN,
+      2,
+      3,
+      2,
+      3,
+      4,
+      3,
+      4,
+      5,
     ]);
     expect(Array.from(points!.attributes.color!.array)).toEqual([
       55, 55, 55, 128, 55, 55, 55, 128, 55, 55, 55, 128,
     ]);
     expect(Array.from(stixels!.attributes.position!.array)).toEqual([
-      Number.NaN, 2, 3, Number.NaN, 2, 0, 2, 3, 4, 2, 3, 0, 3, 4, 5, 3, 4, 0,
+      Number.NaN,
+      2,
+      3,
+      Number.NaN,
+      2,
+      0,
+      2,
+      3,
+      4,
+      2,
+      3,
+      0,
+      3,
+      4,
+      5,
+      3,
+      4,
+      0,
     ]);
     renderable.dispose();
   });

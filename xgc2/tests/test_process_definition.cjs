@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
@@ -5,6 +8,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+
 const { startLauncher } = require("./launcher_fixture.cjs");
 
 const FILE = path.resolve(__dirname, "../process-definitions/xgc2-lichtblick-web.json");
@@ -28,46 +32,129 @@ test("the definition is one process whose endpoint, high-level view input and po
   assert.equal(definition.id, "lichtblick-web");
   assert.equal(definition.version, "3.0.0");
   for (const [fields, allowed] of [
-    [definition, ["id", "version", "label", "description", "parameters", "setupFiles", "command", "services", "readiness", "stop", "logs"]],
+    [
+      definition,
+      [
+        "id",
+        "version",
+        "label",
+        "description",
+        "parameters",
+        "setupFiles",
+        "command",
+        "services",
+        "readiness",
+        "stop",
+        "logs",
+      ],
+    ],
     [definition.parameters, ["properties", "required", "groups"]],
     [definition.command, ["executable", "args", "workDir", "env", "stdinParameter"]],
     [definition.readiness, ["kind", "startGraceMs", "timeoutMs", "address", "masterUri"]],
     [definition.stop, ["graceMs", "rpc"]],
     [definition.logs, ["maxBytes", "files"]],
   ]) {
-    for (const key of Object.keys(fields)) assert.ok(allowed.includes(key), `unsupported field ${key}`);
+    for (const key of Object.keys(fields))
+      {assert.ok(allowed.includes(key), `unsupported field ${key}`);}
   }
   const { properties, required } = definition.parameters;
   assert.deepEqual(required.slice().sort(), ["socketPath", "viewInputJson"]);
-  assert.deepEqual(Object.keys(properties).sort(), ["bridgePort", "port", "socketPath", "viewInputJson"]);
+  assert.deepEqual(Object.keys(properties).sort(), [
+    "bridgePort",
+    "port",
+    "socketPath",
+    "viewInputJson",
+  ]);
   for (const [name, property] of Object.entries(properties)) {
     if (name !== "socketPath") {
       assert.equal(property["x-xgc-path-kind"], undefined, `path hint on ${name}`);
       assert.equal(property["x-xgc-file-extensions"], undefined, `file hint on ${name}`);
     }
-    for (const key of Object.keys(property)) assert.ok(["type", "description", "default", "enum", "minimum", "maximum", "sensitive", "output", "fixedOnly", "x-xgc-path-kind", "x-xgc-file-extensions"].includes(key), `unsupported parameter field ${key}`);
+    for (const key of Object.keys(property))
+      {assert.ok(
+        [
+          "type",
+          "description",
+          "default",
+          "enum",
+          "minimum",
+          "maximum",
+          "sensitive",
+          "output",
+          "fixedOnly",
+          "x-xgc-path-kind",
+          "x-xgc-file-extensions",
+        ].includes(key),
+        `unsupported parameter field ${key}`,
+      );}
   }
-  assert.deepEqual(properties.socketPath, { type: "string", description: "Absolute path of the control socket, inside a private runtime directory allocated by the process owner.", fixedOnly: true });
+  assert.deepEqual(properties.socketPath, {
+    type: "string",
+    description:
+      "Absolute path of the control socket, inside a private runtime directory allocated by the process owner.",
+    fixedOnly: true,
+  });
   assert.equal(properties.viewInputJson.type, "string");
   assert.equal(Object.hasOwn(properties.viewInputJson, "default"), false);
-  assert.deepEqual(properties.port, { type: "integer", description: "Lichtblick HTTP port on the local host; XGC uses the dedicated loopback port 18081", default: 18081, minimum: 1, maximum: 65535 });
-  assert.deepEqual(properties.bridgePort, { type: "integer", description: "Foxglove-compatible WebSocket port on the local host", default: 8765, minimum: 1, maximum: 65535 });
+  assert.deepEqual(properties.port, {
+    type: "integer",
+    description:
+      "Lichtblick HTTP port on the local host; XGC uses the dedicated loopback port 18081",
+    default: 18081,
+    minimum: 1,
+    maximum: 65535,
+  });
+  assert.deepEqual(properties.bridgePort, {
+    type: "integer",
+    description: "Foxglove-compatible WebSocket port on the local host",
+    default: 8765,
+    minimum: 1,
+    maximum: 65535,
+  });
   // The service is the one the launcher hosts, at the endpoint the process owner allocates.
-  assert.deepEqual(definition.services, [{ service: "xgc2.lichtblick.v1", api_version: "1", profile: "http.v1", endpointParameter: "socketPath" }]);
+  assert.deepEqual(definition.services, [
+    {
+      service: "xgc2.lichtblick.v1",
+      api_version: "1",
+      profile: "http.v1",
+      endpointParameter: "socketPath",
+    },
+  ]);
   assert.equal(definition.readiness.kind, "describe");
-  assert.ok(definition.readiness.startGraceMs > 0 && definition.readiness.timeoutMs >= definition.readiness.startGraceMs);
+  assert.ok(
+    definition.readiness.startGraceMs > 0 &&
+      definition.readiness.timeoutMs >= definition.readiness.startGraceMs,
+  );
   assert.deepEqual(definition.stop, { graceMs: 20000 });
   // Product executables only: no wrapper, shell, probe command, or token and TLS parameters.
   assert.equal(definition.command.executable, "/usr/bin/xgc2-lichtblick-web");
-  for (const retired of ["bootstrap", "token", "tls", "certificate", "storage-binary", "python", "bash", "sh"]) {
-    assert.ok(!JSON.stringify(definition).toLowerCase().includes(`"${retired}`) && !definition.command.executable.includes(retired), retired);
+  for (const retired of [
+    "bootstrap",
+    "token",
+    "tls",
+    "certificate",
+    "storage-binary",
+    "python",
+    "bash",
+    "sh",
+  ]) {
+    assert.ok(
+      !JSON.stringify(definition).toLowerCase().includes(`"${retired}`) &&
+        !definition.command.executable.includes(retired),
+      retired,
+    );
   }
-  const used = new Set([...definition.command.args, ...Object.values(definition.command.env ?? {})].flatMap(placeholders));
-  for (const name of used) assert.ok(Object.hasOwn(properties, name), `${name} is not a declared parameter`);
+  const used = new Set(
+    [...definition.command.args, ...Object.values(definition.command.env ?? {})].flatMap(
+      placeholders,
+    ),
+  );
+  for (const name of used)
+    {assert.ok(Object.hasOwn(properties, name), `${name} is not a declared parameter`);}
   assert.equal(definition.command.stdinParameter, "viewInputJson");
   assert.ok(definition.command.args.includes("--view-input-stdin"));
   for (const retired of ["--startup-input", "--layout-stdin", "${startupInputPath}"])
-    assert.ok(!definition.command.args.includes(retired), retired);
+    {assert.ok(!definition.command.args.includes(retired), retired);}
 });
 
 test("the launcher accepts the command the definition declares and answers the service it declares", async (t) => {
@@ -79,7 +166,10 @@ test("the launcher accepts the command the definition declares and answers the s
     stdin: JSON.stringify(input),
     // What the packaged environment file supplies; the definition does not pass it.
     environment: { FRAME_ANCESTORS: "'self'" },
-    arguments: ({ socketPath }) => definition.command.args.map((argument) => expand(argument, { socketPath, port: 0, bridgePort: 9 })),
+    arguments: ({ socketPath }) =>
+      definition.command.args.map((argument) =>
+        expand(argument, { socketPath, port: 0, bridgePort: 9 }),
+      ),
   });
   await launcher.waitForPort();
   const control = await launcher.control();

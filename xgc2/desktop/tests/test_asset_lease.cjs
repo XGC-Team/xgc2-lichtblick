@@ -1,19 +1,27 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
 const assert = require("node:assert/strict");
-const fs = require("node:fs/promises");
-const path = require("node:path");
-const os = require("node:os");
 const { spawn } = require("node:child_process");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
+
 const { createManagedDomainClient } = require("../managed-storage.cjs");
 
 const LOCK = ".asset-writer.lock";
 const scope = { namespace: "lichtblick", user: "asset-test", workspace: "lease" };
 const options = (root, assetAccess = "read-write") => ({
-  scope, assetRoot: root, assetAccess,
-  call: async () => { throw Error("unexpected storage call"); },
+  scope,
+  assetRoot: root,
+  assetAccess,
+  call: async () => {
+    throw Error("unexpected storage call");
+  },
 });
 async function fixture(t) {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), "lichtblick-asset-lease-"));
@@ -44,9 +52,22 @@ const childProgram = `
   });
 `;
 function startChild(t, root, access = "read-write", asset) {
-  const child = spawn(process.execPath, ["-e", childProgram, path.resolve(__dirname, "../managed-storage.cjs"), root, access, ...(asset ? [JSON.stringify(asset)] : [])], { stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      childProgram,
+      path.resolve(__dirname, "../managed-storage.cjs"),
+      root,
+      access,
+      ...(asset ? [JSON.stringify(asset)] : []),
+    ],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
   child.stdin.on("error", () => {});
-  const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  const exited = new Promise((resolve) =>
+    child.once("exit", (code, signal) => resolve({ code, signal })),
+  );
   const ready = new Promise((resolve, reject) => {
     let output = "";
     child.once("error", reject);
@@ -55,24 +76,40 @@ function startChild(t, root, access = "read-write", asset) {
       const end = output.indexOf("\n");
       if (end >= 0) {
         const result = JSON.parse(output.slice(0, end));
-        if (result.error) reject(Object.assign(new Error(result.message), { code: result.error }));
-        else resolve(result);
+        if (result.error) {reject(Object.assign(new Error(result.message), { code: result.error }));}
+        else {resolve(result);}
       }
     });
-    child.once("exit", () => { if (!output.includes("\n")) reject(new Error("asset owner exited without readiness")); });
+    child.once("exit", () => {
+      if (!output.includes("\n")) {reject(new Error("asset owner exited without readiness"));}
+    });
   });
   t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    if (child.exitCode === null && child.signalCode === null) {child.kill("SIGKILL");}
     await exited;
   });
-  return { child, ready, exited, close: async () => { child.stdin.end("close\n"); return await exited; } };
+  return {
+    child,
+    ready,
+    exited,
+    close: async () => {
+      child.stdin.end("close\n");
+      return await exited;
+    },
+  };
 }
 
-test("a native writer retains the flock after its helper exits; another process loses until close", { timeout: 15000 }, async (t) => {
+test("a native writer retains the flock after its helper exits; another process loses until close", {
+  timeout: 15000,
+}, async (t) => {
   const { root } = await fixture(t);
   const first = startChild(t, root);
   await first.ready;
-  assert.equal((await fs.readFile(`/proc/${first.child.pid}/task/${first.child.pid}/children`, "utf8")).trim(), "", "flock helper must exit at readiness");
+  assert.equal(
+    (await fs.readFile(`/proc/${first.child.pid}/task/${first.child.pid}/children`, "utf8")).trim(),
+    "",
+    "flock helper must exit at readiness",
+  );
   const loser = startChild(t, root);
   await assert.rejects(loser.ready, (error) => error.code === "conflict");
   assert.equal((await loser.exited).code, 1);
@@ -82,7 +119,9 @@ test("a native writer retains the flock after its helper exits; another process 
   assert.equal((await replacement.close()).code, 0);
 });
 
-test("SIGKILL recovers the kernel lease and an independent reader loads during the writer lifetime", { timeout: 15000 }, async (t) => {
+test("SIGKILL recovers the kernel lease and an independent reader loads during the writer lifetime", {
+  timeout: 15000,
+}, async (t) => {
   const { root } = await fixture(t);
   const writer = startChild(t, root);
   const original = await writer.ready;
@@ -93,7 +132,10 @@ test("SIGKILL recovers the kernel lease and an independent reader loads during t
   const localReader = createManagedDomainClient(options(root, "read-only"));
   await localReader.ready;
   t.after(() => localReader.close());
-  await assert.rejects(localReader.publish(Buffer.from("blocked"), { id: "reader", version: "1" }), (error) => error.code === "permission_denied");
+  await assert.rejects(
+    localReader.publish(Buffer.from("blocked"), { id: "reader", version: "1" }),
+    (error) => error.code === "permission_denied",
+  );
   assert.deepEqual(await fs.readdir(root), before, "reader must not create files");
   writer.child.kill("SIGKILL");
   assert.equal((await writer.exited).signal, "SIGKILL");
@@ -161,10 +203,16 @@ test("grant replacement during publication writes only through the anchored desc
     }
     return await open(target, ...arguments_);
   });
-  await assert.rejects(client.publish(Buffer.from("anchored bytes"), { id: "camera", version: "1" }), /grant directory was replaced/);
+  await assert.rejects(
+    client.publish(Buffer.from("anchored bytes"), { id: "camera", version: "1" }),
+    /grant directory was replaced/,
+  );
   assert.deepEqual(await fs.readdir(root), []);
   assert.equal((await fs.readdir(moved)).filter((name) => name.endsWith(".foxe")).length, 1);
-  await assert.rejects(client.load({ owner: "lichtblick", asset_id: "missing", bytes: 1, sha256: "0".repeat(64) }), /grant directory was replaced/);
+  await assert.rejects(
+    client.load({ owner: "lichtblick", asset_id: "missing", bytes: 1, sha256: "0".repeat(64) }),
+    /grant directory was replaced/,
+  );
 });
 
 test("replacing the control inode cannot let the old owner continue publishing", async (t) => {
@@ -174,7 +222,10 @@ test("replacing the control inode cannot let the old owner continue publishing",
   t.after(() => client.close());
   await fs.unlink(path.join(root, LOCK));
   await fs.writeFile(path.join(root, LOCK), "", { mode: 0o600 });
-  await assert.rejects(client.publish(Buffer.from("blocked"), { id: "camera", version: "1" }), /control lock was replaced/);
+  await assert.rejects(
+    client.publish(Buffer.from("blocked"), { id: "camera", version: "1" }),
+    /control lock was replaced/,
+  );
   assert.deepEqual(await fs.readdir(root), [LOCK]);
 });
 
@@ -184,24 +235,38 @@ test("close drains an admitted publication before releasing the writer and rejec
   await client.ready;
   const open = fs.open;
   let entered;
-  const inWrite = new Promise((resolve) => { entered = resolve; });
+  const inWrite = new Promise((resolve) => {
+    entered = resolve;
+  });
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
   t.mock.method(fs, "open", async (target, ...arguments_) => {
     const handle = await open(target, ...arguments_);
     if (typeof target === "string" && target.endsWith(".pending")) {
       const write = handle.writeFile.bind(handle);
-      handle.writeFile = async (bytes) => { entered(); await gate; return await write(bytes); };
+      handle.writeFile = async (bytes) => {
+        entered();
+        await gate;
+        return await write(bytes);
+      };
     }
     return handle;
   });
-  const publishing = client.publish(Buffer.from("in-flight archive"), { id: "camera", version: "1" });
+  const publishing = client.publish(Buffer.from("in-flight archive"), {
+    id: "camera",
+    version: "1",
+  });
   await inWrite;
   const closing = client.close();
   const contender = createManagedDomainClient(options(root));
   await assert.rejects(contender.ready, (error) => error.code === "conflict");
   await contender.close();
-  await assert.rejects(client.load({ owner: "lichtblick", asset_id: "missing", bytes: 1, sha256: "0".repeat(64) }), /owner is closing/);
+  await assert.rejects(
+    client.load({ owner: "lichtblick", asset_id: "missing", bytes: 1, sha256: "0".repeat(64) }),
+    /owner is closing/,
+  );
   release();
   const asset = await publishing;
   await closing;

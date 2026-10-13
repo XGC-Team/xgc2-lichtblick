@@ -18,14 +18,15 @@
 
 "use strict";
 
-const fs = require("node:fs");
 const { createHTTPHost, proxyWebSocket, Diagnostics } = require("@xgc2/xrpc");
+const fs = require("node:fs");
 const path = require("node:path");
 const url = require("node:url");
+
 const { MAX_BODY_BYTES, SHUTDOWN_MS, createControlService } = require("./control-service.cjs");
 const { mapViewInput, prepareLayout, readJSONInput } = require("./prepare-layout.cjs");
-const { ViewError, ViewStore } = require("./view-state.cjs");
 const { createViewGateway } = require("./view-gateway.cjs");
+const { ViewError, ViewStore } = require("./view-state.cjs");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8080;
@@ -38,18 +39,12 @@ const DEFAULT_PUBLIC_URL_PREFIX = "/";
 const DEFAULT_FRAME_ANCESTORS =
   "'self' http://127.0.0.1:5173 http://localhost:5173 http://127.0.0.1:5174 http://localhost:5174 http://127.0.0.1:8787 http://localhost:8787 http://127.0.0.1:8788 http://localhost:8788";
 const ENV_FILE =
-  process.env.XGC2_LICHTBLICK_WEB_ENV_FILE ??
-  path.join(__dirname, "lichtblick-web.env");
+  process.env.XGC2_LICHTBLICK_WEB_ENV_FILE ?? path.join(__dirname, "lichtblick-web.env");
 const DEFAULT_STATIC_ROOT = path.resolve(__dirname, "../../web/.webpack");
-const DEFAULT_BUILD_INFO_FILE = path.resolve(
-  __dirname,
-  "../../web/build-info.json",
-);
+const DEFAULT_BUILD_INFO_FILE = path.resolve(__dirname, "../../web/build-info.json");
 // Both paths remain overridable for tests and process-supervisor staging.
-const STATIC_ROOT =
-  process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT ?? DEFAULT_STATIC_ROOT;
-const BUILD_INFO_FILE =
-  process.env.XGC2_LICHTBLICK_WEB_BUILD_INFO ?? DEFAULT_BUILD_INFO_FILE;
+const STATIC_ROOT = process.env.XGC2_LICHTBLICK_WEB_STATIC_ROOT ?? DEFAULT_STATIC_ROOT;
+const BUILD_INFO_FILE = process.env.XGC2_LICHTBLICK_WEB_BUILD_INFO ?? DEFAULT_BUILD_INFO_FILE;
 const LOG_PREFIX = "xgc2-lichtblick-web";
 
 function logLine(level, message) {
@@ -88,8 +83,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     switch (arg) {
       case "--view-input-stdin":
-        if (opts.viewInputStdin)
-          throw new Error("--view-input-stdin occurs more than once");
+        if (opts.viewInputStdin) {throw new Error("--view-input-stdin occurs more than once");}
         opts.viewInputStdin = true;
         break;
       case "-h":
@@ -101,11 +95,7 @@ function parseArgs(argv) {
         break;
       case "--port":
         opts.port = Number.parseInt(argv[++i], 10);
-        if (
-          !Number.isInteger(opts.port) ||
-          opts.port < 0 ||
-          opts.port > 65535
-        ) {
+        if (!Number.isInteger(opts.port) || opts.port < 0 || opts.port > 65535) {
           throw new Error(`invalid --port value: ${argv[i]}`);
         }
         break;
@@ -126,20 +116,13 @@ function parseArgs(argv) {
         break;
       case "--shutdown-ms":
         opts.shutdownMs = Number.parseInt(argv[++i], 10);
-        if (
-          !/^[1-9][0-9]{0,4}$/.test(argv[i] ?? "") ||
-          opts.shutdownMs > 60000
-        ) {
+        if (!/^[1-9][0-9]{0,4}$/.test(argv[i] ?? "") || opts.shutdownMs > 60000) {
           throw new Error(`invalid --shutdown-ms value: ${argv[i]}`);
         }
         break;
       case "--control-socket":
-        if (
-          opts.controlSocket != null ||
-          !argv[i + 1] ||
-          argv[i + 1].startsWith("--")
-        )
-          throw new Error("one explicit --control-socket path is required");
+        if (opts.controlSocket != null || !argv[i + 1] || argv[i + 1].startsWith("--"))
+          {throw new Error("one explicit --control-socket path is required");}
         opts.controlSocket = argv[++i];
         break;
       default:
@@ -237,18 +220,12 @@ function loadEnvFile(envPath) {
 function parseWsUrl(rawUrl) {
   const parsed = new url.URL(rawUrl);
   if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
-    throw new Error(
-      `control-plane URL must use ws:// or wss://, got ${parsed.protocol}`,
-    );
+    throw new Error(`control-plane URL must use ws:// or wss://, got ${parsed.protocol}`);
   }
   return {
     protocol: parsed.protocol,
     hostname: parsed.hostname,
-    port: parsed.port
-      ? Number.parseInt(parsed.port, 10)
-      : parsed.protocol === "wss:"
-        ? 443
-        : 80,
+    port: parsed.port ? Number.parseInt(parsed.port, 10) : parsed.protocol === "wss:" ? 443 : 80,
     path: `${parsed.pathname || "/"}${parsed.search || ""}`,
   };
 }
@@ -260,9 +237,7 @@ function normalizeOrigin(rawOrigin) {
   }
   const parsed = new url.URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(
-      `origin must use http:// or https://, got ${parsed.protocol}`,
-    );
+    throw new Error(`origin must use http:// or https://, got ${parsed.protocol}`);
   }
   if (parsed.hostname.includes("*")) {
     throw new Error(`origin must not contain a wildcard hostname: ${value}`);
@@ -274,9 +249,7 @@ function normalizeOrigin(rawOrigin) {
     parsed.search !== "" ||
     parsed.hash !== ""
   ) {
-    throw new Error(
-      `origin must not include credentials, path, query, or fragment: ${value}`,
-    );
+    throw new Error(`origin must not include credentials, path, query, or fragment: ${value}`);
   }
   return parsed.origin;
 }
@@ -307,9 +280,7 @@ function validateFrameAncestors(rawValue) {
   }
   const sources = value.split(/\s+/);
   if (sources.includes("'none'") && sources.length !== 1) {
-    throw new Error(
-      "frame-ancestors 'none' cannot be combined with other sources",
-    );
+    throw new Error("frame-ancestors 'none' cannot be combined with other sources");
   }
   const normalized = sources.map((source) => {
     if (source === "'self'" || source === "'none'") {
@@ -376,10 +347,7 @@ function safeJoin(root, requested) {
   const full = path.join(root, normalized);
   const resolvedRoot = path.resolve(root);
   const resolvedFull = path.resolve(full);
-  if (
-    resolvedFull !== resolvedRoot &&
-    !resolvedFull.startsWith(resolvedRoot + path.sep)
-  ) {
+  if (resolvedFull !== resolvedRoot && !resolvedFull.startsWith(resolvedRoot + path.sep)) {
     return null;
   }
   return resolvedFull;
@@ -404,9 +372,7 @@ function transformIndexHtml(source, prefix, assetUrlPrefix = null) {
     throw new Error("Lichtblick index.html has no closing head element");
   }
   const connected = source.replace("</head>", `${autoConnect}</head>`);
-  return assetUrlPrefix == null
-    ? connected
-    : rewriteHashedScripts(connected, assetUrlPrefix);
+  return assetUrlPrefix == null ? connected : rewriteHashedScripts(connected, assetUrlPrefix);
 }
 
 /**
@@ -453,18 +419,12 @@ function rewriteHashedScripts(source, assetUrlPrefix) {
     return `${head}${quote}${assetPrefix}${relative}${quote}`;
   });
   if (rewritten === 0) {
-    throw new Error(
-      "asset URL prefix is set but index.html loads no content-hashed script",
-    );
+    throw new Error("asset URL prefix is set but index.html loads no content-hashed script");
   }
   return result;
 }
 
-function createIndexLoader(
-  prefix,
-  staticRoot = STATIC_ROOT,
-  assetUrlPrefix = null,
-) {
+function createIndexLoader(prefix, staticRoot = STATIC_ROOT, assetUrlPrefix = null) {
   const indexPath = path.join(staticRoot, "index.html");
   let mtimeNs = -1n;
   let body = "";
@@ -472,11 +432,7 @@ function createIndexLoader(
     const st = fs.statSync(indexPath);
     const nextMtime = st.mtimeNs ?? BigInt(Math.round(st.mtimeMs * 1e6));
     if (nextMtime !== mtimeNs) {
-      body = transformIndexHtml(
-        fs.readFileSync(indexPath, "utf8"),
-        prefix,
-        assetUrlPrefix,
-      );
+      body = transformIndexHtml(fs.readFileSync(indexPath, "utf8"), prefix, assetUrlPrefix);
       mtimeNs = nextMtime;
     }
     return body;
@@ -484,9 +440,7 @@ function createIndexLoader(
 }
 
 function resolveTransformedIndex(transformedIndex) {
-  return typeof transformedIndex === "function"
-    ? transformedIndex()
-    : transformedIndex;
+  return typeof transformedIndex === "function" ? transformedIndex() : transformedIndex;
 }
 
 function loadBuildInfo() {
@@ -499,9 +453,7 @@ function loadBuildInfo() {
     typeof parsed.version !== "string" ||
     typeof parsed.upstreamSha !== "string"
   ) {
-    throw new Error(
-      `${BUILD_INFO_FILE} is not valid XGC2 Lichtblick build metadata`,
-    );
+    throw new Error(`${BUILD_INFO_FILE} is not valid XGC2 Lichtblick build metadata`);
   }
   return parsed;
 }
@@ -547,10 +499,7 @@ const CONTENT_HASHED_NAME = /(?:^|\.)[0-9a-f]{16,}(?:\.|$)/;
 
 function staticCacheControl(filePath) {
   const name = path.basename(filePath);
-  if (
-    path.extname(name).toLowerCase() !== ".html" &&
-    CONTENT_HASHED_NAME.test(name)
-  ) {
+  if (path.extname(name).toLowerCase() !== ".html" && CONTENT_HASHED_NAME.test(name)) {
     return "public, max-age=31536000, immutable";
   }
   return "no-cache";
@@ -562,18 +511,10 @@ function notModifiedSince(ifModifiedSince, mtime) {
   }
   const since = Date.parse(ifModifiedSince);
   // HTTP dates have whole-second precision.
-  return (
-    Number.isFinite(since) && Math.floor(mtime.getTime() / 1000) * 1000 <= since
-  );
+  return Number.isFinite(since) && Math.floor(mtime.getTime() / 1000) * 1000 <= since;
 }
 
-function serveStatic(
-  req,
-  res,
-  prefix,
-  transformedIndex,
-  responseSecurityHeaders,
-) {
+function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders) {
   const urlPath = req.url.split("?", 1)[0];
   let stripped = urlPath;
   if (prefix !== "/" && urlPath.startsWith(prefix)) {
@@ -647,9 +588,7 @@ function serveStatic(
 // ---- HTTP server wiring ----------------------------------------------------
 
 function isWebSocketUpgrade(req) {
-  return (
-    req.headers.upgrade && req.headers.upgrade.toLowerCase() === "websocket"
-  );
+  return req.headers.upgrade && req.headers.upgrade.toLowerCase() === "websocket";
 }
 
 function isWebSocketPath(reqUrl) {
@@ -702,9 +641,7 @@ function buildRequestListener(
     // always send Origin, so a read may fall back to the page that issued it.
     const declaredOrigin = (sameOriginRead) =>
       req.headers.origin ??
-      (sameOriginRead &&
-      req.headers["sec-fetch-site"] === "same-origin" &&
-      req.headers.referer
+      (sameOriginRead && req.headers["sec-fetch-site"] === "same-origin" && req.headers.referer
         ? new URL(req.headers.referer).origin
         : undefined);
     const viewState = requestUrl.pathname === `${base}/xgc2/view`;
@@ -713,40 +650,32 @@ function buildRequestListener(
       // The desired view is stated through the control service; pages read it.
       try {
         if (!originAllowed(declaredOrigin(true)))
-          throw new ViewError(
-            "permission_denied",
-            "view origin is not allowed",
-            403,
-          );
+          {throw new ViewError("permission_denied", "view origin is not allowed", 403);}
         if (!viewGateway)
-          throw new ViewError(
-            "unavailable",
-            "the desired view is not configured",
-            503,
-          );
-        if (req.method !== "GET")
-          throw new ViewError("invalid_argument", "GET required", 400);
-        if (viewState) viewGateway.state(res, responseSecurityHeaders);
-        else viewGateway.events(req, res, responseSecurityHeaders);
+          {throw new ViewError("unavailable", "the desired view is not configured", 503);}
+        if (req.method !== "GET") {throw new ViewError("invalid_argument", "GET required", 400);}
+        if (viewState) {viewGateway.state(res, responseSecurityHeaders);}
+        else {viewGateway.events(req, res, responseSecurityHeaders);}
       } catch (error) {
         if (!res.destroyed && !res.headersSent)
-          writeJson(
+          {writeJson(
             res,
             error.status ?? 503,
             {
               code: error.code ?? "unavailable",
               message:
-                error instanceof ViewError
-                  ? error.message
-                  : "the desired view is unavailable",
+                error instanceof ViewError ? error.message : "the desired view is unavailable",
             },
             responseSecurityHeaders,
-          );
+          );}
       }
       return;
     }
     if (requestUrl.pathname.startsWith(`${base}/xgc2/`)) {
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", ...responseSecurityHeaders });
+      res.writeHead(404, {
+        "Content-Type": "text/plain; charset=utf-8",
+        ...responseSecurityHeaders,
+      });
       res.end("not found");
       return;
     }
@@ -777,13 +706,7 @@ function buildRequestListener(
       writeJson(res, 200, buildInfo, responseSecurityHeaders);
       return;
     }
-    serveStatic(
-      req,
-      res,
-      publicPrefix,
-      transformedIndex,
-      responseSecurityHeaders,
-    );
+    serveStatic(req, res, publicPrefix, transformedIndex, responseSecurityHeaders);
   };
 }
 
@@ -806,24 +729,14 @@ async function main() {
   }
 
   const host = opts.host ?? process.env.HOST ?? DEFAULT_HOST;
-  const port =
-    opts.port ?? (Number.parseInt(process.env.PORT ?? "", 10) || DEFAULT_PORT);
+  const port = opts.port ?? (Number.parseInt(process.env.PORT ?? "", 10) || DEFAULT_PORT);
   const controlPlaneUrl =
-    opts.controlPlaneUrl ??
-    process.env.CONTROL_PLANE_URL ??
-    DEFAULT_CONTROL_PLANE_URL;
+    opts.controlPlaneUrl ?? process.env.CONTROL_PLANE_URL ?? DEFAULT_CONTROL_PLANE_URL;
   const publicUrlPrefix =
-    opts.publicUrlPrefix ??
-    process.env.PUBLIC_URL_PREFIX ??
-    DEFAULT_PUBLIC_URL_PREFIX;
-  const configuredOriginValues = [
-    process.env.ALLOWED_ORIGINS ?? "",
-    ...opts.allowedOrigins,
-  ];
+    opts.publicUrlPrefix ?? process.env.PUBLIC_URL_PREFIX ?? DEFAULT_PUBLIC_URL_PREFIX;
+  const configuredOriginValues = [process.env.ALLOWED_ORIGINS ?? "", ...opts.allowedOrigins];
   const frameAncestorsValue =
-    opts.frameAncestors ??
-    process.env.FRAME_ANCESTORS ??
-    DEFAULT_FRAME_ANCESTORS;
+    opts.frameAncestors ?? process.env.FRAME_ANCESTORS ?? DEFAULT_FRAME_ANCESTORS;
   let targetWs;
   try {
     targetWs = parseWsUrl(controlPlaneUrl);
@@ -853,7 +766,7 @@ async function main() {
       STATIC_ROOT,
       opts.assetUrlPrefix ?? process.env.ASSET_URL_PREFIX ?? null,
     );
-    if (!opts.viewInputStdin) throw new Error("--view-input-stdin is required");
+    if (!opts.viewInputStdin) {throw new Error("--view-input-stdin is required");}
     {
       initialLayout = prepareLayout(mapViewInput(readJSONInput())).layout;
       const sourceIndex = loadIndex;
@@ -862,19 +775,14 @@ async function main() {
         (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
       );
       loadIndex = () =>
-        sourceIndex().replace(
-          "/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/",
-          json,
-        );
+        sourceIndex().replace("/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/", json);
     }
     loadIndex();
     buildInfo = loadBuildInfo();
     validatedFrameAncestors = validateFrameAncestors(frameAncestorsValue);
     configuredOrigins = parseConfiguredOrigins(configuredOriginValues);
   } catch (err) {
-    process.stderr.write(
-      `${LOG_PREFIX}: cannot prepare web entrypoint: ${err.message}\n`,
-    );
+    process.stderr.write(`${LOG_PREFIX}: cannot prepare web entrypoint: ${err.message}\n`);
     process.exit(1);
   }
 
@@ -892,12 +800,9 @@ async function main() {
       closing = (async () => {
         control?.markNotReady("stopping");
         views?.close();
-        const results = await Promise.allSettled([
-          hostRuntime?.close(),
-          control?.close(),
-        ]);
+        const results = await Promise.allSettled([hostRuntime?.close(), control?.close()]);
         const failure = results.find((result) => result.status === "rejected");
-        if (failure) throw failure.reason;
+        if (failure) {throw failure.reason;}
         await diagnostics?.close({ timeoutMs: shutdownMs });
       })().catch((error) => {
         closing = undefined;
@@ -919,8 +824,7 @@ async function main() {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   try {
-    if (!opts.controlSocket)
-      throw new Error("--control-socket is required");
+    if (!opts.controlSocket) {throw new Error("--control-socket is required");}
     diagnostics = new Diagnostics({
       sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
     });
@@ -975,23 +879,15 @@ async function main() {
     }
     if (!isWebSocketPath(req.url)) {
       clientSocket.write(
-        "HTTP/1.1 404 Not Found\r\n" +
-          "Connection: close\r\n" +
-          "Content-Length: 0\r\n" +
-          "\r\n",
+        "HTTP/1.1 404 Not Found\r\n" + "Connection: close\r\n" + "Content-Length: 0\r\n" + "\r\n",
       );
       clientSocket.destroy();
       return;
     }
     if (!websocketOriginAllowed(req.headers.origin, allowedOrigins)) {
-      logWarn(
-        `rejecting WebSocket origin: ${String(req.headers.origin ?? "<missing>")}`,
-      );
+      logWarn(`rejecting WebSocket origin: ${String(req.headers.origin ?? "<missing>")}`);
       clientSocket.write(
-        "HTTP/1.1 403 Forbidden\r\n" +
-          "Connection: close\r\n" +
-          "Content-Length: 0\r\n" +
-          "\r\n",
+        "HTTP/1.1 403 Forbidden\r\n" + "Connection: close\r\n" + "Content-Length: 0\r\n" + "\r\n",
       );
       clientSocket.destroy();
       return;
@@ -1006,13 +902,9 @@ async function main() {
 
   server.on("listening", () => {
     const addr = server.address();
-    const bound =
-      typeof addr === "object" && addr ? `${addr.address}:${addr.port}` : "?";
+    const bound = typeof addr === "object" && addr ? `${addr.address}:${addr.port}` : "?";
     const actualPort = typeof addr === "object" && addr ? addr.port : port;
-    allowedOrigins = new Set([
-      ...defaultListenerOrigins(actualPort),
-      ...configuredOrigins,
-    ]);
+    allowedOrigins = new Set([...defaultListenerOrigins(actualPort), ...configuredOrigins]);
     const displayPath = prefix === "/" ? "/" : `${prefix}/`;
     logInfo(`serving Lichtblick web bundle on http://${bound}${displayPath}`);
     logInfo(

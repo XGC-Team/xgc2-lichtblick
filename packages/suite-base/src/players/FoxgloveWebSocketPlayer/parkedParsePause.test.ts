@@ -51,7 +51,11 @@ describe("makeSceneLayerClearEvent", () => {
 
   it("clears all SceneUpdate entities on the topic", () => {
     expect(
-      makeSceneLayerClearEvent({ topic: "/scene", schemaName: "foxglove.SceneUpdate", receiveTime }),
+      makeSceneLayerClearEvent({
+        topic: "/scene",
+        schemaName: "foxglove.SceneUpdate",
+        receiveTime,
+      }),
     ).toEqual({
       topic: "/scene",
       schemaName: "foxglove.SceneUpdate",

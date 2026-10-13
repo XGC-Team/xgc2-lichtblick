@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 
@@ -17,37 +20,57 @@ function createViewGateway(viewStore, { heartbeatMs = 15000, maxStreams = 16 } =
   const streams = new Map();
   const frame = (state) => `id: ${state.revision}\nevent: view\ndata: ${JSON.stringify(state)}\n\n`;
   function send(response, chunk) {
-    if (response.destroyed) return;
-    if (response.writableLength > MAX_STREAM_BACKLOG_BYTES) response.destroy();
-    else response.write(chunk);
+    if (response.destroyed) {return;}
+    if (response.writableLength > MAX_STREAM_BACKLOG_BYTES) {response.destroy();}
+    else {response.write(chunk);}
   }
   const unsubscribe = viewStore.subscribe((state) => {
     const chunk = frame(state);
-    for (const response of streams.keys()) send(response, chunk);
+    for (const response of streams.keys()) {send(response, chunk);}
   });
   return {
-    get streamCount() { return streams.size; },
+    get streamCount() {
+      return streams.size;
+    },
     state(response, headers) {
       const body = Buffer.from(JSON.stringify(viewStore.state));
-      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length, "Cache-Control": "no-store", ...headers });
+      response.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": body.length,
+        "Cache-Control": "no-store",
+        ...headers,
+      });
       response.end(body);
     },
     events(request, response, headers) {
-      if (streams.size >= maxStreams) throw new ViewError("resource_exhausted", "too many view streams", 503);
-      response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no", ...headers });
+      if (streams.size >= maxStreams)
+        {throw new ViewError("resource_exhausted", "too many view streams", 503);}
+      response.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+        ...headers,
+      });
       const state = viewStore.state;
       // EventSource reconnects with the last id it saw; an up-to-date page needs no repeat.
-      send(response, request.headers["last-event-id"] === state.revision ? ": connected\n\n" : frame(state));
+      send(
+        response,
+        request.headers["last-event-id"] === state.revision ? ": connected\n\n" : frame(state),
+      );
       const timer = setInterval(() => send(response, ": hb\n\n"), heartbeatMs);
       streams.set(response, timer);
-      response.once("close", () => { clearInterval(timer); streams.delete(response); });
+      response.once("close", () => {
+        clearInterval(timer);
+        streams.delete(response);
+      });
     },
     /** Ends every stream; pages reconnect to the next launcher and read the state again. */
     close() {
       unsubscribe();
       for (const [response, timer] of streams) {
         clearInterval(timer);
-        if (!response.destroyed) response.end("event: closing\ndata: {}\n\n");
+        if (!response.destroyed) {response.end("event: closing\ndata: {}\n\n");}
       }
       streams.clear();
     },

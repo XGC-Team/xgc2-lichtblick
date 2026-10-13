@@ -67,7 +67,9 @@ const URL_URDFS: Record<string, string> = {
 
 const PKG_PREFIX = "package://scout_description";
 const PKG_URDFS: Record<string, string> = {
-  [`${PKG_PREFIX}/urdf/scout_visual_lod10k.urdf`]: tierUrdf(`${PKG_PREFIX}/meshes/wheel_lod10k.stl`),
+  [`${PKG_PREFIX}/urdf/scout_visual_lod10k.urdf`]: tierUrdf(
+    `${PKG_PREFIX}/meshes/wheel_lod10k.stl`,
+  ),
   [`${PKG_PREFIX}/urdf/scout_visual_lod_medium.urdf`]: tierUrdf(
     `${PKG_PREFIX}/meshes/wheel_lod_medium.stl`,
   ),
@@ -88,7 +90,12 @@ function translation(x: number, y: number, z: number): Transform {
   return new Transform([x, y, z], [0, 0, 0, 1]);
 }
 
-type RobotSpec = { id: string; prefix: string; x: number; lod?: "auto" | "high" | "medium" | "low" };
+type RobotSpec = {
+  id: string;
+  prefix: string;
+  x: number;
+  lod?: "auto" | "high" | "medium" | "low";
+};
 
 function setup({
   robots,
@@ -271,9 +278,9 @@ function selectedRenderableHandler(renderer: { on: jest.Mock }): (selection: unk
   return call[1];
 }
 
-function parametersChangeHandler(
-  renderer: { on: jest.Mock },
-): (parameters: ReadonlyMap<string, unknown>) => void {
+function parametersChangeHandler(renderer: {
+  on: jest.Mock;
+}): (parameters: ReadonlyMap<string, unknown>) => void {
   const call = renderer.on.mock.calls.find(([name]) => name === "parametersChange") as
     | [string, (parameters: ReadonlyMap<string, unknown>) => void]
     | undefined;
@@ -528,7 +535,9 @@ describe("Urdfs screen-size LOD", () => {
     extension.startFrame(101n, "world", "world");
     await extension.settleVideoDecodes();
 
-    expect(urdfFetches(renderer.fetchAsset, `${PKG_PREFIX}/urdf/scout_visual_lod1500.urdf`)).toBe(1);
+    expect(urdfFetches(renderer.fetchAsset, `${PKG_PREFIX}/urdf/scout_visual_lod1500.urdf`)).toBe(
+      1,
+    );
     expect(meshBatchNames(extension)[0]).toContain("wheel_lod1500.stl");
     expect(slotPosition(meshSlot(extension, "model", "p/base_link")).x).toBeCloseTo(10);
 
@@ -555,13 +564,17 @@ describe("Urdfs screen-size LOD", () => {
       "UrdfLodTier",
       expect.stringContaining("default detail level"),
     );
-    expect(renderer.fetchAsset.mock.calls.filter(([url]) => String(url).includes("_lod"))).toHaveLength(0);
+    expect(
+      renderer.fetchAsset.mock.calls.filter(([url]) => String(url).includes("_lod")),
+    ).toHaveLength(0);
 
     // A pinned tier with no resolvable base degrades the same way.
     setLayerLod(renderer, "model", "low");
     extension.startFrame(200n, "world", "world");
     await extension.settleVideoDecodes();
-    expect(renderer.fetchAsset.mock.calls.filter(([url]) => String(url).includes("_lod"))).toHaveLength(0);
+    expect(
+      renderer.fetchAsset.mock.calls.filter(([url]) => String(url).includes("_lod")),
+    ).toHaveLength(0);
 
     extension.dispose();
     modelCache.dispose();

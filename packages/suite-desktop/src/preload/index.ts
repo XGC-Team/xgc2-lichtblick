@@ -10,12 +10,9 @@ import os from "os";
 
 import { PreloaderSockets } from "@lichtblick/electron-socket/preloader";
 import Logger from "@lichtblick/log";
-import {
-  NetworkInterface,
-  OsContext,
-} from "../../../suite-base/src/OsContext";
 
 import { createPersistenceBridge } from "./persistence";
+import { NetworkInterface, OsContext } from "../../../suite-base/src/OsContext";
 import {
   CLIFlags,
   Desktop,
@@ -23,10 +20,7 @@ import {
   ForwardedWindowEvent,
   NativeMenuBridge,
 } from "../common/types";
-import {
-  LICHTBLICK_PRODUCT_NAME,
-  LICHTBLICK_PRODUCT_VERSION,
-} from "../common/webpackDefines";
+import { LICHTBLICK_PRODUCT_NAME, LICHTBLICK_PRODUCT_VERSION } from "../common/webpackDefines";
 
 export function main(): void {
   const log = Logger.getLogger(__filename);
@@ -68,9 +62,7 @@ export function main(): void {
 
     // Environment queries
     getEnvVar: (envVar: string) =>
-      ["ROS_MASTER_URI", "ROS_PACKAGE_PATH"].includes(envVar)
-        ? process.env[envVar]
-        : undefined,
+      ["ROS_MASTER_URI", "ROS_PACKAGE_PATH"].includes(envVar) ? process.env[envVar] : undefined,
     getHostname: os.hostname,
     getNetworkInterfaces: (): NetworkInterface[] => {
       const output: NetworkInterface[] = [];

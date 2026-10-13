@@ -54,13 +54,17 @@ describe("deriveUrdfTierUrl", () => {
   });
 
   it("returns undefined for non-URDF and invalid URLs", () => {
-    expect(deriveUrdfTierUrlsFromUrl("https://assets.local/packages/scout_description")).toBeUndefined();
+    expect(
+      deriveUrdfTierUrlsFromUrl("https://assets.local/packages/scout_description"),
+    ).toBeUndefined();
     expect(deriveUrdfTierUrlsFromUrl("not a url")).toBeUndefined();
   });
 
   it("does not treat _detail as a tier", () => {
     expect(
-      urdfTierFromUrl("https://assets.local/packages/scout_description/urdf/scout_visual_detail.urdf"),
+      urdfTierFromUrl(
+        "https://assets.local/packages/scout_description/urdf/scout_visual_detail.urdf",
+      ),
     ).toBeUndefined();
   });
 });
@@ -110,7 +114,8 @@ describe("deriveUrdfTierUrlsFromContent", () => {
   });
 
   it("returns undefined for primitive-only URDFs", () => {
-    const primitives = '<robot name="t"><link name="a"><visual><geometry><box size="1 1 1"/></geometry></visual></link></robot>';
+    const primitives =
+      '<robot name="t"><link name="a"><visual><geometry><box size="1 1 1"/></geometry></visual></link></robot>';
     expect(deriveUrdfTierUrlsFromContent(primitives)).toBeUndefined();
   });
 });

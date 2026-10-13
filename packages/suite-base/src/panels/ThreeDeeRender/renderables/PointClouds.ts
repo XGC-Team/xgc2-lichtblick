@@ -1209,8 +1209,7 @@ function getPointCloudFastPath(
   }
   const colorType = pointFieldType(colorField);
   // Mirror #getPointCloudFieldReaders: packed rgb/rgba fields with byte width >= 4 are forced to UINT32
-  const effectiveColorType =
-    pointFieldWidth(colorType) >= 4 ? PointFieldType.UINT32 : colorType;
+  const effectiveColorType = pointFieldWidth(colorType) >= 4 ? PointFieldType.UINT32 : colorType;
   if (
     effectiveColorType !== PointFieldType.UINT32 ||
     (colorField.offset & 3) !== 0 ||

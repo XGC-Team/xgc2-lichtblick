@@ -863,7 +863,14 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         if (visual.slots.length === 0) {
           continue;
         }
-        composeStaticInstanceMatrix(tempInstanceMatrix, rootPose, rel, visual.pose, visual.dims, scale);
+        composeStaticInstanceMatrix(
+          tempInstanceMatrix,
+          rootPose,
+          rel,
+          visual.pose,
+          visual.dims,
+          scale,
+        );
         for (const slot of visual.slots) {
           slot.batch.writeSlot(
             slot.index,
@@ -899,7 +906,13 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         // Non-instancable model: the permanent legacy child already renders it.
         continue;
       }
-      const child = this.#createUrdfChild(renderable, state, link.frameId, visual.visualIndex, visual.visual);
+      const child = this.#createUrdfChild(
+        renderable,
+        state,
+        link.frameId,
+        visual.visualIndex,
+        visual.visual,
+      );
       // selectObject() flips layers on the subtree at selection time; children
       // created by a selection migration afterwards inherit the robot's
       // current mask so the highlight survives.
@@ -1750,7 +1763,11 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
    */
   #createUrdfChild(
     renderable: UrdfRenderable,
-    context: { robot: UrdfRobot; baseUrl: string | undefined; fallbackColor: ColorRGBA | undefined },
+    context: {
+      robot: UrdfRobot;
+      baseUrl: string | undefined;
+      fallbackColor: ColorRGBA | undefined;
+    },
     frameId: string,
     i: number,
     visual: UrdfVisual,
@@ -1811,7 +1828,12 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
       case "box":
         visualState.dims = geometry.size;
         visualState.slots = [
-          this.instancePool.acquirePrimitiveSlot({ kind: "box", transparent, color, owner: renderable }),
+          this.instancePool.acquirePrimitiveSlot({
+            kind: "box",
+            transparent,
+            color,
+            owner: renderable,
+          }),
         ];
         break;
       case "cylinder":
@@ -1826,7 +1848,11 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         ];
         break;
       case "sphere":
-        visualState.dims = { x: geometry.radius * 2, y: geometry.radius * 2, z: geometry.radius * 2 };
+        visualState.dims = {
+          x: geometry.radius * 2,
+          y: geometry.radius * 2,
+          z: geometry.radius * 2,
+        };
         visualState.slots = [
           this.instancePool.acquirePrimitiveSlot({
             kind: "sphere",
@@ -2322,7 +2348,12 @@ function composeStaticInstanceMatrix(
   );
   instanceChainQuat.copy(instanceRootQuat);
   instanceChainQuat.multiply(
-    instanceTempQuat.set(rel.orientation.x, rel.orientation.y, rel.orientation.z, rel.orientation.w),
+    instanceTempQuat.set(
+      rel.orientation.x,
+      rel.orientation.y,
+      rel.orientation.z,
+      rel.orientation.w,
+    ),
   );
   instancePosVec
     .set(rel.position.x * scale, rel.position.y * scale, rel.position.z * scale)

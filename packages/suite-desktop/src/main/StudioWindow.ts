@@ -22,15 +22,15 @@ import {
 import path from "path";
 
 import Logger from "@lichtblick/log";
-import { APP_BAR_HEIGHT } from "../../../suite-base/src/components/AppBar/constants";
-import { NativeAppMenuEvent } from "../../../suite-base/src/context/NativeAppMenuContext";
-import { sharedI18nObject as i18n } from "../../../suite-base/src/i18n";
 import { palette } from "@lichtblick/theme";
 
 import StudioAppUpdater from "./StudioAppUpdater";
 import getDevModeIcon from "./getDevModeIcon";
 import { simulateUserClick } from "./simulateUserClick";
 import { getTelemetrySettings } from "./telemetry";
+import { APP_BAR_HEIGHT } from "../../../suite-base/src/components/AppBar/constants";
+import { NativeAppMenuEvent } from "../../../suite-base/src/context/NativeAppMenuContext";
+import { sharedI18nObject as i18n } from "../../../suite-base/src/i18n";
 import { LICHTBLICK_PRODUCT_NAME } from "../common/webpackDefines";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;

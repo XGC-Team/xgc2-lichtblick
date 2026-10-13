@@ -13,10 +13,7 @@
     "types": ["node", "jest"],
     "useUnknownInCatchVariables": false,
     "paths": {
-      "@lichtblick/suite-base/*": [
-        "../../../suite-base/src/*",
-        "../../../suite-base/*"
-      ]
+      "@lichtblick/suite-base/*": ["../../../suite-base/src/*", "../../../suite-base/*"]
     },
     "jsx": "react-jsx"
   }
