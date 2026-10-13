@@ -51,7 +51,7 @@ const VIEWER_DEFAULTS = Object.freeze({
   mecanumModelScale: 1,
   worldBoundaryMode: "walls",
   uavHeightProjection: true,
-  predictionLineWidth: 0.01,
+  predictionLineWidth: 0.08,
   predictionAxisScale: 0.15,
   markerColor: "#00a2ff",
   markerBackgroundColor: "#000000",
