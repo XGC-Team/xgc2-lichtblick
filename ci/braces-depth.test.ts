@@ -6,7 +6,11 @@ import { createRequire } from "module";
 
 const require = createRequire(__filename);
 const braces = require("braces") as (input: string, options?: { expand?: boolean }) => string[];
-const api = require("braces") as { compile:(input:unknown)=>unknown; expand:(input:unknown)=>unknown; stringify:(input:unknown)=>unknown };
+const api = require("braces") as {
+  compile: (input: unknown) => unknown;
+  expand: (input: unknown) => unknown;
+  stringify: (input: unknown) => unknown;
+};
 const installed = require("braces/package.json") as { version: string; name: string };
 
 describe("vendored braces", () => {
@@ -25,8 +29,10 @@ describe("vendored braces", () => {
   it("guards parentheses and caller-provided ASTs at every public walker", () => {
     const parentheses = `${"(".repeat(512)}a${")".repeat(512)}`;
     expect(() => braces(parentheses)).toThrow(SyntaxError);
-    const ast: {type:string; nodes:unknown[]} = {type:"root",nodes:[]};
+    const ast: { type: string; nodes: unknown[] } = { type: "root", nodes: [] };
     ast.nodes.push(ast);
-    for (const walk of [api.compile,api.expand,api.stringify]) {expect(()=>walk(ast)).toThrow(SyntaxError);}
+    for (const walk of [api.compile, api.expand, api.stringify]) {
+      expect(() => walk(ast)).toThrow(SyntaxError);
+    }
   });
 });

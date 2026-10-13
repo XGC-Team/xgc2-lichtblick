@@ -29,7 +29,7 @@ test("actual managed document client restores camera after browser replacement a
   const ownerGrant = "native-fixture-owner-grant-32-bytes-long";
   const scope = { namespace: "lichtblick", user: "fixture", workspace: "lab" };
   await fs.writeFile(grants, JSON.stringify([{ ...scope, token: ownerGrant }]), { mode: 0o600 });
-  const manifest = path.resolve(__dirname, "../contracts/storage-manifest.json");
+  const manifest = path.resolve(__dirname, "../../contracts/storage-manifest.json");
   let child;
   async function stop() {
     if (!child || !Object.is(child.exitCode, null)) {
