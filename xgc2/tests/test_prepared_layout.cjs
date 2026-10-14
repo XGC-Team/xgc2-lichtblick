@@ -43,6 +43,40 @@ for (const f of fixtures) {
   });
 }
 
+test("simple lidar visibility changes only the builtin cloud layer and preserves the blue map", () => {
+  const input = structuredClone(fixtures.find((f) => f.name === "lidar-fleet").input);
+  input.visualizationTopics.push({
+    topic: "/xgc/scene/reference_cloud",
+    messageType: "sensor_msgs/PointCloud2",
+    role: "semantic",
+    expectedFrame: "world",
+    visible3d: true,
+    visibleAr: false,
+    color: "#2196f3e6",
+  });
+  const defaultTopics = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics;
+  const lidarTopics = Object.keys(defaultTopics).filter((name) => name.endsWith("/simple_lidar/points"));
+  assert.ok(lidarTopics.length > 0);
+  for (const topic of lidarTopics) assert.equal(defaultTopics[topic].visible, true);
+
+  input.parameters.simpleLidarVisible = false;
+  const before = structuredClone(input);
+  const hidden = prepareLayout(mapViewInput(input));
+  const hiddenTopics = hidden.layout.configById["3D!xgc2"].topics;
+  for (const topic of lidarTopics) assert.deepEqual(hiddenTopics[topic], { ...defaultTopics[topic], visible: false });
+  assert.equal(hiddenTopics["/xgc/scene/reference_cloud"].colorMode, "flat");
+  assert.equal(hiddenTopics["/xgc/scene/reference_cloud"].flatColor, "#2196f3e6");
+  assert.deepEqual(input, before, "visibility does not rewrite frozen sensor configuration");
+  input.parameters.simpleLidarVisible = true;
+  assert.deepEqual(prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics, defaultTopics);
+});
+
+test("simple lidar visibility is an authored boolean", () => {
+  const input = structuredClone(fixtures[0].input);
+  input.parameters.simpleLidarVisible = "false";
+  assert.throws(() => prepareLayout(mapViewInput(input)), /simpleLidarVisible/);
+});
+
 test("reference grids stay in world coordinates when a robot is followed", () => {
   let grids = 0;
   for (const fixture of fixtures) {

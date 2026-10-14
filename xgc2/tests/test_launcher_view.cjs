@@ -294,6 +294,18 @@ test("the launcher refuses a missing view input switch and invalid stdin", async
   }
 });
 
+test("the launcher serves the authored builtin lidar visibility in its real layout", async (t) => {
+  const fixtures = require("../launcher/testdata/frozen-layouts.json");
+  const input = structuredClone(fixtures.find((f) => f.name === "lidar-fleet").input);
+  input.parameters.simpleLidarVisible = false;
+  const { launcher } = await startLauncher(t, { stdin: JSON.stringify(input) });
+  await launcher.waitForPort();
+  const topics = (await get(launcher.base, "/layout.json")).json.configById["3D!xgc2"].topics;
+  const lidar = Object.entries(topics).filter(([name]) => name.endsWith("/simple_lidar/points"));
+  assert.ok(lidar.length > 0);
+  for (const [, settings] of lidar) assert.equal(settings.visible, false);
+});
+
 test("the layout and desired-view gateway use the configured public URL prefix", async (t) => {
   const { launcher } = await startLauncher(t, {
     arguments: ({ socketPath }) => [

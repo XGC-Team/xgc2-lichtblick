@@ -74,6 +74,7 @@ const VIEWER_DEFAULTS = Object.freeze({
   obstacleSceneVisible: true,
   transformTopics: [],
   plotPaths: [],
+  simpleLidarVisible: true,
   simpleLidarMaxRateHz: 0,
   simpleLidarMaxMessageBytes: 0,
   frameWorldBoundary: false,
@@ -284,6 +285,7 @@ function prepareLayout(input) {
   for (const key of [
     "gridVisible",
     "obstacleSceneVisible",
+    "simpleLidarVisible",
     "axesVisible",
     "uavHeightProjection",
     "markerBackgroundVisible",
@@ -587,7 +589,7 @@ function prepareLayout(input) {
   for (const t of lidar) {
     declaredNames.add(lidarDisplay(t));
     threeTopics[lidarDisplay(t)] = {
-      visible: true,
+      visible: p.simpleLidarVisible,
       pointSize: 2,
       decayTime: 0,
       colorMode: "colormap",
