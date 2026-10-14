@@ -36,8 +36,9 @@ function identity(key: ManagedKey): string {
  * stops the batch, rereads its documents (also covering a lost write response),
  * refuses queued edits and rejects the caller. Earlier writes are never silently
  * rolled back, and a partially completed batch is never reported as successful.
- * Consumers must await commit before reporting success; on conflict the web
- * initializer reloads the application after recovery. Reload clears the error.
+ * Consumers must await commit before reporting success. Recovery rereads the
+ * affected documents without reloading the viewer or replaying the failed edit.
+ * Queued edits are refused; a later explicit edit can use the recovered versions.
  */
 export class CoreUiDocumentStore implements ManagedDocumentStorage {
   #records = new Map<string, RecordValue>();
@@ -46,6 +47,7 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
   #tail: Promise<unknown> = Promise.resolve();
   #listeners = new Set<() => void>();
   #state: ManagedCommitState = { pending: 0 };
+  #recovered = false;
 
   public constructor(private client = new CoreUiDocumentClient()) {}
 
@@ -141,6 +143,7 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
       this.#records = records;
       this.#loaded = true;
       this.#state = { pending: 0 };
+      this.#recovered = false;
       this.#notify();
     } finally {
       this.#loading = false;
@@ -229,7 +232,11 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
       throw new Error("Cannot save while reloading managed documents");
     }
     if (this.#state.error) {
-      throw this.#state.error;
+      if (!this.#recovered || this.#state.pending > 0) {
+        throw this.#state.error;
+      }
+      this.#state = { pending: 0 };
+      this.#recovered = false;
     }
     if (this.#state.pending >= 32) {
       throw new Error("Managed save queue is full");
@@ -267,6 +274,7 @@ export class CoreUiDocumentStore implements ManagedDocumentStorage {
         let failure = error instanceof Error ? error : new Error(String(error));
         this.#state = { ...this.#state, error: failure };
         const recoveryError = await this.#recover(changes);
+        this.#recovered = recoveryError == undefined;
         if (recoveryError) {
           const message = `${failure.message}; document reload failed: ${recoveryError.message}`;
           failure =

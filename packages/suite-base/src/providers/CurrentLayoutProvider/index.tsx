@@ -332,7 +332,7 @@ export default function CurrentLayoutProvider({
         );
       const reusable = scoped[0];
       if (reusable) {
-        await setSelectedLayoutId(reusable.id);
+        await setSelectedLayoutId(reusable.id, { saveToProfile: false });
         return;
       }
       const seeded = await layoutManager.saveNewLayout({
@@ -345,9 +345,9 @@ export default function CurrentLayoutProvider({
           },
         },
         permission: "CREATOR_WRITE",
-        activate: true,
+        activate: false,
       });
-      await setSelectedLayoutId(seeded.id);
+      await setSelectedLayoutId(seeded.id, { saveToProfile: false });
       return;
     }
 

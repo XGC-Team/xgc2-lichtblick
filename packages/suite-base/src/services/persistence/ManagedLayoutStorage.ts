@@ -53,7 +53,9 @@ export class ManagedLayoutStorage implements ILayoutStorage {
             value: layout,
           }),
         ),
-        { family: "profile", key: "user", value: profile },
+        ...(profile === previousProfile || profile.currentLayoutId === previousProfile.currentLayoutId
+          ? []
+          : [{ family: "profile" as const, key: "user", value: profile }]),
         ...[...new Set(options?.replaceIds ?? [])]
           .filter((id) => !layouts.some((layout) => layout.id === id))
           .map(

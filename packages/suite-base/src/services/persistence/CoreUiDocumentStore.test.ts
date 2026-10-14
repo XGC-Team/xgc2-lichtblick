@@ -198,7 +198,7 @@ it("validates the entire plan before writing and leaves validation errors retrya
   expect(store.state.error).toBeUndefined();
 });
 
-it("a conflicting create is refused, rereads the newer value, and blocks further edits until reload", async () => {
+it("a conflicting create is refused, rereads the newer value, and allows a later explicit edit", async () => {
   const server = new CoreUiDocumentServer();
   const client = new CoreUiDocumentClient(server.fetch);
   const first = new CoreUiDocumentStore(client);
@@ -211,10 +211,6 @@ it("a conflicting create is refused, rereads the newer value, and blocks further
   ).rejects.toMatchObject({ code: "conflict" });
   expect(second.get("configuration", "language")).toBe("en");
   expect(second.state).toMatchObject({ pending: 0, error: { code: "conflict" } });
-  await expect(
-    second.commit([{ family: "workspace", key: "ui", value: {} }]),
-  ).rejects.toMatchObject({ code: "conflict" });
-  await second.bootstrap();
   await second.commit([{ family: "configuration", key: "language", value: "de" }]);
   expect(second.get("configuration", "language")).toBe("de");
 });

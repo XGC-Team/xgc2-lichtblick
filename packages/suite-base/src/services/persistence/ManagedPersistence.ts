@@ -5,7 +5,6 @@ import { CoreUiDocumentAssets } from "./CoreUiDocumentAssets";
 import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
 import type { ManagedAssetTransport } from "./ManagedAsset";
 import type { ManagedDocumentStore, ManagedTransport } from "./ManagedDocumentStore";
-import { ManagedRequestError } from "./ManagedDocumentStore.types";
 import type { ManagedDocumentStorage } from "./ManagedDocumentStore.types";
 import type { UserProfile } from "../../context/UserProfileStorageContext";
 
@@ -29,20 +28,6 @@ export async function initializeManagedPersistence(
     ? new (await import("./ManagedDocumentStore")).ManagedDocumentStore(transport)
     : new CoreUiDocumentStore();
   await store.bootstrap();
-  if (!transport) {
-    let reloading = false;
-    store.subscribe(() => {
-      if (
-        !reloading &&
-        store.state.pending === 0 &&
-        store.state.error instanceof ManagedRequestError &&
-        store.state.error.code === "conflict"
-      ) {
-        reloading = true;
-        reloadManagedApplication();
-      }
-    });
-  }
   const profile = store.get<UserProfile>("profile", "user") ?? {};
   if (!profile.firstSeenTime) {
     await store.commit([

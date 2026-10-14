@@ -51,26 +51,22 @@ it("initializes the web store and first-seen profile through Core before exposin
   expect(server.requests.some(({ url }) => url.pathname.includes("/desktop"))).toBe(false);
 });
 
-it("reloads the web page once after refusing a conflict and reading the newer document", async () => {
+it("keeps the viewer alive after a refused save and accepts the next explicit edit", async () => {
   const server = new CoreUiDocumentServer();
   const client = new CoreUiDocumentClient(server.fetch);
   await client.put("configuration", "language", "en", "0");
   jest.spyOn(globalThis, "fetch").mockImplementation(server.fetch);
   const store = await initializeManagedPersistence();
   await client.put("configuration", "language", "fr", "1");
-  const reload = mockReload;
-  reload.mockImplementation(() => {
-    expect(store.state.pending).toBe(0);
-    expect(store.get("configuration", "language")).toBe("fr");
-  });
   await expect(
     store.commit([{ family: "configuration", key: "language", value: "de" }]),
   ).rejects.toMatchObject({ code: "conflict" });
-  expect(reload).toHaveBeenCalledTimes(1);
-  await expect(store.commit([{ family: "workspace", key: "ui", value: {} }])).rejects.toMatchObject(
-    { code: "conflict" },
-  );
-  expect(reload).toHaveBeenCalledTimes(1);
+  expect(store.state.pending).toBe(0);
+  expect(store.get("configuration", "language")).toBe("fr");
+  expect(mockReload).not.toHaveBeenCalled();
+  await store.commit([{ family: "workspace", key: "ui", value: {} }]);
+  expect(store.get("workspace", "ui")).toEqual({});
+  expect(mockReload).not.toHaveBeenCalled();
 });
 
 it("refuses startup when Core is unavailable", async () => {

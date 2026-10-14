@@ -688,13 +688,14 @@ describe("CurrentLayoutProvider", () => {
         expect.objectContaining({
           name: "layout",
           permission: "CREATOR_WRITE",
-          activate: true,
+          activate: false,
           data: expect.objectContaining({
             metadata: { xgc2LayoutScope: ["exp-1", "lichtblick"] },
           }),
         }),
       );
       expect(profile.getUserProfile).not.toHaveBeenCalled();
+      expect(profile.setUserProfile).not.toHaveBeenCalled();
     });
 
     it("reuses the stored scoped layout instead of seeding a new one", async () => {
@@ -741,6 +742,7 @@ describe("CurrentLayoutProvider", () => {
 
       // Then no new layout is seeded
       expect(manager.saveNewLayout).not.toHaveBeenCalled();
+      expect(profile.setUserProfile).not.toHaveBeenCalled();
     });
 
     it("falls back to profile restore when the scope parameter is absent", async () => {

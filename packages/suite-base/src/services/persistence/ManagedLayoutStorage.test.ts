@@ -52,6 +52,22 @@ it("refuses a conflicting layout save and reloads the newer layout into the stor
   expect(store.state.error).toMatchObject({ code: "conflict" });
 });
 
+it("does not rewrite the shared profile when only the layout changes", async () => {
+  const server = new CoreUiDocumentServer();
+  const store = new CoreUiDocumentStore(new CoreUiDocumentClient(server.fetch));
+  await store.bootstrap();
+  const storage = new ManagedLayoutStorage(store);
+  const layout = LayoutBuilder.layout({ id: LayoutBuilder.layoutId("camera") });
+  await storage.put("local", layout, { activate: true });
+  server.requests.length = 0;
+  await storage.put("local", { ...layout, name: "camera changed" });
+  await storage.put("local", { ...layout, name: "same active layout" }, { activate: true });
+  const writes = server.requests.filter(({ options }) => options?.method === "PUT");
+  expect(writes).toHaveLength(2);
+  expect(writes.every(({ url }) => url.pathname.includes("/layouts/"))).toBe(true);
+  expect(store.get("profile", "user")).toEqual({ currentLayoutId: layout.id });
+});
+
 it("keeps a successful layout write when profile activation conflicts and refuses import success", async () => {
   const server = new CoreUiDocumentServer();
   const client = new CoreUiDocumentClient(server.fetch);
