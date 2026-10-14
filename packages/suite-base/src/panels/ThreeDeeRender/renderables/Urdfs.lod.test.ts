@@ -326,6 +326,46 @@ describe("Urdfs screen-size LOD", () => {
     modelCache.dispose();
   });
 
+  it("renders a late managed layer from an already received topic without another publication", async () => {
+    const { extension, renderer, transformTree, modelCache } = setup({
+      robots: [],
+      withCamera: false,
+    });
+    const topic = "/uav1/visual_robot_description";
+    const layer = (prefix: string) => ({
+      layerId: "foxglove.Urdf",
+      sourceType: "topic",
+      topic,
+      framePrefix: prefix,
+      visible: true,
+      lod: "auto",
+    });
+    renderer.config.layers["xgc2-urdf-first"] = layer("r1/");
+    extension.startFrame(100n, "world", "world");
+    const subscription = extension
+      .getSubscriptions()
+      .find((entry) => entry.subscription.shouldSubscribe?.(topic) === true);
+    expect(subscription).toBeDefined();
+    subscription!.subscription.handler({
+      topic,
+      receiveTime: { sec: 0, nsec: 0 },
+      sizeInBytes: PARAM_MESH_URDF.length,
+      schemaName: "std_msgs/String",
+      message: { data: PARAM_MESH_URDF },
+    });
+    await extension.settleVideoDecodes();
+    renderer.config.layers["xgc2-urdf-late"] = layer("r2/");
+    transformTree.addTransform("r1/base_link", "world", 0n, translation(10, 0, 0));
+    transformTree.addTransform("r2/base_link", "world", 0n, translation(20, 0, 0));
+    extension.startFrame(101n, "world", "world");
+    await extension.settleVideoDecodes();
+    extension.startFrame(102n, "world", "world");
+    expect(robot(extension, "xgc2-urdf-late").userData.urdf).toBe(PARAM_MESH_URDF);
+    expect(slotPosition(meshSlot(extension, "xgc2-urdf-late", "r2/base_link")).x).toBeCloseTo(20);
+    extension.dispose();
+    modelCache.dispose();
+  });
+
   it("loads the real high tier instead of caching an unclassified default as high", async () => {
     const { extension, renderer, transformTree, modelCache, camera } = setup({
       robots: [{ id: "robot1", prefix: "r1/", x: 10 }],

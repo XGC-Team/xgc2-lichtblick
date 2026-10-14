@@ -1392,7 +1392,8 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
   }
 
   #loadUrdf(args: { instanceId: string; urdf?: string; forceReload?: boolean }): void {
-    const { instanceId, urdf } = args;
+    const { instanceId } = args;
+    let urdf = args.urdf;
     const forceReload = args.forceReload ?? false;
     let renderable = this.renderables.get(instanceId);
     const settings = this.#getCurrentSettings(instanceId);
@@ -1402,6 +1403,9 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const parameter = (settings as Partial<LayerSettingsCustomUrdf>).parameter;
     const topic = (settings as Partial<LayerSettingsCustomUrdf>).topic;
     const framePrefix = (settings as Partial<LayerSettingsCustomUrdf>).framePrefix;
+    if (urdf == undefined && sourceType === "topic" && topic != undefined) {
+      urdf = this.#urdfsByTopic.get(topic);
+    }
     if (
       renderable &&
       urdf &&
