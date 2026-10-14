@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import * as THREE from "three";
+import { setImmediate as nextTurn } from "timers";
 
 import { ObjectPool } from "@lichtblick/den/collection";
 
@@ -385,6 +386,64 @@ describe("Urdfs screen-size LOD", () => {
     expect(meshBatchNames(extension).some((name) => name.includes("wheel_lod10k.stl"))).toBe(true);
     expect(slotPosition(meshSlot(extension, "robot1", "r1/base_link")).x).toBeCloseTo(10);
 
+    extension.dispose();
+    modelCache.dispose();
+  });
+
+  it("keeps the current robot visible when a previous frame prefix's tier finishes late", async () => {
+    const instanceId = "xgc2-urdf-robot1";
+    const { extension, renderer, transformTree, modelCache } = setup({
+      robots: [{ id: instanceId, prefix: "old/", x: 10, lod: "high" }],
+      withCamera: false,
+    });
+    await extension.settleVideoDecodes();
+    const tierAsset = {
+      data: new TextEncoder().encode(URL_URDFS[URL_HIGH]),
+      mediaType: "application/xml",
+    };
+    let resolveOld!: (asset: typeof tierAsset) => void;
+    let resolveCurrent!: (asset: typeof tierAsset) => void;
+    const oldTier = new Promise<typeof tierAsset>((resolve) => {
+      resolveOld = resolve;
+    });
+    const currentTier = new Promise<typeof tierAsset>((resolve) => {
+      resolveCurrent = resolve;
+    });
+    renderer.fetchAsset.mockImplementationOnce(async () => await oldTier);
+    transformTree.addTransform("old/base_link", "world", 0n, translation(10, 0, 0));
+    extension.startFrame(100n, "world", "world");
+    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(1);
+
+    // The managed layer is reused with a new robot frame while its old LOD
+    // fetch is still in flight. Both requests target the same detail tier.
+    (renderer.config.layers[instanceId] as LayerSettingsCustomUrdf).framePrefix = "current/";
+    transformTree.removeTransform("old/base_link", "world", 0n);
+    transformTree.addTransform("current/base_link", "world", 0n, translation(20, 0, 0));
+    extension.startFrame(101n, "world", "world");
+    await new Promise<void>((resolve) => nextTurn(resolve));
+    renderer.fetchAsset.mockImplementationOnce(async () => await currentTier);
+    extension.startFrame(102n, "world", "world");
+    expect(urdfFetches(renderer.fetchAsset, URL_HIGH)).toBe(2);
+
+    resolveOld(tierAsset);
+    await new Promise<void>((resolve) => nextTurn(resolve));
+    resolveCurrent(tierAsset);
+    await extension.settleVideoDecodes();
+    extension.startFrame(103n, "world", "world");
+
+    expect(
+      [...robot(extension, instanceId).userData.renderables.values()]
+        .filter((child) => child.visible)
+        .map((child) => child.userData.frameId),
+    ).toContain("current/rotor_link");
+    const slot = meshSlot(extension, instanceId, "current/base_link");
+    expect(slot.batch.instancedMesh().visible).toBe(true);
+    expect(slotPosition(slot).x).toBeCloseTo(20);
+    expect(renderer.settings.errors.add).not.toHaveBeenCalledWith(
+      ["layers", instanceId],
+      "MissingTransform",
+      expect.any(String),
+    );
     extension.dispose();
     modelCache.dispose();
   });

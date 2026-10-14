@@ -2099,12 +2099,17 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
     const tierUrl = lod.base.tiers[tier];
     const key = `tier:${tierUrl}:${framePrefix}`;
     const instanceId = renderable.userData.settings.instanceId;
+    const loadGeneration = renderable.loadGeneration;
     lod.pendingTier = tier;
     this.#trackLoad(
       this.#tierModel(key, tierUrl, framePrefix)
         .then((model) => {
           const current = renderable.userData.lod;
-          if (current?.pendingTier !== tier || this.renderables.get(instanceId) !== renderable) {
+          if (
+            renderable.loadGeneration !== loadGeneration ||
+            current?.pendingTier !== tier ||
+            this.renderables.get(instanceId) !== renderable
+          ) {
             return;
           }
           current.pendingTier = undefined;
@@ -2112,7 +2117,11 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
         })
         .catch((err: unknown) => {
           const current = renderable.userData.lod;
-          if (current == undefined || this.renderables.get(instanceId) !== renderable) {
+          if (
+            renderable.loadGeneration !== loadGeneration ||
+            current == undefined ||
+            this.renderables.get(instanceId) !== renderable
+          ) {
             return;
           }
           if (current.pendingTier === tier) {
