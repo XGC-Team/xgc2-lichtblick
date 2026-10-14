@@ -57,7 +57,7 @@ test("simple lidar visibility changes only the builtin cloud layer and preserves
   const defaultTopics = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics;
   const lidarTopics = Object.keys(defaultTopics).filter((name) => name.endsWith("/simple_lidar/points"));
   assert.ok(lidarTopics.length > 0);
-  for (const topic of lidarTopics) assert.equal(defaultTopics[topic].visible, true);
+  for (const topic of lidarTopics) assert.equal(defaultTopics[topic].visible, false);
 
   input.parameters.simpleLidarVisible = false;
   const before = structuredClone(input);
@@ -68,7 +68,9 @@ test("simple lidar visibility changes only the builtin cloud layer and preserves
   assert.equal(hiddenTopics["/xgc/scene/reference_cloud"].flatColor, "#2196f3e6");
   assert.deepEqual(input, before, "visibility does not rewrite frozen sensor configuration");
   input.parameters.simpleLidarVisible = true;
-  assert.deepEqual(prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics, defaultTopics);
+  const visibleTopics = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics;
+  for (const topic of lidarTopics) assert.deepEqual(visibleTopics[topic], { ...defaultTopics[topic], visible: true });
+  assert.deepEqual(visibleTopics["/xgc/scene/reference_cloud"], defaultTopics["/xgc/scene/reference_cloud"]);
 });
 
 test("simple lidar visibility is an authored boolean", () => {

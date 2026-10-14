@@ -1568,7 +1568,7 @@
               "colorMode": "colormap",
               "decayTime": 0,
               "pointSize": 2,
-              "visible": true
+              "visible": false
             },
             "/uav2/path": {
               "gradient": ["#44556680", "#445566ff"],
@@ -1582,7 +1582,7 @@
               "colorMode": "colormap",
               "decayTime": 0,
               "pointSize": 2,
-              "visible": true
+              "visible": false
             },
             "/ugv1/history/path": {
               "gradient": ["#cbab0180", "#cbab01ff"],
@@ -1830,7 +1830,7 @@
       "userNodes": {}
     },
     "name": "scene-plot-palette",
-    "layoutSha256": "69579dc47541c4ef528e971b08b501f5bdb75f5f6f3a46e01f80541b6fcadc31"
+    "layoutSha256": "63ddb79a158005ae1fff29f57d2b94ab9afa1e63f5cb50ad9269e4eb10769cf4"
   },
   {
     "input": {
@@ -2160,7 +2160,7 @@
               "colorMode": "colormap",
               "decayTime": 0,
               "pointSize": 2,
-              "visible": true
+              "visible": false
             },
             "/uav2/path": {
               "gradient": ["#ff704380", "#ff7043ff"],
@@ -2174,7 +2174,7 @@
               "colorMode": "colormap",
               "decayTime": 0,
               "pointSize": 2,
-              "visible": true
+              "visible": false
             },
             "/ugv1/history/path": {
               "gradient": ["#cbab0180", "#cbab01ff"],
@@ -2395,7 +2395,7 @@
       "userNodes": {}
     },
     "name": "replay-pixels",
-    "layoutSha256": "bc595ec37a8a82aa85b50ab69917d7539bb175e035266721f7669c6a4db850df"
+    "layoutSha256": "389ebbd45982aad4b09f274a0840adf00f8e596b8c8218096dfb5119599e58a3"
   },
   {
     "input": {
@@ -2699,7 +2699,7 @@
               "gradient": ["#288f8c80", "#288f8cff"]
             },
             "/uav1/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3002,7 +3002,7 @@
       }
     },
     "name": "hybrid-mixed",
-    "layoutSha256": "922b9e6319afd7b4293edbb73f83003d27b0aa4ab71590f6f1dc8c546f566604"
+    "layoutSha256": "a2bf026e2efe06074dceef61ea03741ac86cb3d1e8cbee887eed94e38840a2da"
   },
   {
     "input": {
@@ -3699,7 +3699,7 @@
               "gradient": ["#ff704380", "#ff7043ff"]
             },
             "/uav1/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3707,7 +3707,7 @@
               "colorField": "z"
             },
             "/uav2/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3715,7 +3715,7 @@
               "colorField": "z"
             },
             "/uav3/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3723,7 +3723,7 @@
               "colorField": "z"
             },
             "/uav4/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3731,7 +3731,7 @@
               "colorField": "z"
             },
             "/uav5/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3739,7 +3739,7 @@
               "colorField": "z"
             },
             "/uav6/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3747,7 +3747,7 @@
               "colorField": "z"
             },
             "/uav7/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3755,7 +3755,7 @@
               "colorField": "z"
             },
             "/uav8/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3763,7 +3763,7 @@
               "colorField": "z"
             },
             "/uav9/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -3771,7 +3771,7 @@
               "colorField": "z"
             },
             "/uav10/simple_lidar/points": {
-              "visible": true,
+              "visible": false,
               "pointSize": 2,
               "decayTime": 0,
               "colorMode": "colormap",
@@ -4294,7 +4294,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "b35628e0ba3e4ce216ef6acf6b09acfea93efd51aa331cb21c87027507bf1fe7"
+    "layoutSha256": "9c6c035be01441a87aaf7c3a533e881dede9867d22f51b6b5371f1670505a9b0"
   },
   {
     "input": {

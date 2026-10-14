@@ -74,7 +74,7 @@ const VIEWER_DEFAULTS = Object.freeze({
   obstacleSceneVisible: true,
   transformTopics: [],
   plotPaths: [],
-  simpleLidarVisible: true,
+  simpleLidarVisible: false,
   simpleLidarMaxRateHz: 0,
   simpleLidarMaxMessageBytes: 0,
   frameWorldBoundary: false,
