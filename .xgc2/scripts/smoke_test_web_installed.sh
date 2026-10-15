@@ -69,7 +69,7 @@ const { rawCall } = require(process.argv[3]);
   const described = response.json;
   assert.equal(described.service, "xgc2.lichtblick.v1");
   assert.equal(described.ready, true);
-  assert.deepEqual(described.facts.capabilities, ["view.v1"]);
+  assert.deepEqual(described.facts.capabilities, ["view.v1", "viewpoint.v1"]);
   const origin = `http://127.0.0.1:${described.facts.http_port}`;
   fs.writeFileSync(path.join(root, "origin"), origin);
   fs.writeFileSync(path.join(root, "actual-describe.json"), JSON.stringify(described));
