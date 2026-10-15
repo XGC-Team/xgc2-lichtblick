@@ -470,8 +470,32 @@ describe("Urdfs startFrame pose updates", () => {
     extension.dispose();
   });
 
-  it("keeps per-link invisibility and the aggregated MISSING_TRANSFORM error", async () => {
-    const { extension, renderer } = setup();
+  it("hides a scaled articulated link after its robot root is lost and restores it on arrival", async () => {
+    const { extension, transformTree } = setup({ scale: 2 });
+    await extension.settleVideoDecodes();
+    transformTree.addTransform("base_link", "world", 0n, translation(10, 0, 0));
+    const rotor = linksByFrameId(extension).get("rotor_link")![0]!;
+    extension.startFrame(100n, "world", "world");
+    expect(rotor.visible).toBe(true);
+    expect(rotor.position.x).toBeCloseTo(10);
+
+    transformTree.removeTransform("base_link", "world", 0n);
+    extension.startFrame(200n, "world", "world");
+    expect(rotor.visible).toBe(false);
+    expect(extension.instancePool.batches()[0]!.instancedMesh().visible).toBe(false);
+
+    // The same child recovers from the real root transform, without a layer reload.
+    transformTree.addTransform("base_link", "world", 300n, translation(20, 0, 0));
+    extension.startFrame(300n, "world", "world");
+    expect(linksByFrameId(extension).get("rotor_link")![0]).toBe(rotor);
+    expect(rotor.visible).toBe(true);
+    expect(rotor.position.x).toBeCloseTo(20);
+    expect(extension.instancePool.batches()[0]!.instancedMesh().visible).toBe(true);
+    extension.dispose();
+  });
+
+  it.each([1, 2])("keeps per-link invisibility and the aggregated MISSING_TRANSFORM error at scale %s", async (scale) => {
+    const { extension, renderer } = setup({ scale });
     await extension.settleVideoDecodes();
     const links = linksByFrameId(extension);
     const errorsAdd = renderer.settings.errors.add;

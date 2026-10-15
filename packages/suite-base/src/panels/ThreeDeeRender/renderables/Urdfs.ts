@@ -768,6 +768,7 @@ export class Urdfs extends SceneExtension<UrdfRenderable> {
           );
         }
         if (!updated) {
+          childRenderable.visible = false;
           missingFrameId = frameId;
         }
       }
