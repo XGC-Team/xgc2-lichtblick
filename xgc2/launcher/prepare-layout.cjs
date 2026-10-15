@@ -82,7 +82,7 @@ const VIEWER_DEFAULTS = Object.freeze({
   historyLineWidth: 0.04,
   historyVisible: true,
   historyShowPoseAxes: false,
-  predictionShowPoseAxes: true,
+  predictionShowPoseAxes: false,
   predictionMaxRateHz: 2,
 });
 const topicPattern = /^\/[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*$/;
@@ -493,8 +493,7 @@ function prepareLayout(input) {
         flatColor: flat(t.role === "obstacle" ? "#3399ffb3" : "#8f8f8f99"),
       });
     }
-    const poseAxes =
-      t.showPoseAxes != null ? t.showPoseAxes : t.role === "prediction" && p.predictionShowPoseAxes;
+    const poseAxes = t.role !== "prediction" && t.showPoseAxes === true;
     if (t.messageType === "nav_msgs/Path") {
       Object.assign(s, {
         type: poseAxes ? "line-axes" : "line",
@@ -509,7 +508,7 @@ function prepareLayout(input) {
     }
     if (t.messageType === "geometry_msgs/PoseArray" && t.role === "prediction") {
       Object.assign(s, {
-        type: poseAxes ? "arrow" : "line",
+        type: "line",
         gradient: gradient(["#ffbf00ff", "#ffbf0040"]),
       });
     }

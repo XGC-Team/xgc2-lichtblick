@@ -491,10 +491,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             },
             "/robot_0/reference": {
               "visible": true,
@@ -510,7 +509,7 @@
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
-              "type": "arrow",
+              "type": "line",
               "gradient": ["#123456ff", "#123456ff"]
             },
             "/robot_0/grid": {
@@ -623,10 +622,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
@@ -697,7 +695,7 @@
       }
     },
     "name": "every-declared-type",
-    "layoutSha256": "aea43d7b8bb63ae159a848b4a68e44aaac10e8d0b2ea9d46e679debe986aa543"
+    "layoutSha256": "b83937961c4482a2c92e37bb8ce9b9f4cdf8e9e668df7df4b35159723f1a4986"
   },
   {
     "input": {
@@ -1000,10 +998,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             },
             "/uav1/visual_robot_description": {
               "visible": false,
@@ -1172,10 +1169,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             }
           },
           "followMode": "follow-pose",
@@ -1216,7 +1212,7 @@
       }
     },
     "name": "physical-usb-camera",
-    "layoutSha256": "38170d2add5215b27e9d140ee2250270329d1df40c0442f11e9c0f27e7637ceb"
+    "layoutSha256": "1313f75e8c3976d15ed3c1d5a86e227aac4e939032b34d00ced36b26d12551fe"
   },
   {
     "input": {
@@ -2728,10 +2724,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             },
             "/uav1/visual_robot_description": {
               "visible": false,
@@ -2919,10 +2914,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             }
           },
           "followMode": "follow-pose",
@@ -3002,7 +2996,7 @@
       }
     },
     "name": "hybrid-mixed",
-    "layoutSha256": "a2bf026e2efe06074dceef61ea03741ac86cb3d1e8cbee887eed94e38840a2da"
+    "layoutSha256": "88efd387e6debaf63c7b5c7bcf74924e3cf22e3164b4e888c22391f1d545fda9"
   },
   {
     "input": {
@@ -3800,10 +3794,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             },
             "/robot_0/reference": {
               "visible": true,
@@ -3819,7 +3812,7 @@
             },
             "/xgc/display/robot_0/poses": {
               "visible": true,
-              "type": "arrow",
+              "type": "line",
               "gradient": ["#123456ff", "#123456ff"]
             },
             "/robot_0/grid": {
@@ -4103,10 +4096,9 @@
             },
             "/xgc/display/robot_0/plan": {
               "visible": true,
-              "type": "line-axes",
+              "type": "line",
               "lineWidth": 0.01,
-              "gradient": ["#ffbf00ff", "#ffbf0040"],
-              "axisScale": 0.15
+              "gradient": ["#ffbf00ff", "#ffbf0040"]
             },
             "/xgc/display/robot_0/plan_list": {
               "visible": true,
@@ -4294,7 +4286,7 @@
       }
     },
     "name": "lidar-fleet",
-    "layoutSha256": "9c6c035be01441a87aaf7c3a533e881dede9867d22f51b6b5371f1670505a9b0"
+    "layoutSha256": "3dd310b8ba71fd03faa4b3a991cefd62c4c0f746a5739b1b1c09dd712469ee86"
   },
   {
     "input": {

@@ -55,7 +55,9 @@ test("simple lidar visibility changes only the builtin cloud layer and preserves
     color: "#2196f3e6",
   });
   const defaultTopics = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics;
-  const lidarTopics = Object.keys(defaultTopics).filter((name) => name.endsWith("/simple_lidar/points"));
+  const lidarTopics = Object.keys(defaultTopics).filter((name) =>
+    name.endsWith("/simple_lidar/points"),
+  );
   assert.ok(lidarTopics.length > 0);
   for (const topic of lidarTopics) assert.equal(defaultTopics[topic].visible, false);
 
@@ -63,14 +65,19 @@ test("simple lidar visibility changes only the builtin cloud layer and preserves
   const before = structuredClone(input);
   const hidden = prepareLayout(mapViewInput(input));
   const hiddenTopics = hidden.layout.configById["3D!xgc2"].topics;
-  for (const topic of lidarTopics) assert.deepEqual(hiddenTopics[topic], { ...defaultTopics[topic], visible: false });
+  for (const topic of lidarTopics)
+    assert.deepEqual(hiddenTopics[topic], { ...defaultTopics[topic], visible: false });
   assert.equal(hiddenTopics["/xgc/scene/reference_cloud"].colorMode, "flat");
   assert.equal(hiddenTopics["/xgc/scene/reference_cloud"].flatColor, "#2196f3e6");
   assert.deepEqual(input, before, "visibility does not rewrite frozen sensor configuration");
   input.parameters.simpleLidarVisible = true;
   const visibleTopics = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics;
-  for (const topic of lidarTopics) assert.deepEqual(visibleTopics[topic], { ...defaultTopics[topic], visible: true });
-  assert.deepEqual(visibleTopics["/xgc/scene/reference_cloud"], defaultTopics["/xgc/scene/reference_cloud"]);
+  for (const topic of lidarTopics)
+    assert.deepEqual(visibleTopics[topic], { ...defaultTopics[topic], visible: true });
+  assert.deepEqual(
+    visibleTopics["/xgc/scene/reference_cloud"],
+    defaultTopics["/xgc/scene/reference_cloud"],
+  );
 });
 
 test("simple lidar visibility is an authored boolean", () => {
@@ -448,14 +455,13 @@ test("robotNamespace selects that robot palette and explicit color still wins", 
   assert.equal(topics["/drone_2/plan"], undefined);
   assert.deepEqual(topics["/xgc/display/drone_2/plan"], {
     visible: true,
-    type: "line-axes",
+    type: "line",
     lineWidth: 0.07,
-    axisScale: 0.15,
     gradient: ["#123456ff", "#123456ff"],
   });
   assert.deepEqual(topics["/xgc/display/drone_2/poses"], {
     visible: true,
-    type: "arrow",
+    type: "line",
     gradient: [`${palette[2]}80`, `${palette[2]}ee`],
   });
   assert.equal(topics["/xgc/display/drone_2/poses_plain"].type, "line");
@@ -507,18 +513,18 @@ test("obstacle projection stays in 3D and physical augmented views keep the tint
   assert.equal(layout.configById["3D!xgc2"].topics["/robot_0/plan"], undefined);
   assert.equal(
     layout.configById["Image!xgc2-camera-ar"].topics["/xgc/display/robot_0/plan"].type,
-    "line-axes",
+    "line",
   );
 });
 
-test("prediction display copies ignore a missing maxRateHz and explicit pose axes win", () => {
+test("prediction display copies remain line-only for every robot despite explicit pose axes", () => {
   const input = structuredClone(fixtures[1].input);
   for (const topic of input.visualizationTopics) {
     delete topic.maxRateHz;
   }
   const prepared = prepareLayout(mapViewInput(input));
   assert.equal(prepared.parameters.predictionMaxRateHz, 2);
-  assert.equal(prepared.parameters.predictionShowPoseAxes, true);
+  assert.equal(prepared.parameters.predictionShowPoseAxes, false);
   const topics = prepared.layout.configById["3D!xgc2"].topics;
   for (const topic of input.visualizationTopics) {
     if (topic.role !== "prediction" || !topic.visible3d) {
@@ -527,6 +533,10 @@ test("prediction display copies ignore a missing maxRateHz and explicit pose axe
     const settings = topics[`/xgc/display${topic.topic}`];
     assert.ok(settings, topic.topic);
     assert.equal(topics[topic.topic], undefined, topic.topic);
+    if (["nav_msgs/Path", "geometry_msgs/PoseArray"].includes(topic.messageType)) {
+      assert.equal(settings.type, "line", topic.topic);
+      assert.equal(settings.axisScale, undefined, topic.topic);
+    }
     if (topic.messageType.startsWith("visualization_msgs/")) {
       assert.equal(settings.type, undefined, topic.topic);
       assert.equal(settings.axisScale, undefined, topic.topic);
@@ -544,8 +554,8 @@ test("prediction display copies ignore a missing maxRateHz and explicit pose axe
   const explicit = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics[
     "/xgc/display/robot_0/plan"
   ];
-  assert.equal(explicit.type, "line-axes");
-  assert.equal(explicit.axisScale, 0.15);
+  assert.equal(explicit.type, "line");
+  assert.equal(explicit.axisScale, undefined);
   input.parameters = { predictionMaxRateHz: 0 };
   assert.throws(() => prepareLayout(mapViewInput(input)), /predictionMaxRateHz/);
 });
