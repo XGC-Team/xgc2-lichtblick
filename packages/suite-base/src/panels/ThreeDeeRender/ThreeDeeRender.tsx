@@ -83,6 +83,7 @@ import { PublishClickEventMap } from "./renderables/PublishClickTool";
 import { DEFAULT_PUBLISH_SETTINGS } from "./renderables/PublishSettings";
 import type { Urdfs } from "./renderables/Urdfs";
 import { Shared3DPanelState, ThreeDeeRenderProps } from "./types";
+import { robotViewpointCamera } from "./viewpointCamera";
 
 const log = Logger.getLogger(__filename);
 
@@ -1227,12 +1228,15 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
           followMode = "follow-none";
           followTf = "world";
         } else {
-          target = {
-            ..._.cloneDeep(overviewCameraState),
-            perspective: renderer.config.cameraState.perspective,
-            target: [0, 0, 0],
-            targetOffset: [0, 0, 0],
-          };
+          // A WORLD return may not have painted yet. Keep its selected orbit as the next robot's
+          // baseline instead of reading the preceding robot or an intermediate transition pose.
+          const orbit =
+            renderer.config.followTf === "world" &&
+            renderer.config.followMode === "follow-none" &&
+            !captureWorldAllowed.current
+              ? renderer.config.cameraState
+              : renderer.getCameraState() ?? renderer.config.cameraState;
+          target = robotViewpointCamera(orbit);
           followMode = "follow-position";
           followTf = id;
         }

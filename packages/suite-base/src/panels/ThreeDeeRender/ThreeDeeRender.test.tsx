@@ -257,7 +257,11 @@ describe("ThreeDeeRender", () => {
     const layers = {
       "xgc2-urdf-uav1": { layerId: "foxglove.Urdf", framePrefix: "xgc/robots/uav1/" },
     };
-    function mountView(caseId: string, parked?: Record<string, unknown>) {
+    function mountView(
+      caseId: string,
+      parked?: Record<string, unknown>,
+      extraLayers: Record<string, unknown> = {},
+    ) {
       const scope = [`viewpoint-${caseId}`, "viewer"] as const;
       const originalUrl = window.location.href;
       window.history.replaceState(
@@ -269,7 +273,7 @@ describe("ThreeDeeRender", () => {
         cameraState: DEFAULT_CAMERA_STATE,
         followTf: "world",
         followMode: "follow-none",
-        layers,
+        layers: { ...layers, ...extraLayers },
       };
       const managed = { configById: { [panelId]: initialState } };
       if (parked) {
@@ -360,6 +364,11 @@ describe("ThreeDeeRender", () => {
         expect(call.mock.calls[0]).toEqual(
           transition === "smooth" ? [cameraMatcher, { durationMs: 500 }] : [cameraMatcher],
         );
+        expect(call.mock.calls[0]![0]).toEqual({
+          ...globalCamera,
+          target: [0, 0, 0],
+          targetOffset: [0, 0, 0],
+        });
         expect(v.instance.setFollowFrameId.mock.calls.at(-1)).toEqual(
           transition === "smooth" ? undefined : ["xgc/robots/uav1/base_link"],
         );
@@ -384,6 +393,36 @@ describe("ThreeDeeRender", () => {
       }
     });
 
+    it("keeps the painted robot orbit when switching robots and restores the earlier WORLD orbit", () => {
+      const v = mountView("robot-orbit", undefined, {
+        "xgc2-urdf-uav2": { layerId: "foxglove.Urdf", framePrefix: "xgc/robots/uav2/" },
+      });
+      const world = { ...DEFAULT_CAMERA_STATE, distance: 83, phi: 26, thetaOffset: -79 };
+      v.paint(world);
+      act(() => {
+        v.instance.emit("cameraMove", v.instance);
+      });
+      v.navigate("xgc/robots/uav1/base_link");
+      const robot = {
+        ...DEFAULT_CAMERA_STATE,
+        distance: 7,
+        phi: 32,
+        thetaOffset: 117,
+        fovy: 52,
+        targetOffset: [3, -4, 0] as const,
+      };
+      v.paint(robot);
+      v.navigate("xgc/robots/uav2/base_link");
+      expect(v.instance.config.followMode).toBe("follow-position");
+      expect(v.instance.transitionCameraState).toHaveBeenLastCalledWith(
+        { ...robot, target: [0, 0, 0], targetOffset: [0, 0, 0] },
+        { durationMs: 500 },
+      );
+      v.navigate("world");
+      expect(v.instance.transitionCameraState).toHaveBeenLastCalledWith(world, { durationMs: 500 });
+      expect(v.instance.frameVisibleContent).not.toHaveBeenCalled();
+    });
+
     it("does not replace remembered WORLD with a robot-local getter when a smooth return is interrupted before paint", () => {
       const v = mountView("interrupted-return");
       const globalCamera = {
@@ -402,6 +441,10 @@ describe("ThreeDeeRender", () => {
       v.navigate("world");
       // No returned WORLD frame was painted; config already says WORLD, getter is still robot-local.
       v.navigate("xgc/robots/uav1/base_link");
+      expect(v.instance.transitionCameraState).toHaveBeenLastCalledWith(
+        { ...globalCamera, target: [0, 0, 0], targetOffset: [0, 0, 0] },
+        { durationMs: 500 },
+      );
       v.navigate("world");
       expect(v.instance.transitionCameraState).toHaveBeenLastCalledWith(globalCamera, {
         durationMs: 500,
