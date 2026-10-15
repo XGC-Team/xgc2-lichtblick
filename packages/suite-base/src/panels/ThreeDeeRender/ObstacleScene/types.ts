@@ -5,17 +5,14 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
+import { geometryRegistry, type NamedGeometry } from "./geometryRegistry.generated";
+
 export type Vec3 = [number, number, number];
 export type ScenePose = {
   position: Vec3;
   orientation: [number, number, number, number];
 };
-export type SceneGeometry =
-  | { type: "box"; size: Vec3 }
-  | { type: "sphere"; radius: number }
-  | { type: "cylinder" | "capsule"; radius: number; height: number }
-  | { type: "ring"; radii: [number, number]; tubeRadius: number }
-  | { type: "convex"; vertices: Vec3[]; triangles: number[] };
+export type SceneGeometry = NamedGeometry;
 export type ScenePart = {
   id: string;
   pose: ScenePose;
@@ -146,46 +143,80 @@ function motionValid(value: unknown): value is SceneMotion {
 }
 
 export function geometryValid(value: unknown): value is SceneGeometry {
-  if (!isRecord(value)) {
+  if (
+    !isRecord(value) ||
+    typeof value.type !== "string" ||
+    !Object.hasOwn(geometryRegistry, value.type)
+  ) {
     return false;
   }
-  const positive = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
-  switch (value.type) {
-    case "box":
-      return finiteTuple(value.size, 3) && value.size.every(positive);
-    case "sphere":
-      return positive(value.radius);
-    case "cylinder":
-    case "capsule":
-      return positive(value.radius) && positive(value.height);
-    case "ring": {
-      const dimension = (v: unknown): v is number =>
-        typeof v === "number" && Number.isFinite(v) && v >= 1e-6 && v <= 1e4;
-      return (
-        Object.keys(value).sort().join(",") === "radii,tubeRadius,type" &&
-        Array.isArray(value.radii) &&
-        value.radii.length === 2 &&
-        dimension(value.radii[0]) &&
-        dimension(value.radii[1]) &&
-        dimension(value.tubeRadius) &&
-        value.tubeRadius < Math.min(value.radii[0], value.radii[1])
-      );
-    }
-    case "convex": {
-      const { vertices, triangles } = value;
-      return (
-        Array.isArray(vertices) &&
-        vertices.length >= 4 &&
-        vertices.every((v) => finiteTuple(v, 3)) &&
-        Array.isArray(triangles) &&
-        triangles.length >= 12 &&
-        triangles.length % 3 === 0 &&
-        triangles.every((v) => Number.isSafeInteger(v) && v >= 0 && v < vertices.length)
-      );
-    }
-    default:
-      return false;
+  const spec = geometryRegistry[value.type as keyof typeof geometryRegistry];
+  const fields: readonly string[] = spec.fields;
+  const allowed = ["type", ...fields.map((field) => field.split("[")[0]!)];
+  if (Object.keys(value).some((key) => !allowed.includes(key))) {
+    return false;
   }
+  if (fields.includes("vertices")) {
+    const { vertices, triangles } = value;
+    if (
+      !Array.isArray(vertices) ||
+      vertices.length < 4 ||
+      !vertices.every((v) => finiteTuple(v, 3))
+    ) {
+      return false;
+    }
+    if (typeof triangles === "undefined") {
+      return value.type === "convex";
+    }
+    if (
+      !Array.isArray(triangles) ||
+      triangles.length % 3 !== 0 ||
+      (value.type === "mesh" && triangles.length === 0) ||
+      !triangles.every(
+        (v) => Number.isSafeInteger(v) && v >= 0 && v < vertices.length && v <= 0xffffffff,
+      )
+    ) {
+      return false;
+    }
+    for (let i = 0; i < triangles.length; i += 3) {
+      if (new Set(triangles.slice(i, i + 3)).size !== 3) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (fields.includes("halfspaces")) {
+    return (
+      Array.isArray(value.halfspaces) &&
+      value.halfspaces.length > 0 &&
+      value.halfspaces.every((row) => finiteTuple(row, 4) && Math.hypot(...row.slice(0, 3)) > 0)
+    );
+  }
+  for (const field of fields) {
+    const key = field.split("[")[0]!;
+    const dimension = /\[(\d+)\]/.exec(field);
+    const parameter = value[key];
+    if (dimension && !finiteTuple(parameter, Number(dimension[1]))) {
+      return false;
+    }
+    const scalars = dimension ? (parameter as number[]) : [parameter];
+    if (
+      scalars.some(
+        (v) =>
+          typeof v !== "number" ||
+          !Number.isFinite(v) ||
+          (value.type === "capsule" && key === "height" ? v < 0 : v <= 0),
+      )
+    ) {
+      return false;
+    }
+  }
+  if (value.type === "ring") {
+    const radii = value.radii as [number, number];
+    const tube = value.tubeRadius as number;
+    return [...radii, tube].every((v) => v >= 1e-6 && v <= 1e4) && tube < Math.min(...radii);
+  }
+  return true;
 }
 
 /** Reject unknown/invalid geometry instead of silently drawing a substitute primitive. */

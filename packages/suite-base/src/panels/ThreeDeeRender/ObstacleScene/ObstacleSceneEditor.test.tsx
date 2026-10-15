@@ -10,6 +10,7 @@
 import "@testing-library/jest-dom";
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import * as _ from "lodash-es";
 import * as THREE from "three";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 
@@ -22,7 +23,7 @@ import {
 import { ObstacleSceneEditor } from "./ObstacleSceneEditor";
 import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
 import { createObstacle, SCENE_DRAFT_ID, type ScenePreset } from "./geometry";
-import type { SceneEnvelope } from "./types";
+import type { SceneEnvelope, SceneGeometry } from "./types";
 import type { IRenderer } from "../IRenderer";
 import { RendererContext } from "../RendererContext";
 
@@ -69,7 +70,7 @@ function setup(preset: ScenePreset = "Sphere") {
     .mockReturnValue({ namespace: "/xgc/scene", editable: true });
   const command = jest
     .spyOn(embeddedSceneBridge, "command")
-    .mockImplementation(async (_, action) => {
+    .mockImplementation(async (_namespace, action) => {
       if (action.operation === "add") {
         envelope = {
           ...envelope,
@@ -129,6 +130,119 @@ function setup(preset: ScenePreset = "Sphere") {
 }
 
 describe("obstacle editor operator flow", () => {
+  it.each([
+    { type: "ellipsoid", semiaxes: [1, 2, 3] },
+    {
+      type: "halfspaces",
+      halfspaces: [
+        [1, 0, 0, -1],
+        [-1, 0, 0, -1],
+        [0, 1, 0, -1],
+        [0, -1, 0, -1],
+        [0, 0, 1, -1],
+        [0, 0, -1, -1],
+      ],
+    },
+    {
+      type: "mesh",
+      vertices: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      triangles: [0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3],
+    },
+    {
+      type: "convex",
+      vertices: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+    },
+  ] satisfies SceneGeometry[])("imports named $type JSON without convex substitution", async (geometry) => {
+    const { command, dispose } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import geometry" }));
+    fireEvent.change(screen.getByLabelText("Geometry JSON"), {
+      target: { value: JSON.stringify(geometry) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add geometry" }));
+    await waitFor(() => {
+      expect(command).toHaveBeenCalledTimes(1);
+    });
+    expect(command.mock.lastCall?.[1]).toMatchObject({
+      operation: "add",
+      obstacle: { parts: [{ geometry }] },
+    });
+    dispose();
+  });
+
+  it("edits ellipsoid semiaxes without changing the other dimensions", async () => {
+    const { extension, command, dispose } = setup();
+    const initial = _.cloneDeep(extension.session!.getSnapshot().envelope!);
+    initial.document.obstacles[0]!.parts[0]!.geometry = { type: "ellipsoid", semiaxes: [1, 2, 3] };
+    act(() => {
+      extension.session!.accept(initial);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    act(() => {
+      extension.session!.select({ obstacleId: "sphere-1" });
+    });
+    const x = screen.getByLabelText("Semiaxes (m) X");
+    fireEvent.change(x, { target: { value: "1.23456789" } });
+    fireEvent.blur(x);
+    await waitFor(() => {
+      expect(command).toHaveBeenCalledTimes(1);
+    });
+    expect(command.mock.lastCall?.[1]).toMatchObject({
+      operation: "update",
+      obstacle: { parts: [{ geometry: { type: "ellipsoid", semiaxes: [1.23456789, 2, 3] } }] },
+    });
+    dispose();
+  });
+
+  it("validates and edits authored H rows without replacing them with vertices", async () => {
+    const { extension, command, dispose } = setup();
+    const initial = _.cloneDeep(extension.session!.getSnapshot().envelope!);
+    const rows = [
+      [1, 0, 0, -1],
+      [-1, 0, 0, -1],
+      [0, 1, 0, -1],
+      [0, -1, 0, -1],
+      [0, 0, 1, -1],
+      [0, 0, -1, -1],
+    ];
+    initial.document.obstacles[0]!.parts[0]!.geometry = {
+      type: "halfspaces",
+      halfspaces: rows as [number, number, number, number][],
+    };
+    act(() => {
+      extension.session!.accept(initial);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    act(() => {
+      extension.session!.select({ obstacleId: "sphere-1" });
+    });
+    const field = screen.getByLabelText("Halfspaces [nx, ny, nz, d] (n·x+d ≤ 0)");
+    fireEvent.change(field, { target: { value: "[[0,0,0,1]]" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply planes" }));
+    expect(command).not.toHaveBeenCalled();
+    rows[0]![3] = -2;
+    fireEvent.change(field, { target: { value: JSON.stringify(rows) } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply planes" }));
+    await waitFor(() => {
+      expect(command).toHaveBeenCalledTimes(1);
+    });
+    expect(command.mock.lastCall?.[1]).toMatchObject({
+      operation: "update",
+      obstacle: { parts: [{ geometry: { type: "halfspaces", halfspaces: rows } }] },
+    });
+    dispose();
+  });
+
   it("edits one ring's named dimensions and does not round untouched numeric fields", async () => {
     const { extension, command, dispose } = setup("Ring");
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));

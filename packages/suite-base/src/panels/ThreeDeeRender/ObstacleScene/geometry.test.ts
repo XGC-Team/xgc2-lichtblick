@@ -9,6 +9,7 @@ import * as THREE from "three";
 
 import {
   createGeometry,
+  geometryIsConvex,
   createObstacle,
   createPlacementObstacle,
   DEFAULT_ADD_POSITION,
@@ -19,6 +20,7 @@ import {
   SCENE_PRESETS,
   snapObstacleToGround,
 } from "./geometry";
+import { geometryRegistry } from "./geometryRegistry.generated";
 import { withObstaclePose } from "./motion";
 import {
   geometryValid,
@@ -28,6 +30,7 @@ import {
   sceneNamespace,
   type SceneEnvelope,
   type SceneGeometry,
+  type Vec3,
 } from "./types";
 
 function fixture(): SceneEnvelope {
@@ -200,5 +203,129 @@ describe("rich scene geometry", () => {
     expect(snapped.pose.position[1]).toBe(-3);
     expect(snapped.parts).toEqual(original.parts);
     expect(snapObstacleToGround(snapped).pose.position[2]).toBeCloseTo(snapped.pose.position[2], 6);
+  });
+});
+
+const tetraVertices: Vec3[] = [
+  [0, 0, 0],
+  [1, 0, 0],
+  [0, 1, 0],
+  [0, 0, 1],
+];
+const tetraIndices = [0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3];
+const cubeH: Extract<SceneGeometry, { type: "halfspaces" }> = {
+  type: "halfspaces",
+  halfspaces: [
+    [1, 0, 0, -1],
+    [-1, 0, 0, -1],
+    [0, 1, 0, -1],
+    [0, -1, 0, -1],
+    [0, 0, 1, -1],
+    [0, 0, -1, -1],
+  ],
+};
+const registeredShapes: SceneGeometry[] = [
+  { type: "box", size: [1, 2, 3] },
+  { type: "sphere", radius: 1 },
+  { type: "cylinder", radius: 1, height: 2 },
+  { type: "capsule", radius: 1, height: 0 },
+  { type: "convex", vertices: tetraVertices },
+  { type: "ring", radii: [1.2, 1], tubeRadius: 0.1 },
+  cubeH,
+  { type: "ellipsoid", semiaxes: [1, 2, 3] },
+  { type: "mesh", vertices: tetraVertices, triangles: tetraIndices },
+];
+
+describe("Math registry JSON geometry ingress", () => {
+  it("covers every generated kind without a second type table", () => {
+    expect(registeredShapes.map((s) => s.type).sort()).toEqual(
+      Object.keys(geometryRegistry).sort(),
+    );
+  });
+  it.each(registeredShapes)("preserves and renders named $type parameters", (shape) => {
+    const original = JSON.stringify(shape);
+    const envelope = fixture();
+    envelope.document.obstacles[0]!.parts[0]!.geometry = shape;
+    const parsed = parseSceneEnvelope(JSON.parse(JSON.stringify(envelope)!));
+    expect(parsed.document.obstacles[0]!.parts[0]!.geometry).toEqual(shape);
+    const surface = createGeometry(shape);
+    surface.computeBoundingBox();
+    expect(surface.boundingBox!.isEmpty()).toBe(false);
+    expect(Array.from(surface.getAttribute("position").array).every(Number.isFinite)).toBe(true);
+    expect(JSON.stringify(shape)).toBe(original);
+    surface.dispose();
+  });
+  it.each([
+    { type: "ellipsoid", semiaxes: [1, 2] },
+    { type: "ellipsoid", semiaxes: [1, true, 3] },
+    { type: "halfspaces", halfspaces: [[0, 0, 0, -1]] },
+    { type: "halfspaces", halfspaces: [[1, 0, 0]] },
+    { type: "mesh", vertices: tetraVertices },
+    { type: "mesh", vertices: tetraVertices, triangles: [0, 1, 1] },
+    { type: "convex", vertices: tetraVertices, triangles: null },
+    { type: "mesh", vertices: tetraVertices, triangles: [0, 1, 4] },
+  ])("rejects malformed named geometry %j", (shape) => {
+    expect(geometryValid(shape)).toBe(false);
+  });
+  it("renders a bounded H box with inverse-normal scaling and keeps H authored", () => {
+    const before = JSON.stringify(cubeH);
+    const scaled = scaleGeometry(cubeH, [2, 3, 4]);
+    expect(scaled).toEqual({
+      type: "halfspaces",
+      halfspaces: [
+        [0.5, 0, 0, -1],
+        [-0.5, 0, 0, -1],
+        [0, 1 / 3, 0, -1],
+        [0, -1 / 3, 0, -1],
+        [0, 0, 0.25, -1],
+        [0, 0, -0.25, -1],
+      ],
+    });
+    const surface = createGeometry(scaled);
+    surface.computeBoundingBox();
+    expect(surface.boundingBox!.min.toArray()).toEqual([-2, -3, -4]);
+    expect(surface.boundingBox!.max.toArray()).toEqual([2, 3, 4]);
+    expect(JSON.stringify(cubeH)).toBe(before);
+    surface.dispose();
+  });
+  it("refuses empty/unbounded H display instead of inventing a finite box", () => {
+    expect(() =>
+      createGeometry({ type: "halfspaces", halfspaces: cubeH.halfspaces.slice(1) }),
+    ).toThrow("bounded");
+    const empty = structuredClone(cubeH);
+    empty.halfspaces[0]![3] = 2;
+    expect(() => createGeometry(empty)).toThrow("nonempty");
+  });
+  it("preserves explicit mesh holes and never uses nonconvex surfaces as blockers", () => {
+    const ring = createGeometry({ type: "ring", radii: [1.2, 1], tubeRadius: 0.1 });
+    const positions = ring.getAttribute("position");
+    const vertices: Vec3[] = Array.from({ length: positions.count }, (_, i) => [
+      positions.getX(i),
+      positions.getY(i),
+      positions.getZ(i),
+    ]);
+    const triangles = ring.index
+      ? Array.from(ring.index.array)
+      : Array.from({ length: positions.count }, (_, i) => i);
+    const shape: SceneGeometry = { type: "mesh", vertices, triangles };
+    const surface = createGeometry(shape);
+    expect(surface.index!.array).toEqual(new Uint16Array(triangles));
+    const mesh = new THREE.Mesh(surface, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    const query = (x: number) =>
+      new THREE.Raycaster(new THREE.Vector3(x, 0, 2), new THREE.Vector3(0, 0, -1)).intersectObject(
+        mesh,
+      );
+    expect(query(0)).toHaveLength(0);
+    expect(query(1.2).length).toBeGreaterThan(0);
+    expect(geometryIsConvex(shape)).toBe(false);
+    expect(geometryIsConvex({ type: "ring", radii: [1.2, 1], tubeRadius: 0.1 })).toBe(false);
+    expect(geometryIsConvex(cubeH)).toBe(true);
+    expect(scaleGeometry({ type: "ellipsoid", semiaxes: [1, 2, 3] }, [2, 3, 4])).toEqual({
+      type: "ellipsoid",
+      semiaxes: [2, 6, 12],
+    });
+    ring.dispose();
+    surface.dispose();
+    mesh.material.dispose();
   });
 });

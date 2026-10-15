@@ -42,6 +42,7 @@ import { canRetrySync } from "./sceneSync";
 import {
   geometryValid,
   initialPose,
+  isRecord,
   type SceneGeometry,
   type SceneObstacle,
   type SceneMotion,
@@ -173,6 +174,70 @@ function VectorFields({
   );
 }
 
+function HalfspaceFields({
+  geometry,
+  disabled,
+  onCommit,
+  zh,
+}: {
+  geometry: Extract<SceneGeometry, { type: "halfspaces" }>;
+  disabled: boolean;
+  onCommit: (value: SceneGeometry) => void;
+  zh: boolean;
+}): React.JSX.Element {
+  const text = JSON.stringify(geometry.halfspaces)!;
+  const [draft, setDraft] = useState(text);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    setDraft(text);
+    setError(false);
+  }, [text]);
+  return (
+    <>
+      <TextField
+        multiline
+        minRows={3}
+        size="small"
+        label={
+          zh ? "半空间 [nx, ny, nz, d]（n·x+d ≤ 0）" : "Halfspaces [nx, ny, nz, d] (n·x+d ≤ 0)"
+        }
+        value={draft}
+        disabled={disabled}
+        error={error}
+        helperText={
+          error
+            ? zh
+              ? "请提供有效的有限平面系数。"
+              : "Provide finite plane coefficients with nonzero normals."
+            : undefined
+        }
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(false);
+        }}
+      />
+      <Button
+        size="small"
+        disabled={disabled}
+        onClick={() => {
+          try {
+            const next: unknown = { type: "halfspaces", halfspaces: JSON.parse(draft) };
+            if (!geometryValid(next)) {
+              setError(true);
+              return;
+            }
+            onCommit(next);
+          } catch {
+            setError(true);
+          }
+        }}
+      >
+        {zh ? "应用平面" : "Apply planes"}
+      </Button>
+    </>
+  );
+}
+
 function GeometryFields({
   geometry,
   disabled,
@@ -195,6 +260,21 @@ function GeometryFields({
         }}
       />
     );
+  }
+  if (geometry.type === "ellipsoid") {
+    return (
+      <VectorFields
+        label={zh ? "半轴（米）" : "Semiaxes (m)"}
+        value={geometry.semiaxes}
+        disabled={disabled}
+        onCommit={(semiaxes) => {
+          onCommit({ ...geometry, semiaxes });
+        }}
+      />
+    );
+  }
+  if (geometry.type === "halfspaces") {
+    return <HalfspaceFields geometry={geometry} disabled={disabled} onCommit={onCommit} zh={zh} />;
   }
   if (geometry.type === "ring") {
     return (
@@ -227,7 +307,7 @@ function GeometryFields({
       </>
     );
   }
-  if (geometry.type === "convex") {
+  if (geometry.type === "convex" || geometry.type === "mesh") {
     const bounds = new THREE.Box3().setFromPoints(
       geometry.vertices.map((v) => new THREE.Vector3(...v)),
     );
@@ -241,7 +321,7 @@ function GeometryFields({
           onCommit({
             ...geometry,
             vertices: geometry.vertices.map(
-              (v) => v.map((n, i) => (n * next[i]!) / size[i]!) as Vec3,
+              (v) => v.map((n, i) => (size[i] === 0 ? n : (n * next[i]!) / size[i]!)) as Vec3,
             ),
           });
         }}
@@ -503,7 +583,7 @@ function SceneInspector({
   const create = async (target: "obstacle" | "part", customGeometry?: SceneGeometry) => {
     const next = createObstacle(preset, uuid());
     if (customGeometry) {
-      next.name = zh ? "凸多面体" : "Convex polyhedron";
+      next.name = zh ? "几何体" : "Geometry";
       next.parts = [{ ...next.parts[0]!, geometry: customGeometry }];
     }
     if (target === "part" && obstacle) {
@@ -697,7 +777,7 @@ function SceneInspector({
                 setShowImport(!showImport);
               }}
             >
-              {zh ? "导入凸体" : "Import convex"}
+              {zh ? "导入几何" : "Import geometry"}
             </Button>
           </div>
           {showImport && (
@@ -706,7 +786,7 @@ function SceneInspector({
                 multiline
                 minRows={3}
                 size="small"
-                label={zh ? "顶点和三角面 JSON" : "Vertices and triangles JSON"}
+                label={zh ? "几何参数 JSON" : "Geometry JSON"}
                 value={importText}
                 onChange={(event) => {
                   setImportText(event.target.value);
@@ -718,15 +798,16 @@ function SceneInspector({
                 disabled={!writable}
                 onClick={() => {
                   try {
-                    const geometry: unknown = {
-                      ...JSON.parse(importText),
-                      type: "convex",
-                    };
+                    const imported: unknown = JSON.parse(importText);
+                    const geometry: unknown =
+                      isRecord(imported) && typeof imported.type === "undefined"
+                        ? { ...imported, type: "convex" }
+                        : imported;
                     if (!geometryValid(geometry)) {
                       throw new Error(
                         zh
-                          ? "请提供有效的三维顶点与三角面索引。"
-                          : "Provide valid 3D vertices and triangle indices.",
+                          ? "请提供有效的命名几何参数。"
+                          : "Provide valid named geometry parameters.",
                       );
                     }
                     void create("obstacle", geometry);
@@ -735,7 +816,7 @@ function SceneInspector({
                   }
                 }}
               >
-                {zh ? "添加凸多面体" : "Add convex polyhedron"}
+                {zh ? "添加几何" : "Add geometry"}
               </Button>
             </>
           )}

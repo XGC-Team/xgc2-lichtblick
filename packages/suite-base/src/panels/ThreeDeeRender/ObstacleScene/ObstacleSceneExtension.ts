@@ -18,6 +18,7 @@ import { SceneEditorSession } from "./SceneEditorSession";
 import {
   createGeometry,
   geometryScaleConstraint,
+  geometryIsConvex,
   scaleGeometry,
   scaleObstacleUniformly,
   SCENE_DRAFT_ID,
@@ -291,9 +292,9 @@ export class ObstacleSceneExtension extends SceneExtension {
   #partPlaneSets(parts: ScenePart[]): THREE.Plane[][] {
     return this.#imagePane
       ? parts.map((part) =>
-          part.geometry.type === "ring"
-            ? []
-            : convexFacePlanes(createGeometry(part.geometry), part.pose),
+          geometryIsConvex(part.geometry)
+            ? convexFacePlanes(createGeometry(part.geometry), part.pose)
+            : [],
         )
       : [];
   }

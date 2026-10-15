@@ -16,8 +16,9 @@ import {
 import { embeddedSceneBridge } from "@lichtblick/suite-base/components/EmbeddedSceneBridge";
 
 import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
-import { createObstacle, type ScenePreset } from "./geometry";
-import { type SceneEnvelope } from "./types";
+import { createGeometry, createObstacle, type ScenePreset } from "./geometry";
+import { type SceneEnvelope, type Vec3 } from "./types";
+import * as visuals from "./visuals";
 import type { IRenderer } from "../IRenderer";
 
 function envelope(): SceneEnvelope {
@@ -523,11 +524,30 @@ describe("AR overlay color override", () => {
     };
   }
 
-  it("keeps sibling meshes visible when a nonconvex ring is not a convex blocker", async () => {
+  it.each([
+    "ring",
+    "mesh",
+  ] as const)("keeps sibling meshes visible when a nonconvex %s is not a convex blocker", async (kind) => {
+    const planes = jest.spyOn(visuals, "convexFacePlanes");
     const { extension, dispose } = await setupOverlay(
       { namespace: "/xgc/scene", color: [1, 0.5, 0.1, 0.4] },
       (doc) => {
         const obstacle = createObstacle("Ring", "ring-and-box");
+        if (kind === "mesh") {
+          const surface = createGeometry(obstacle.parts[0]!.geometry);
+          const position = surface.getAttribute("position");
+          obstacle.parts[0]!.geometry = {
+            type: "mesh",
+            vertices: Array.from(
+              { length: position.count },
+              (_, i) => [position.getX(i), position.getY(i), position.getZ(i)] as Vec3,
+            ),
+            triangles: surface.index
+              ? Array.from(surface.index.array)
+              : Array.from({ length: position.count }, (_, i) => i),
+          };
+          surface.dispose();
+        }
         const box = createObstacle("Box", "box").parts[0]!;
         box.pose.position = [5, 0, 0];
         obstacle.parts.push({ ...box, id: "box" });
@@ -540,6 +560,7 @@ describe("AR overlay color override", () => {
         counts.push((object.geometry as THREE.BufferGeometry).getAttribute("position").count);
       }
     });
+    expect(planes).toHaveBeenCalledTimes(1);
     expect(counts).toHaveLength(1);
     expect(counts[0]).toBeGreaterThan(0);
     dispose();

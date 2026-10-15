@@ -6,6 +6,8 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import * as THREE from "three";
+import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
+import { ConvexHull } from "three/examples/jsm/math/ConvexHull.js";
 
 import { withObstaclePose } from "./motion";
 import { createRingGeometry } from "./ringGeometry";
@@ -39,6 +41,90 @@ export const SCENE_DRAFT_ID = "__xgc_scene_draft__";
 /** Default add XY is outside the 10 m × 10 m origin box used by robot spawn. */
 export const DEFAULT_ADD_POSITION: Vec3 = [12, 12, 0];
 
+/** Only convex solids may hide sibling faces. Explicit meshes may contain holes. */
+export function geometryIsConvex(shape: SceneGeometry): boolean {
+  return shape.type !== "ring" && shape.type !== "mesh";
+}
+
+function spansVolume(points: THREE.Vector3[]): boolean {
+  const origin = points[0];
+  if (!origin) {
+    return false;
+  }
+  const extent = new THREE.Box3().setFromPoints(points).getSize(new THREE.Vector3()).length();
+  const tolerance = Math.max(extent, Number.MIN_VALUE) * 1e-10;
+  const line = points
+    .find((p) => p.distanceTo(origin) > tolerance)
+    ?.clone()
+    .sub(origin);
+  if (!line) {
+    return false;
+  }
+  const normal = points
+    .map((p) => new THREE.Vector3().subVectors(p, origin).cross(line))
+    .find((n) => n.length() > tolerance * line.length());
+  return (
+    normal != undefined &&
+    points.some(
+      (p) =>
+        Math.abs(new THREE.Vector3().subVectors(p, origin).dot(normal)) >
+        tolerance * normal.length(),
+    )
+  );
+}
+
+/** Display-only finite H intersection, computed on definition edits, never a query authority. */
+function halfspaceVertices(rows: [number, number, number, number][]): THREE.Vector3[] {
+  if (rows.length > 128) {
+    throw new Error("Halfspace display supports at most 128 planes.");
+  }
+  const planes = rows.map(([x, y, z, d]) => {
+    const normal = new THREE.Vector3(x, y, z);
+    const length = Math.hypot(x, y, z);
+    return { normal: normal.divideScalar(length), d: d / length };
+  });
+  const normals = planes.map((p) => p.normal);
+  // No recession direction exists iff the normals positively span R3.
+  if (
+    !spansVolume(normals) ||
+    new ConvexHull().setFromPoints(normals).faces.some((f) => f.constant <= 1e-10)
+  ) {
+    throw new Error("Halfspace display requires a bounded solid.");
+  }
+  const tolerance = 1e-8 * Math.max(1, ...planes.map((p) => Math.abs(p.d)));
+  const vertices: THREE.Vector3[] = [];
+  for (let i = 0; i < planes.length; ++i) {
+    for (let j = i + 1; j < planes.length; ++j) {
+      for (let k = j + 1; k < planes.length; ++k) {
+        const a = planes[i]!,
+          b = planes[j]!,
+          c = planes[k]!;
+        const bc = new THREE.Vector3().crossVectors(b.normal, c.normal);
+        const determinant = a.normal.dot(bc);
+        if (Math.abs(determinant) <= 1e-10) {
+          continue;
+        }
+        const point = bc
+          .multiplyScalar(-a.d)
+          .addScaledVector(new THREE.Vector3().crossVectors(c.normal, a.normal), -b.d)
+          .addScaledVector(new THREE.Vector3().crossVectors(a.normal, b.normal), -c.d)
+          .divideScalar(determinant);
+        if (
+          point.toArray().every(Number.isFinite) &&
+          planes.every((p) => p.normal.dot(point) + p.d <= tolerance) &&
+          !vertices.some((v) => v.distanceToSquared(point) <= tolerance * tolerance)
+        ) {
+          vertices.push(point);
+        }
+      }
+    }
+  }
+  if (!spansVolume(vertices)) {
+    throw new Error("Halfspace display requires a nonempty solid with volume.");
+  }
+  return vertices;
+}
+
 export function createGeometry(shape: SceneGeometry): THREE.BufferGeometry {
   switch (shape.type) {
     case "box":
@@ -53,10 +139,23 @@ export function createGeometry(shape: SceneGeometry): THREE.BufferGeometry {
       return new THREE.CapsuleGeometry(shape.radius, shape.height, 12, 24).rotateX(Math.PI / 2);
     case "ring":
       return createRingGeometry(shape.radii, shape.tubeRadius);
-    case "convex": {
+    case "ellipsoid":
+      return new THREE.SphereGeometry(1, 32, 24).scale(...shape.semiaxes);
+    case "halfspaces":
+      return new ConvexGeometry(halfspaceVertices(shape.halfspaces));
+    case "convex":
+    case "mesh": {
+      if (shape.type === "convex" && (shape.triangles?.length ?? 0) === 0) {
+        const vertices = shape.vertices.map((v) => new THREE.Vector3(...v));
+        if (!spansVolume(vertices)) {
+          throw new Error("Convex display requires vertices spanning a volume.");
+        }
+        return new ConvexGeometry(vertices);
+      }
+      // Explicit mesh topology is retained, including disconnected components and holes.
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(shape.vertices.flat(), 3));
-      geometry.setIndex(shape.triangles);
+      geometry.setIndex(shape.triangles!);
       geometry.computeVertexNormals();
       return geometry;
     }
@@ -230,7 +329,15 @@ export function scaleGeometry(shape: SceneGeometry, scale: Vec3): SceneGeometry 
         type: "box",
         size: shape.size.map((n, i) => n * scale[i]!) as Vec3,
       };
+    case "ellipsoid":
+      return { ...shape, semiaxes: shape.semiaxes.map((n, i) => n * scale[i]!) as Vec3 };
+    case "halfspaces":
+      return {
+        ...shape,
+        halfspaces: shape.halfspaces.map(([nx, ny, nz, d]) => [nx / x, ny / y, nz / z, d]),
+      };
     case "convex":
+    case "mesh":
       return {
         ...shape,
         vertices: shape.vertices.map((v) => v.map((n, i) => n * scale[i]!) as Vec3),
@@ -271,6 +378,9 @@ export function geometryScaleConstraint(shape: SceneGeometry): SceneScaleConstra
   switch (shape.type) {
     case "box":
     case "convex":
+    case "mesh":
+    case "halfspaces":
+    case "ellipsoid":
       return "xyz";
     case "cylinder":
       return "radial";
