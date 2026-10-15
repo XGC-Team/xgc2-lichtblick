@@ -59,21 +59,25 @@ test("simple lidar visibility changes only the builtin cloud layer and preserves
     name.endsWith("/simple_lidar/points"),
   );
   assert.ok(lidarTopics.length > 0);
-  for (const topic of lidarTopics) assert.equal(defaultTopics[topic].visible, false);
+  for (const topic of lidarTopics) {
+    assert.equal(defaultTopics[topic].visible, false);
+  }
 
   input.parameters.simpleLidarVisible = false;
   const before = structuredClone(input);
   const hidden = prepareLayout(mapViewInput(input));
   const hiddenTopics = hidden.layout.configById["3D!xgc2"].topics;
-  for (const topic of lidarTopics)
+  for (const topic of lidarTopics) {
     assert.deepEqual(hiddenTopics[topic], { ...defaultTopics[topic], visible: false });
+  }
   assert.equal(hiddenTopics["/xgc/scene/reference_cloud"].colorMode, "flat");
   assert.equal(hiddenTopics["/xgc/scene/reference_cloud"].flatColor, "#2196f3e6");
   assert.deepEqual(input, before, "visibility does not rewrite frozen sensor configuration");
   input.parameters.simpleLidarVisible = true;
   const visibleTopics = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics;
-  for (const topic of lidarTopics)
+  for (const topic of lidarTopics) {
     assert.deepEqual(visibleTopics[topic], { ...defaultTopics[topic], visible: true });
+  }
   assert.deepEqual(
     visibleTopics["/xgc/scene/reference_cloud"],
     defaultTopics["/xgc/scene/reference_cloud"],
