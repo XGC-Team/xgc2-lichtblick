@@ -494,7 +494,9 @@ describe("Urdfs startFrame pose updates", () => {
     extension.dispose();
   });
 
-  it.each([1, 2])("keeps per-link invisibility and the aggregated MISSING_TRANSFORM error at scale %s", async (scale) => {
+  it.each([
+    1, 2,
+  ])("keeps per-link invisibility and the aggregated MISSING_TRANSFORM error at scale %s", async (scale) => {
     const { extension, renderer } = setup({ scale });
     await extension.settleVideoDecodes();
     const links = linksByFrameId(extension);
