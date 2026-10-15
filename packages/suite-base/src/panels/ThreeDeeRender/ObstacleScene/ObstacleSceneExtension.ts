@@ -116,7 +116,7 @@ function seamBlockers(
   }
   const inverse = poseMatrix(parts[index]!.pose).invert();
   return planeSets
-    .filter((_planeSet, j) => j !== index)
+    .filter((planeSet, j) => j !== index && planeSet.length > 0)
     .map((set) => set.map((plane) => plane.clone().applyMatrix4(inverse)));
 }
 
@@ -136,7 +136,11 @@ export class ObstacleSceneExtension extends SceneExtension {
   #committing: { obstacleId: string } | undefined;
   #suppressClick = false;
   #lastState: { epoch: string; revision: number; poses: Map<string, ScenePose> } | undefined;
-  #transform: TransformState = { mode: "translate", local: false, dragging: false };
+  #transform: TransformState = {
+    mode: "translate",
+    local: false,
+    dragging: false,
+  };
   #transformListeners = new Set<() => void>();
   #scaleConstraint: SceneScaleConstraint = "xyz";
   #scaleHandles: { group: THREE.Object3D; children: THREE.Object3D[] }[];
@@ -241,7 +245,11 @@ export class ObstacleSceneExtension extends SceneExtension {
         orientation: orientation as ScenePose["orientation"],
       });
     }
-    this.#lastState = { epoch: envelope.epoch, revision: envelope.revision, poses };
+    this.#lastState = {
+      epoch: envelope.epoch,
+      revision: envelope.revision,
+      poses,
+    };
     this.#applyRuntimePoses();
     this.renderer.queueAnimationFrame();
   };
@@ -282,7 +290,11 @@ export class ObstacleSceneExtension extends SceneExtension {
   /** Sibling face planes, only needed by the image-pane seam suppression. */
   #partPlaneSets(parts: ScenePart[]): THREE.Plane[][] {
     return this.#imagePane
-      ? parts.map((part) => convexFacePlanes(createGeometry(part.geometry), part.pose))
+      ? parts.map((part) =>
+          part.geometry.type === "ring"
+            ? []
+            : convexFacePlanes(createGeometry(part.geometry), part.pose),
+        )
       : [];
   }
 
@@ -466,7 +478,9 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   public setMode(mode: "translate" | "rotate" | "scale"): void {
     this.cancelPreview();
-    this.#setTransform({ mode: mode === "scale" && !this.canScale() ? "translate" : mode });
+    this.#setTransform({
+      mode: mode === "scale" && !this.canScale() ? "translate" : mode,
+    });
     this.#attach();
     this.renderer.queueAnimationFrame();
   }
@@ -673,7 +687,10 @@ export class ObstacleSceneExtension extends SceneExtension {
         }
         const preview = this.#dragCandidate(this.#drag);
         this.#drag.changed = true;
-        this.#setTransform({ preview, scaleFactor: mode === "scale" ? target.scale.x : undefined });
+        this.#setTransform({
+          preview,
+          scaleFactor: mode === "scale" ? target.scale.x : undefined,
+        });
       } catch (error) {
         this.cancelPreview();
         this.session?.reportError(error);
@@ -788,7 +805,11 @@ export class ObstacleSceneExtension extends SceneExtension {
       return;
     }
     this.#drag = undefined;
-    this.#setTransform({ dragging: false, preview: undefined, scaleFactor: undefined });
+    this.#setTransform({
+      dragging: false,
+      preview: undefined,
+      scaleFactor: undefined,
+    });
     this.#controls.reset();
     this.#controls.dragging = false;
     this.#restoreAccepted();

@@ -56,7 +56,10 @@ async function setup(options: { preset?: ScenePreset; whole?: boolean } = {}) {
       // Real Renderer uses private fields, so an unbound Three.js callback fails in a browser.
       expect(this).toBe(renderer);
     }),
-    cameraHandler: { getActiveCamera: () => camera, setInteractionEnabled: jest.fn() },
+    cameraHandler: {
+      getActiveCamera: () => camera,
+      setInteractionEnabled: jest.fn(),
+    },
     addCoordinateFrame: jest.fn(),
   };
   jest
@@ -96,7 +99,10 @@ describe("3D obstacle authoring", () => {
     "Capsule",
     "Arch",
   ] as const)("keeps a %s centre-handle drag finite and reversible even when native scaling divides by zero", async (preset) => {
-    const { extension, controls, canvas, command, dispose } = await setup({ preset, whole: true });
+    const { extension, controls, canvas, command, dispose } = await setup({
+      preset,
+      whole: true,
+    });
     extension.setMode("scale");
     controls.axis = "XYZ";
     canvas.dispatchEvent(new MouseEvent("pointermove", { clientX: 100, clientY: 100 }));
@@ -125,7 +131,10 @@ describe("3D obstacle authoring", () => {
     "Capsule",
     "Arch",
   ] as const)("refuses a nonuniform %s scale instead of committing a different shape", async (preset) => {
-    const { extension, controls, command, initial, dispose } = await setup({ preset, whole: true });
+    const { extension, controls, command, initial, dispose } = await setup({
+      preset,
+      whole: true,
+    });
     extension.setMode("scale");
     controls.dispatchEvent({ type: "mouseDown" });
     controls.object!.scale.set(2, 3, 2);
@@ -140,8 +149,14 @@ describe("3D obstacle authoring", () => {
   });
 
   it("restores accepted geometry and clears the numeric preview when a scale update is rejected", async () => {
-    const { extension, controls, command, initial, dispose } = await setup({ whole: true });
-    command.mockResolvedValue({ ...initial, success: false, error: "Consumer rejected this edit" });
+    const { extension, controls, command, initial, dispose } = await setup({
+      whole: true,
+    });
+    command.mockResolvedValue({
+      ...initial,
+      success: false,
+      error: "Consumer rejected this edit",
+    });
     extension.setMode("scale");
     const target = controls.object!;
     controls.dispatchEvent({ type: "mouseDown" });
@@ -166,7 +181,10 @@ describe("3D obstacle authoring", () => {
     ["Cylinder", ["X", "XYZ", "Y", "Z"]],
     ["Arch", ["XYZ"]],
   ] as const)("ordinary %s selection exposes only representable scale handles", async (preset, handles) => {
-    const { extension, controls, dispose } = await setup({ preset, whole: true });
+    const { extension, controls, dispose } = await setup({
+      preset,
+      whole: true,
+    });
     expect(extension.canScale()).toBe(true);
     extension.setMode("scale");
     expect(controls.mode).toBe("scale");
@@ -181,7 +199,9 @@ describe("3D obstacle authoring", () => {
   });
 
   it("bakes an entire compound into one acknowledged update while retaining its pending preview", async () => {
-    const { extension, controls, command, initial, dispose } = await setup({ whole: true });
+    const { extension, controls, command, initial, dispose } = await setup({
+      whole: true,
+    });
     let accept!: (value: { success: boolean } & SceneEnvelope) => void;
     command.mockImplementation(
       async () =>
@@ -196,7 +216,10 @@ describe("3D obstacle authoring", () => {
     controls.dispatchEvent({ type: "objectChange" });
     const candidate = extension.getTransformSnapshot().preview!;
     expect(candidate.parts[0]!.pose.position).toEqual([-2, 0, 2]);
-    expect(candidate.parts[0]!.geometry).toEqual({ type: "box", size: [0.8, 1.2, 4] });
+    expect(candidate.parts[0]!.geometry).toEqual({
+      type: "box",
+      size: [0.8, 1.2, 4],
+    });
     expect(extension.session!.getSnapshot().envelope).toEqual(initial);
     expect(command).not.toHaveBeenCalled();
     controls.dispatchEvent({ type: "mouseUp" });
@@ -285,7 +308,9 @@ describe("3D obstacle authoring", () => {
     "new revision",
     "change selection",
   ] as const)("drops a scale preview on %s without submitting", async (reason) => {
-    const { extension, controls, command, initial, dispose } = await setup({ whole: true });
+    const { extension, controls, command, initial, dispose } = await setup({
+      whole: true,
+    });
     extension.setMode("scale");
     controls.dispatchEvent({ type: "mouseDown" });
     controls.object!.scale.setScalar(2);
@@ -409,7 +434,10 @@ describe("3D obstacle authoring", () => {
         obstacles: [
           {
             id: "arch-1",
-            pose: { position: { x: 3, y: 2, z: 1 }, orientation: { x: 0, y: 0, z: 0, w: 1 } },
+            pose: {
+              position: { x: 3, y: 2, z: 1 },
+              orientation: { x: 0, y: 0, z: 0, w: 1 },
+            },
           },
         ],
       },
@@ -425,7 +453,10 @@ describe("3D obstacle authoring", () => {
         obstacles: [
           {
             id: "arch-1",
-            pose: { position: { x: 90, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } },
+            pose: {
+              position: { x: 90, y: 0, z: 0 },
+              orientation: { x: 0, y: 0, z: 0, w: 1 },
+            },
           },
         ],
       },
@@ -463,7 +494,10 @@ describe("AR overlay color override", () => {
       config: { scene: { obstacleScene } },
       interfaceMode: "image",
       queueAnimationFrame: jest.fn(),
-      cameraHandler: { getActiveCamera: () => camera, setInteractionEnabled: jest.fn() },
+      cameraHandler: {
+        getActiveCamera: () => camera,
+        setInteractionEnabled: jest.fn(),
+      },
       addCoordinateFrame: jest.fn(),
     };
     jest
@@ -489,8 +523,32 @@ describe("AR overlay color override", () => {
     };
   }
 
+  it("keeps sibling meshes visible when a nonconvex ring is not a convex blocker", async () => {
+    const { extension, dispose } = await setupOverlay(
+      { namespace: "/xgc/scene", color: [1, 0.5, 0.1, 0.4] },
+      (doc) => {
+        const obstacle = createObstacle("Ring", "ring-and-box");
+        const box = createObstacle("Box", "box").parts[0]!;
+        box.pose.position = [5, 0, 0];
+        obstacle.parts.push({ ...box, id: "box" });
+        doc.document.obstacles = [obstacle];
+      },
+    );
+    const counts: number[] = [];
+    extension.traverse((object) => {
+      if (object instanceof THREE.Mesh && object.name === "box") {
+        counts.push((object.geometry as THREE.BufferGeometry).getAttribute("position").count);
+      }
+    });
+    expect(counts).toHaveLength(1);
+    expect(counts[0]).toBeGreaterThan(0);
+    dispose();
+  });
+
   it("renders the opaque product amber when the pane declares no override", async () => {
-    const { material, dispose } = await setupOverlay({ namespace: "/xgc/scene" });
+    const { material, dispose } = await setupOverlay({
+      namespace: "/xgc/scene",
+    });
     expect(material.color.toArray()).toEqual([1, 0.5, 0.1]);
     expect(material.opacity).toBe(1);
     expect(material.transparent).toBe(false);
@@ -510,7 +568,10 @@ describe("AR overlay color override", () => {
 
   it("falls back to the document color when the override is malformed", async () => {
     for (const color of ["#ff801a66", [1, 0.5], [1, 0.5, 0.1, 2], [1, 0.5, 0.1, Number.NaN]]) {
-      const { material, dispose } = await setupOverlay({ namespace: "/xgc/scene", color });
+      const { material, dispose } = await setupOverlay({
+        namespace: "/xgc/scene",
+        color,
+      });
       expect(material.color.toArray()).toEqual([1, 0.5, 0.1]);
       expect(material.opacity).toBe(1);
       expect(material.transparent).toBe(false);

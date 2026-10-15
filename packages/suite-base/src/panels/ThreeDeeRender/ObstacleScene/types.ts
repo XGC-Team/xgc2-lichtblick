@@ -14,6 +14,7 @@ export type SceneGeometry =
   | { type: "box"; size: Vec3 }
   | { type: "sphere"; radius: number }
   | { type: "cylinder" | "capsule"; radius: number; height: number }
+  | { type: "ring"; radii: [number, number]; tubeRadius: number }
   | { type: "convex"; vertices: Vec3[]; triangles: number[] };
 export type ScenePart = {
   id: string;
@@ -157,6 +158,19 @@ export function geometryValid(value: unknown): value is SceneGeometry {
     case "cylinder":
     case "capsule":
       return positive(value.radius) && positive(value.height);
+    case "ring": {
+      const dimension = (v: unknown): v is number =>
+        typeof v === "number" && Number.isFinite(v) && v >= 1e-6 && v <= 1e4;
+      return (
+        Object.keys(value).sort().join(",") === "radii,tubeRadius,type" &&
+        Array.isArray(value.radii) &&
+        value.radii.length === 2 &&
+        dimension(value.radii[0]) &&
+        dimension(value.radii[1]) &&
+        dimension(value.tubeRadius) &&
+        value.tubeRadius < Math.min(value.radii[0], value.radii[1])
+      );
+    }
     case "convex": {
       const { vertices, triangles } = value;
       return (

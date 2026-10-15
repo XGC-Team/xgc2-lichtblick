@@ -129,6 +129,36 @@ function setup(preset: ScenePreset = "Sphere") {
 }
 
 describe("obstacle editor operator flow", () => {
+  it("edits one ring's named dimensions and does not round untouched numeric fields", async () => {
+    const { extension, command, dispose } = setup("Ring");
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    act(() => {
+      extension.session!.select({ obstacleId: "sphere-1" });
+    });
+    const x = screen.getByLabelText("X semiaxis (m)");
+    fireEvent.focus(x);
+    fireEvent.blur(x);
+    expect(command).not.toHaveBeenCalled();
+    fireEvent.change(x, { target: { value: "1.23456789" } });
+    fireEvent.blur(x);
+    await waitFor(() => {
+      expect(command).toHaveBeenCalledTimes(1);
+    });
+    const obstacle = extension.session!.getSnapshot().envelope!.document.obstacles[0]!;
+    expect(obstacle.parts).toHaveLength(1);
+    expect(obstacle.parts[0]!.geometry).toEqual({
+      type: "ring",
+      radii: [1.23456789, 1],
+      tubeRadius: 0.1,
+    });
+    fireEvent.focus(x);
+    fireEvent.blur(x);
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Y semiaxis (m)")).toHaveValue("1");
+    expect(screen.getByLabelText("Tube radius (m)")).toHaveValue("0.1");
+    dispose();
+  });
+
   it("shows live scale dimensions without changing the accepted scene, then commits the same geometry", async () => {
     const { extension, command, dispose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
@@ -157,7 +187,9 @@ describe("obstacle editor operator flow", () => {
     expect(screen.getByLabelText("Radius (m)")).toHaveValue("1");
     expect(screen.getByLabelText("Radius (m)")).toBeEnabled();
     expect(extension.getTransformSnapshot().preview).toBeUndefined();
-    fireEvent.change(screen.getByLabelText("Radius (m)"), { target: { value: "1.5" } });
+    fireEvent.change(screen.getByLabelText("Radius (m)"), {
+      target: { value: "1.5" },
+    });
     fireEvent.keyDown(screen.getByLabelText("Radius (m)"), { key: "Enter" });
     // jsdom does not focus a field on change, unlike an operator click.
     fireEvent.blur(screen.getByLabelText("Radius (m)"));
@@ -220,7 +252,10 @@ describe("obstacle editor operator flow", () => {
     const resized = extension.session!.getSnapshot().envelope!.document.obstacles[0]!;
     expect(resized.parts).toHaveLength(3);
     expect(resized.parts[0]!.pose.position).toEqual([-2, 0, 2]);
-    expect(resized.parts[0]!.geometry).toEqual({ type: "box", size: [0.8, 1.2, 4] });
+    expect(resized.parts[0]!.geometry).toEqual({
+      type: "box",
+      size: [0.8, 1.2, 4],
+    });
     fireEvent.change(screen.getByLabelText("Whole obstacle scale factor"), {
       target: { value: "0" },
     });
@@ -376,7 +411,9 @@ describe("obstacle editor operator flow", () => {
         }),
       );
     });
-    const updated = command.mock.lastCall?.[1] as { obstacle: { pose: { position: number[] } } };
+    const updated = command.mock.lastCall?.[1] as {
+      obstacle: { pose: { position: number[] } };
+    };
     expect(updated.obstacle.pose.position[0]).toBe(1);
     expect(updated.obstacle.pose.position[1]).toBe(2);
     expect(updated.obstacle.pose.position[2]).toBeCloseTo(0, 5);

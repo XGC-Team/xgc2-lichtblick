@@ -91,9 +91,11 @@ function NumericField({
 }): React.JSX.Element {
   const [draft, setDraft] = useState(String(Number(value.toFixed(6))));
   const [error, setError] = useState(false);
+  const [edited, setEdited] = useState(false);
   useEffect(() => {
     setDraft(String(Number(value.toFixed(6))));
     setError(false);
+    setEdited(false);
   }, [value, disabled]);
   return (
     <TextField
@@ -107,6 +109,7 @@ function NumericField({
       }}
       onChange={(event) => {
         setDraft(event.target.value);
+        setEdited(true);
         setError(false);
       }}
       onKeyDown={(event) => {
@@ -116,6 +119,7 @@ function NumericField({
         }
         if (event.key === "Escape") {
           setDraft(String(value));
+          setEdited(false);
           setError(false);
           event.stopPropagation();
         }
@@ -126,7 +130,7 @@ function NumericField({
           setError(true);
           return;
         }
-        if (next !== value) {
+        if (edited && next !== value) {
           onCommit(next);
         }
       }}
@@ -190,6 +194,37 @@ function GeometryFields({
           onCommit({ ...geometry, size });
         }}
       />
+    );
+  }
+  if (geometry.type === "ring") {
+    return (
+      <>
+        {geometry.radii.map((radius, index) => (
+          <NumericField
+            key={index}
+            label={
+              zh
+                ? `${index === 0 ? "X" : "Y"} 半轴（米）`
+                : `${index === 0 ? "X" : "Y"} semiaxis (m)`
+            }
+            value={radius}
+            disabled={disabled}
+            onCommit={(value) => {
+              const radii: [number, number] = [...geometry.radii];
+              radii[index] = value;
+              onCommit({ ...geometry, radii });
+            }}
+          />
+        ))}
+        <NumericField
+          label={zh ? "管半径（米）" : "Tube radius (m)"}
+          value={geometry.tubeRadius}
+          disabled={disabled}
+          onCommit={(tubeRadius) => {
+            onCommit({ ...geometry, tubeRadius });
+          }}
+        />
+      </>
     );
   }
   if (geometry.type === "convex") {
@@ -389,6 +424,7 @@ const PRESET_ZH: Record<ScenePreset, string> = {
   Sphere: "球",
   Cylinder: "圆柱",
   Capsule: "胶囊",
+  Ring: "椭圆环",
   Icosahedron: "二十面体",
   Arch: "门框",
   "L block": "L 形块",

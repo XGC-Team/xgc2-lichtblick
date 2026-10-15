@@ -8,6 +8,7 @@
 import * as THREE from "three";
 
 import { withObstaclePose } from "./motion";
+import { createRingGeometry } from "./ringGeometry";
 import {
   initialPose,
   OBSTACLE_VISUAL_COLOR,
@@ -23,6 +24,7 @@ export const SCENE_PRESETS = [
   "Sphere",
   "Cylinder",
   "Capsule",
+  "Ring",
   "Icosahedron",
   "Arch",
   "L block",
@@ -49,6 +51,8 @@ export function createGeometry(shape: SceneGeometry): THREE.BufferGeometry {
       );
     case "capsule":
       return new THREE.CapsuleGeometry(shape.radius, shape.height, 12, 24).rotateX(Math.PI / 2);
+    case "ring":
+      return createRingGeometry(shape.radii, shape.tubeRadius);
     case "convex": {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(shape.vertices.flat(), 3));
@@ -60,7 +64,12 @@ export function createGeometry(shape: SceneGeometry): THREE.BufferGeometry {
 }
 
 function part(id: string, geometry: SceneGeometry, position?: Vec3): ScenePart {
-  return { id, geometry, pose: initialPose(position), color: [...OBSTACLE_VISUAL_COLOR] };
+  return {
+    id,
+    geometry,
+    pose: initialPose(position),
+    color: [...OBSTACLE_VISUAL_COLOR],
+  };
 }
 
 function box(id: string, size: Vec3, position: Vec3): ScenePart {
@@ -110,6 +119,9 @@ export function createObstacle(preset: ScenePreset, id: string): SceneObstacle {
     case "Capsule":
       parts = [part("body", { type: "capsule", radius: 0.3, height: 1 }, [0, 0, 0.8])];
       break;
+    case "Ring":
+      parts = [part("body", { type: "ring", radii: [1.2, 1], tubeRadius: 0.1 }, [0, 0, 0.1])];
+      break;
     case "Icosahedron":
       parts = [part("body", icosahedron(), [0, 0, 0.65])];
       break;
@@ -146,7 +158,13 @@ export function createObstacle(preset: ScenePreset, id: string): SceneObstacle {
       ];
     }
   }
-  return { id, name: preset, pose: initialPose(), parts, motion: { type: "hold" } };
+  return {
+    id,
+    name: preset,
+    pose: initialPose(),
+    parts,
+    motion: { type: "hold" },
+  };
 }
 
 function applyObjectPose(object: THREE.Object3D, pose: ScenePose): void {
@@ -208,7 +226,10 @@ export function scaleGeometry(shape: SceneGeometry, scale: Vec3): SceneGeometry 
   const [x, y, z] = scale;
   switch (shape.type) {
     case "box":
-      return { type: "box", size: shape.size.map((n, i) => n * scale[i]!) as Vec3 };
+      return {
+        type: "box",
+        size: shape.size.map((n, i) => n * scale[i]!) as Vec3,
+      };
     case "convex":
       return {
         ...shape,
@@ -224,6 +245,15 @@ export function scaleGeometry(shape: SceneGeometry, scale: Vec3): SceneGeometry 
         throw new Error("A cylinder needs equal X/Y scaling. Edit radius and height instead.");
       }
       return { ...shape, radius: shape.radius * x, height: shape.height * z };
+    case "ring":
+      if (Math.abs(x - y) > 1e-5 || Math.abs(x - z) > 1e-5) {
+        throw new Error("A ring needs uniform scaling. Edit its radii and tube radius instead.");
+      }
+      return {
+        ...shape,
+        radii: [shape.radii[0] * x, shape.radii[1] * x],
+        tubeRadius: shape.tubeRadius * x,
+      };
     case "capsule":
       if (Math.abs(x - y) > 1e-5 || Math.abs(x - z) > 1e-5) {
         throw new Error(
@@ -246,6 +276,7 @@ export function geometryScaleConstraint(shape: SceneGeometry): SceneScaleConstra
       return "radial";
     case "sphere":
     case "capsule":
+    case "ring":
       return "uniform";
   }
 }
