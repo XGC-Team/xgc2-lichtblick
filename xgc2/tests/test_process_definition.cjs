@@ -62,6 +62,7 @@ test("the definition is one process whose endpoint, high-level view input and po
   assert.deepEqual(required.slice().sort(), ["socketPath", "viewInputJson"]);
   assert.deepEqual(Object.keys(properties).sort(), [
     "bridgePort",
+    "frameAncestors",
     "port",
     "socketPath",
     "viewInputJson",
@@ -112,6 +113,12 @@ test("the definition is one process whose endpoint, high-level view input and po
     default: 8765,
     minimum: 1,
     maximum: 65535,
+  });
+  assert.deepEqual(properties.frameAncestors, {
+    type: "string",
+    description:
+      "Optional CSP frame-ancestors source list. Empty preserves FRAME_ANCESTORS from the environment or the packaged launcher default, including the station's loopback-alias embedding policy.",
+    default: "",
   });
   // The service is the one the launcher hosts, at the endpoint the process owner allocates.
   assert.deepEqual(definition.services, [
@@ -172,7 +179,7 @@ test("the launcher accepts the command the definition declares and answers the s
     environment: { FRAME_ANCESTORS: "'self'" },
     arguments: ({ socketPath }) =>
       definition.command.args.map((argument) =>
-        expand(argument, { socketPath, port: 0, bridgePort: 9 }),
+        expand(argument, { socketPath, port: 0, bridgePort: 9, frameAncestors: "" }),
       ),
   });
   await launcher.waitForPort();
@@ -185,4 +192,57 @@ test("the launcher accepts the command the definition declares and answers the s
   const served = await fetch(`${launcher.base}/layout.json`);
   assert.equal(served.status, 200);
   assert.deepEqual(await served.json(), layout);
+  assert.equal(
+    served.headers.get("content-security-policy"),
+    "frame-ancestors 'self'; base-uri 'self'; object-src 'none'",
+  );
+});
+
+test("the process frame policy overrides the environment in the actual HTTP response", async (t) => {
+  const [definition] = document.definitions;
+  const frameAncestors = "'self' https://operator.example:9443";
+  const { launcher } = await startLauncher(t, {
+    environment: { FRAME_ANCESTORS: "'self' https://unused-env.example" },
+    arguments: ({ socketPath }) =>
+      definition.command.args.map((argument) =>
+        expand(argument, { socketPath, port: 0, bridgePort: 9, frameAncestors }),
+      ),
+  });
+  await launcher.waitForPort();
+  const response = await fetch(`${launcher.base}/`);
+  assert.equal(response.status, 200);
+  assert.equal(
+    response.headers.get("content-security-policy"),
+    `frame-ancestors ${frameAncestors}; base-uri 'self'; object-src 'none'`,
+  );
+  assert.equal(response.headers.get("x-frame-options"), null);
+});
+
+test("an omitted process policy preserves the shipped loopback-alias embedding policy", async (t) => {
+  const [definition] = document.definitions;
+  const { launcher } = await startLauncher(t, {
+    environment: {
+      FRAME_ANCESTORS: undefined,
+      XGC2_LICHTBLICK_WEB_ENV_FILE: path.resolve(__dirname, "../launcher/lichtblick-web.env"),
+    },
+    arguments: ({ socketPath }) =>
+      definition.command.args.map((argument) =>
+        expand(argument, {
+          socketPath,
+          port: 0,
+          bridgePort: 9,
+          frameAncestors: definition.parameters.properties.frameAncestors.default,
+        }),
+      ),
+  });
+  await launcher.waitForPort();
+  const response = await fetch(`${launcher.base}/`);
+  assert.equal(response.status, 200);
+  assert.equal(
+    response.headers.get("content-security-policy"),
+    "frame-ancestors 'self' http://127.0.0.1:5173 http://localhost:5173 " +
+      "http://127.0.0.1:5174 http://localhost:5174 http://127.0.0.1:8787 " +
+      "http://localhost:8787 http://127.0.0.1:8788 http://localhost:8788; " +
+      "base-uri 'self'; object-src 'none'",
+  );
 });

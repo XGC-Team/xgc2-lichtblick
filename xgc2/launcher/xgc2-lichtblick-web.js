@@ -746,8 +746,12 @@ async function main() {
   const publicUrlPrefix =
     opts.publicUrlPrefix ?? process.env.PUBLIC_URL_PREFIX ?? DEFAULT_PUBLIC_URL_PREFIX;
   const configuredOriginValues = [process.env.ALLOWED_ORIGINS ?? "", ...opts.allowedOrigins];
+  // The optional process parameter expands to an empty argument when absent.
+  // Keep the explicit environment/packaged policy unless a caller supplies one.
   const frameAncestorsValue =
-    opts.frameAncestors ?? process.env.FRAME_ANCESTORS ?? DEFAULT_FRAME_ANCESTORS;
+    (opts.frameAncestors === "" ? null : opts.frameAncestors) ??
+    process.env.FRAME_ANCESTORS ??
+    DEFAULT_FRAME_ANCESTORS;
   let targetWs;
   try {
     targetWs = parseWsUrl(controlPlaneUrl);

@@ -27,6 +27,11 @@
             "minimum": 1,
             "maximum": 65535
           },
+          "frameAncestors": {
+            "type": "string",
+            "description": "Optional CSP frame-ancestors source list. Empty preserves FRAME_ANCESTORS from the environment or the packaged launcher default, including the station's loopback-alias embedding policy.",
+            "default": ""
+          },
           "viewInputJson": {
             "type": "string",
             "description": "One high-level view input JSON object on stdin (at most 8 MiB): layoutMode, runMode, optional worldBoundary and camera, frozen visualizationTopics and RobotFact rows, and optional viewer parameters. simpleLidarVisible is a boolean (default true) controlling builtin lidar visibility only. Accepted parameter names include historyVisible, historyShowPoseAxes, historyMaxRateHz, historyLineWidth, predictionShowPoseAxes, predictionMaxRateHz and predictionLineWidth. Prediction topics are laid out on /xgc/display plus the original topic."
@@ -55,6 +60,8 @@
           "ws://127.0.0.1:${bridgePort}",
           "--public-url-prefix",
           "/",
+          "--frame-ancestors",
+          "${frameAncestors}",
           "--view-input-stdin"
         ],
         "env": {
