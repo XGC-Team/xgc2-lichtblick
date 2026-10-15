@@ -303,7 +303,9 @@ test("the launcher serves the authored builtin lidar visibility in its real layo
   const topics = (await get(launcher.base, "/layout.json")).json.configById["3D!xgc2"].topics;
   const lidar = Object.entries(topics).filter(([name]) => name.endsWith("/simple_lidar/points"));
   assert.ok(lidar.length > 0);
-  for (const [, settings] of lidar) assert.equal(settings.visible, false);
+  for (const [, settings] of lidar) {
+    assert.equal(settings.visible, false);
+  }
 });
 
 test("the layout and desired-view gateway use the configured public URL prefix", async (t) => {
