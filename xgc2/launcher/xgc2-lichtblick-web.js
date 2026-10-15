@@ -775,6 +775,7 @@ async function main() {
   let validatedFrameAncestors;
   let configuredOrigins;
   let initialLayout;
+  let viewpoints;
   try {
     loadIndex = createIndexLoader(
       prefix,
@@ -785,7 +786,15 @@ async function main() {
       throw new Error("--view-input-stdin is required");
     }
     {
-      initialLayout = prepareLayout(mapViewInput(readJSONInput())).layout;
+      const input = mapViewInput(readJSONInput());
+      initialLayout = prepareLayout(input).layout;
+      viewpoints = [
+        { id: "world", label: "World" },
+        ...input.robots.map((robot) => ({
+          id: `xgc/robots/${robot.name}/base_link`,
+          label: robot.name,
+        })),
+      ];
       const sourceIndex = loadIndex;
       const json = JSON.stringify(initialLayout).replace(
         /[<>&\u2028\u2029]/g,
@@ -849,7 +858,7 @@ async function main() {
     diagnostics = new Diagnostics({
       sink: { kind: "supervisor_stderr", rotationOwner: "supervisor" },
     });
-    const viewStore = new ViewStore();
+    const viewStore = new ViewStore(viewpoints);
     views = createViewGateway(viewStore);
     // The service listens first, so its owner can wait on describe while the
     // page listener comes up; it is ready when the pages are.

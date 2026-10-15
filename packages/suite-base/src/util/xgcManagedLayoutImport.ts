@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
+import * as _ from "lodash-es";
+
 import { LayoutData } from "@lichtblick/suite-base/context/CurrentLayoutContext";
 import { PanelConfig, SavedProps } from "@lichtblick/suite-base/types/panels";
 import { getPanelTypeFromId } from "@lichtblick/suite-base/util/layout";
@@ -44,7 +46,10 @@ export function layoutNameFromLayoutUrl(layoutUrl: string): string {
   }
 }
 
-function declaredRobotFrame(config: Record<string, unknown>, frameId: unknown): frameId is string {
+export function declaredXgc2RobotFrame(
+  config: Record<string, unknown>,
+  frameId: unknown,
+): frameId is string {
   return (
     typeof frameId === "string" &&
     isRecord(config.layers) &&
@@ -61,7 +66,68 @@ function declaredRobotFrame(config: Record<string, unknown>, frameId: unknown): 
   );
 }
 
-/** Restore only view fields from the same Experiment and exact native pane. */
+export type DeferredXgc2View = {
+  cameraState: Record<string, unknown>;
+  followMode: "follow-none" | "follow-position" | "follow-pose";
+  followTf?: string;
+};
+
+// Page-local deferred metadata, never part of the persisted layout or a public schema.
+// A tombstone survives late imports, so an operator's newer choice cannot be undone.
+const deferredViews = new Map<
+  string,
+  {
+    captured: boolean;
+    invalidated: boolean;
+    view?: DeferredXgc2View;
+    worldCamera?: Record<string, unknown>;
+  }
+>();
+
+function deferredSlot(scope: Xgc2LayoutScope, panelId: string) {
+  const key = JSON.stringify([scope, panelId])!;
+  let slot = deferredViews.get(key);
+  if (!slot) {
+    slot = { captured: false, invalidated: false };
+    deferredViews.set(key, slot);
+  }
+  return slot;
+}
+
+export function discardXgc2DeferredView(scope: Xgc2LayoutScope, panelId: string): void {
+  const slot = deferredSlot(scope, panelId);
+  slot.invalidated = true;
+  slot.view = undefined;
+}
+
+/** Consume once, even if restore arrived before the managed import. Never wait on arrival order. */
+export function takeXgc2DeferredView(
+  scope: Xgc2LayoutScope,
+  panelId: string,
+): DeferredXgc2View | undefined {
+  const slot = deferredSlot(scope, panelId);
+  const view = slot.invalidated ? undefined : slot.view;
+  discardXgc2DeferredView(scope, panelId);
+  return view;
+}
+
+/** Within-run world memory is independent of the consumed/cancelled prior-run restore. */
+export function rememberXgc2WorldCamera(
+  scope: Xgc2LayoutScope,
+  panelId: string,
+  camera: Record<string, unknown>,
+): void {
+  deferredSlot(scope, panelId).worldCamera = _.cloneDeep(camera);
+}
+
+export function getXgc2WorldCamera(
+  scope: Xgc2LayoutScope,
+  panelId: string,
+): Record<string, unknown> | undefined {
+  return _.cloneDeep(deferredSlot(scope, panelId).worldCamera);
+}
+
+/** Start from managed world/default settings; park only exact-scope, exact-panel prior 3D state. */
 function restoreScopedView(
   managed: Record<string, unknown>,
   parked: LayoutData | undefined,
@@ -74,32 +140,38 @@ function restoreScopedView(
   }
   for (const [id, config] of Object.entries(managed.configById)) {
     const saved = previous?.configById[id];
-    if (
-      !isRecord(config) ||
-      !isRecord(saved) ||
-      !["3D", "Image"].includes(getPanelTypeFromId(id))
-    ) {
-      next[id] = config as PanelConfig;
+    if (getPanelTypeFromId(id) === "3D" && isRecord(config)) {
+      next[id] = config;
+      const slot = deferredSlot(scope, id);
+      if (!slot.captured && !slot.invalidated) {
+        slot.captured = true;
+        if (isRecord(saved) && isRecord(saved.cameraState)) {
+          const followMode = saved.followMode;
+          const follows = followMode === "follow-position" || followMode === "follow-pose";
+          if (
+            (followMode === "follow-none" &&
+              (saved.followTf == undefined ||
+                saved.followTf === "world" ||
+                declaredXgc2RobotFrame(config, saved.followTf))) ||
+            (follows && declaredXgc2RobotFrame(config, saved.followTf))
+          ) {
+            slot.view = _.cloneDeep({
+              cameraState: saved.cameraState,
+              followMode,
+              ...(typeof saved.followTf === "string" ? { followTf: saved.followTf } : {}),
+            });
+          }
+        }
+      }
       continue;
     }
-    const isFollow = saved.followMode === "follow-position" || saved.followMode === "follow-pose";
-    if (
-      getPanelTypeFromId(id) === "3D" &&
-      isFollow &&
-      !declaredRobotFrame(config, saved.followTf)
-    ) {
-      // The current Core roster removed this robot. Use its current Overview, including camera.
-      next[id] = { ...config, followMode: "follow-none" };
+    if (!isRecord(config) || !isRecord(saved) || getPanelTypeFromId(id) !== "Image") {
+      next[id] = config as PanelConfig;
       continue;
     }
     next[id] = {
       ...config,
       ...(isRecord(saved.cameraState) ? { cameraState: saved.cameraState } : {}),
-      ...(getPanelTypeFromId(id) === "3D" && isFollow
-        ? { followMode: "follow-position", followTf: saved.followTf }
-        : getPanelTypeFromId(id) === "3D" && saved.followMode === "follow-none"
-          ? { followMode: "follow-none" }
-          : {}),
     };
   }
   return {

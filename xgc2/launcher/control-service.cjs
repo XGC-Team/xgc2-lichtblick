@@ -76,7 +76,7 @@ function createControlService({
     instance_id: instanceId,
     ready: launcherReady,
     facts: {
-      capabilities: ["view.v1"],
+      capabilities: ["view.v1", "viewpoint.v1"],
       view_revision: viewStore.state.revision,
       ...facts(),
       ...(launcherReady ? {} : { reason }),
@@ -127,6 +127,9 @@ function createControlService({
         } else if (route === "GET /v1/health") {
           requireReady();
           json(response, 200, { status: "ok" });
+        } else if (route === "GET /v1/viewpoints") {
+          requireReady();
+          json(response, 200, { items: viewStore.viewpoints });
         } else if (route === "GET /v1/view") {
           requireReady();
           json(response, 200, viewStore.state);

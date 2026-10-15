@@ -28,7 +28,13 @@ const SURFACES = Object.freeze([
   "panel-controls",
 ]);
 const LEFT_SIDEBAR = Object.freeze(["panel-settings", "alerts", "topics", "layouts"]);
-const FIELDS = Object.freeze(["layoutId", "followRobot", "perspective", "visibleSurfaces"]);
+const FIELDS = Object.freeze([
+  "layoutId",
+  "followRobot",
+  "perspective",
+  "visibleSurfaces",
+  "viewpoint",
+]);
 const ROBOT = /^[A-Za-z_][A-Za-z0-9_]{0,126}$/;
 function validLayoutId(value) {
   const characters = Array.from(value);
@@ -51,8 +57,8 @@ function invalid(message) {
 }
 
 /**
- * A view is exactly four fields; null means that the page keeps its own choice
- * for that field. The result is canonical, so equal views are equal values.
+ * Null fields preserve the page choice. An optional viewpoint is an explicit
+ * navigation command; the remaining fields keep their canonical values.
  */
 function normalizeView(value) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
@@ -90,7 +96,32 @@ function normalizeView(value) {
     }
     surfaces = SURFACES.filter((surface) => visibleSurfaces.includes(surface));
   }
-  return { layoutId, followRobot, perspective, visibleSurfaces: surfaces };
+  const result = {
+    layoutId,
+    followRobot,
+    perspective,
+    visibleSurfaces: surfaces,
+  };
+  if (Object.hasOwn(value, "viewpoint")) {
+    const choice = value.viewpoint;
+    if (
+      choice == null ||
+      typeof choice !== "object" ||
+      Array.isArray(choice) ||
+      Object.keys(choice).some((key) => key !== "id" && key !== "transition") ||
+      typeof choice.id !== "string" ||
+      choice.id.length === 0 ||
+      choice.id.length > 256 ||
+      !["smooth", "instant"].includes(choice.transition)
+    ) {
+      invalid("viewpoint requires {id, transition: smooth|instant}");
+    }
+    if (!Object.is(followRobot, null)) {
+      invalid("viewpoint and followRobot cannot be combined");
+    }
+    result.viewpoint = { id: choice.id, transition: choice.transition };
+  }
+  return result;
 }
 
 class ViewStore {
@@ -98,6 +129,50 @@ class ViewStore {
   #stated = false;
   #listeners = new Set();
   #queue = Promise.resolve();
+  #viewpoints;
+
+  constructor(viewpoints = [{ id: "world", label: "World" }]) {
+    if (
+      !Array.isArray(viewpoints) ||
+      viewpoints.length < 1 ||
+      viewpoints.length > 257 ||
+      viewpoints[0]?.id !== "world" ||
+      new Set(viewpoints.map((item) => item.id)).size !== viewpoints.length ||
+      viewpoints.some(
+        (item) =>
+          typeof item.id !== "string" ||
+          item.id.length === 0 ||
+          item.id.length > 256 ||
+          typeof item.label !== "string" ||
+          item.label.length === 0 ||
+          item.label.length > 256 ||
+          item.id === "restore",
+      )
+    ) {
+      invalid("viewpoints must identify the world and at most 256 distinct declared robots");
+    }
+    this.#viewpoints = Object.freeze(
+      viewpoints
+        .map(({ id, label }) => Object.freeze({ id, label }))
+        .sort((a, b) => {
+          if (a.id === "world") {
+            return -1;
+          }
+          if (b.id === "world") {
+            return 1;
+          }
+          return (
+            a.label.localeCompare(b.label, "zh-CN", { numeric: true, sensitivity: "base" }) ||
+            a.id.localeCompare(b.id)
+          );
+        }),
+    );
+  }
+
+  // eslint-disable-next-line no-restricted-syntax -- Read-only product menu is part of the control interface.
+  get viewpoints() {
+    return this.#viewpoints;
+  }
 
   /** Decimal-string revision of this process's desired view, "0" before its first statement. */
   // eslint-disable-next-line no-restricted-syntax -- Read-only property is part of the native control interface.
@@ -117,6 +192,13 @@ class ViewStore {
   async set(input, { expectedRevision } = {}) {
     const view = normalizeView(input);
     if (
+      view.viewpoint &&
+      view.viewpoint.id !== "restore" &&
+      !this.#viewpoints.some((item) => item.id === view.viewpoint.id)
+    ) {
+      invalid("viewpoint is not declared by this viewer");
+    }
+    if (
       !Object.is(expectedRevision, undefined) &&
       (typeof expectedRevision !== "string" || !DECIMAL.test(expectedRevision))
     ) {
@@ -126,8 +208,11 @@ class ViewStore {
       if (!Object.is(expectedRevision, undefined) && expectedRevision !== this.#state.revision) {
         throw new ViewError("conflict", "view revision conflict", 409);
       }
-      if (this.#stated && isDeepStrictEqual(this.#state.view, view)) {
+      if (this.#stated && !view.viewpoint && isDeepStrictEqual(this.#state.view, view)) {
         return { ...this.#state, unchanged: true };
+      }
+      if (view.viewpoint) {
+        Object.freeze(view.viewpoint);
       }
       if (view.visibleSurfaces) {
         Object.freeze(view.visibleSurfaces);

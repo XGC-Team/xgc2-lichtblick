@@ -40,6 +40,17 @@ const tempVec3 = new THREE.Vector3();
 const tempSpherical = new THREE.Spherical();
 const tempEuler = new THREE.Euler();
 const FOLLOW_TF_PATH = ["general", "followTf"];
+
+type WorldCameraPose = {
+  position: THREE.Vector3;
+  orientation: THREE.Quaternion;
+  frameId: AnyFrameId;
+  distance: number;
+  fovy: number;
+  near: number;
+  far: number;
+};
+
 export class CameraStateSettings extends SceneExtension implements ICameraHandler {
   // The frameId's of the fixed and render frames used to create the current unfollowPoseSnapshot
   #unfollowSnapshotFrameIds:
@@ -68,6 +79,14 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
   #perspectiveCamera: THREE.PerspectiveCamera;
   #orthographicCamera: THREE.OrthographicCamera;
   #aspect: number;
+  #lastRenderedPose: WorldCameraPose | undefined;
+  #renderContext:
+    | { currentTime: bigint; renderFrameId: AnyFrameId; fixedFrameId: AnyFrameId }
+    | undefined;
+  #transition:
+    | { source: WorldCameraPose; target: CameraState; durationMs: number; startedAt?: number }
+    | undefined;
+  #disposed = false;
 
   public constructor(renderer: IRenderer, canvas: HTMLCanvasElement, aspect: number) {
     super("foxglove.CameraStateSettings", renderer);
@@ -76,6 +95,7 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     renderer.on("transformTreeUpdated", this.#handleTransformTreeUpdated);
 
     renderer.on("cameraMove", this.#handleCameraMove);
+    renderer.on("endFrame", this.#handleEndFrame);
 
     renderer.settings.errors.on("update", this.#handleErrorChange);
     renderer.settings.errors.on("clear", this.#handleErrorChange);
@@ -116,8 +136,13 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
   }
 
   public override dispose(): void {
+    this.#disposed = true;
+    this.#transition = undefined;
+    this.#lastRenderedPose = undefined;
+    this.#renderContext = undefined;
     // for camera settings
     this.renderer.off("cameraMove", this.#handleCameraMove);
+    this.renderer.off("endFrame", this.#handleEndFrame);
 
     // for frame settings
     this.renderer.off("transformTreeUpdated", this.#handleTransformTreeUpdated);
@@ -354,6 +379,25 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     renderFrameId: AnyFrameId,
     fixedFrameId: AnyFrameId,
   ): void {
+    this.#updateCameraGroup(currentTime, renderFrameId, fixedFrameId);
+    this.#advanceTransition(currentTime, renderFrameId, fixedFrameId);
+    this.#renderContext = { currentTime, renderFrameId, fixedFrameId };
+  }
+
+  #handleEndFrame = (): void => {
+    if (this.#renderContext) {
+      const { currentTime, renderFrameId, fixedFrameId } = this.#renderContext;
+      // Capture after every extension and frame-visible-content update, so a
+      // replacement transition starts at the pose that was actually painted.
+      this.#lastRenderedPose = this.#worldCameraPose(currentTime, renderFrameId, fixedFrameId);
+    }
+  };
+
+  #updateCameraGroup(
+    currentTime: bigint,
+    renderFrameId: AnyFrameId,
+    fixedFrameId: AnyFrameId,
+  ): void {
     const followMode = this.renderer.config.followMode;
 
     if (
@@ -419,11 +463,13 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
 
   #onControlsChange = (): void => {
     if (!this.#isUpdatingCameraState) {
+      this.#transition = undefined;
       this.renderer.emit("cameraMove", this.renderer);
     }
   };
 
   #onControlsStart = (): void => {
+    this.#transition = undefined;
     this.#isInteractingWithControls = true;
   };
 
@@ -436,6 +482,9 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
 
   // Screen space panning when holding Alt key
   #onCanvasKeyDown = (event: KeyboardEvent): void => {
+    if (Object.values(this.#controls.keys).includes(event.code)) {
+      this.#transition = undefined;
+    }
     if (event.altKey) {
       this.#controls.screenSpacePanning = true;
     }
@@ -552,26 +601,38 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
 
   public handleResize(width: number, height: number, _pixelRatio: number): void {
     this.#aspect = width / height;
-    this.setCameraState(this.renderer.config.cameraState);
+    if (!this.#transition) {
+      this.setCameraState(this.renderer.config.cameraState);
+    }
   }
 
   public getCameraState(): CameraState {
     const config = this.renderer.config;
+    // OrbitControls caches its spherical angles until its next update. During
+    // a world-space transition, read the pose actually painted instead.
+    const spherical = new THREE.Spherical().setFromVector3(
+      this.#perspectiveCamera.position
+        .clone()
+        .sub(this.#controls.target)
+        .applyAxisAngle(UNIT_X, -PI_2),
+    );
+    const camera = this.getActiveCamera();
     return {
       perspective: config.cameraState.perspective,
-      distance: this.#controls.getDistance(),
-      phi: THREE.MathUtils.radToDeg(this.#controls.getPolarAngle()),
-      thetaOffset: THREE.MathUtils.radToDeg(-this.#controls.getAzimuthalAngle()),
+      distance: spherical.radius,
+      phi: THREE.MathUtils.radToDeg(spherical.phi),
+      thetaOffset: -THREE.MathUtils.radToDeg(spherical.theta),
       targetOffset: [this.#controls.target.x, this.#controls.target.y, this.#controls.target.z],
       target: config.cameraState.target,
       targetOrientation: config.cameraState.targetOrientation,
-      fovy: config.cameraState.fovy,
-      near: config.cameraState.near,
-      far: config.cameraState.far,
+      fovy: this.#perspectiveCamera.fov,
+      near: camera.near,
+      far: camera.far,
     };
   }
 
   public setCameraState(cameraState: CameraState): void {
+    this.#transition = undefined;
     this.#isUpdatingCameraState = true;
     this.#updateCameras(cameraState);
     // only active for follow pose mode because it introduces strange behavior into the other modes
@@ -580,6 +641,152 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
       this.#controls.update();
     }
     this.#isUpdatingCameraState = false;
+  }
+
+  public transitionCameraState(
+    cameraState: CameraState,
+    { durationMs }: { durationMs: number },
+  ): void {
+    if (this.#disposed) {
+      return;
+    }
+    // The caller changes follow configuration in the same turn. The cached pose
+    // belongs to the previous *rendered* frame, not the newly selected local orbit.
+    this.#updateFollowFrameId();
+    if (!Number.isFinite(durationMs) || durationMs <= 0 || !this.#lastRenderedPose) {
+      this.setCameraState(cameraState);
+      return;
+    }
+    this.#transition = {
+      source: this.#lastRenderedPose,
+      target: _.cloneDeep(cameraState),
+      durationMs,
+    };
+  }
+
+  #frameTransform(
+    from: AnyFrameId,
+    to: AnyFrameId,
+    currentTime: bigint,
+  ): THREE.Matrix4 | undefined {
+    if (from === to) {
+      return new THREE.Matrix4();
+    }
+    const pose = this.renderer.transformTree.apply(
+      makePose(),
+      makePose(),
+      to,
+      to,
+      from,
+      currentTime,
+      currentTime,
+    );
+    if (!pose) {
+      return undefined;
+    }
+    return new THREE.Matrix4().compose(
+      new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z),
+      new THREE.Quaternion(
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
+      ),
+      new THREE.Vector3(1, 1, 1),
+    );
+  }
+
+  #worldCameraPose(
+    currentTime: bigint,
+    renderFrameId: AnyFrameId,
+    fixedFrameId: AnyFrameId,
+  ): WorldCameraPose | undefined {
+    const fixedFromRender = this.#frameTransform(renderFrameId, fixedFrameId, currentTime);
+    if (!fixedFromRender) {
+      return undefined;
+    }
+    const camera = this.getActiveCamera();
+    camera.updateWorldMatrix(true, false);
+    const matrix = fixedFromRender.multiply(camera.matrixWorld);
+    const position = new THREE.Vector3();
+    const orientation = new THREE.Quaternion();
+    matrix.decompose(position, orientation, new THREE.Vector3());
+    return {
+      position,
+      orientation,
+      frameId: fixedFrameId,
+      distance: this.#perspectiveCamera.position.distanceTo(this.#controls.target),
+      fovy: this.#perspectiveCamera.fov,
+      near: camera.near,
+      far: camera.far,
+    };
+  }
+
+  #advanceTransition(
+    currentTime: bigint,
+    renderFrameId: AnyFrameId,
+    fixedFrameId: AnyFrameId,
+  ): void {
+    const transition = this.#transition;
+    if (!transition) {
+      return;
+    }
+    this.#updateCameras(transition.target);
+    const destination = this.#worldCameraPose(currentTime, renderFrameId, fixedFrameId);
+    const sourceToFixed = this.#frameTransform(
+      transition.source.frameId,
+      fixedFrameId,
+      currentTime,
+    );
+    const fixedFromRender = this.#frameTransform(renderFrameId, fixedFrameId, currentTime);
+    if (!destination || !sourceToFixed || !fixedFromRender) {
+      // Unrelated TF trees have no common world pose to interpolate.
+      this.setCameraState(transition.target);
+      return;
+    }
+    const now = performance.now();
+    transition.startedAt ??= now;
+    const progress = Math.min(1, Math.max(0, (now - transition.startedAt) / transition.durationMs));
+    if (progress === 1) {
+      this.setCameraState(transition.target);
+      return;
+    }
+    const amount = progress * progress * (3 - 2 * progress);
+    const source = transition.source;
+    const position = source.position
+      .clone()
+      .applyMatrix4(sourceToFixed)
+      .lerp(destination.position, amount);
+    const orientation = new THREE.Quaternion()
+      .setFromRotationMatrix(sourceToFixed)
+      .multiply(source.orientation)
+      .slerp(destination.orientation, amount);
+    const camera = this.getActiveCamera();
+    camera.updateWorldMatrix(true, false);
+    const parentFromFixed = fixedFromRender.multiply(this.#cameraGroup.matrixWorld).invert();
+    const local = parentFromFixed.multiply(
+      new THREE.Matrix4().compose(position, orientation, new THREE.Vector3(1, 1, 1)),
+    );
+    local.decompose(camera.position, camera.quaternion, camera.scale);
+
+    const distance = THREE.MathUtils.lerp(source.distance, transition.target.distance, amount);
+    this.#controls.target
+      .set(0, 0, -distance)
+      .applyQuaternion(camera.quaternion)
+      .add(camera.position);
+    if (camera !== this.#perspectiveCamera) {
+      this.#perspectiveCamera.position.copy(camera.position);
+      this.#perspectiveCamera.quaternion.copy(camera.quaternion);
+      this.#orthographicCamera.left = (-distance / 2) * this.#aspect;
+      this.#orthographicCamera.right = (distance / 2) * this.#aspect;
+      this.#orthographicCamera.top = distance / 2;
+      this.#orthographicCamera.bottom = -distance / 2;
+    }
+    this.#perspectiveCamera.fov = THREE.MathUtils.lerp(source.fovy, transition.target.fovy, amount);
+    camera.near = THREE.MathUtils.lerp(source.near, transition.target.near, amount);
+    camera.far = THREE.MathUtils.lerp(source.far, transition.target.far, amount);
+    camera.updateProjectionMatrix();
+    this.renderer.queueAnimationFrame();
   }
 
   /** Translate a CameraState to the three.js coordinate system */

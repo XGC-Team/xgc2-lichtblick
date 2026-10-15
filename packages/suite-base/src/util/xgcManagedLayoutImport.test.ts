@@ -10,6 +10,8 @@ import {
   sanitizeImportedLayoutData,
   sanitizeImportedPanelConfig,
   parseXgc2LayoutScope,
+  takeXgc2DeferredView,
+  discardXgc2DeferredView,
 } from "./xgcManagedLayoutImport";
 
 const authorityThreeD = {
@@ -96,10 +98,11 @@ describe("xgc managed layout import", () => {
     { followMode: "follow-none", perspective: false },
     { followMode: "follow-position", perspective: true },
     { followMode: "follow-pose", perspective: false },
-  ])("restores scoped $followMode and camera without resurrecting old Core wiring", ({
+  ])("defers scoped $followMode and camera while starting at Core world/default", ({
     followMode,
     perspective,
   }) => {
+    const caseScope = [`deferred-${followMode}`, "viewer"] as const;
     const cameraState = {
       ...authorityThreeD.cameraState,
       distance: 5,
@@ -108,7 +111,7 @@ describe("xgc managed layout import", () => {
     };
     const previous: LayoutData = {
       ...authorityLayout,
-      metadata: { xgc2LayoutScope: scope },
+      metadata: { xgc2LayoutScope: caseScope },
       configById: {
         "3D!xgc2": {
           followMode,
@@ -120,19 +123,23 @@ describe("xgc managed layout import", () => {
         "Image!xgc2-camera-ar": { cameraState: { distance: 2 } },
       },
     };
-    const restored = mergeManagedLayoutFromUrl(scopedAuthority, previous, scope) as LayoutData;
+    const restored = mergeManagedLayoutFromUrl(scopedAuthority, previous, caseScope) as LayoutData;
     expect(restored.configById["3D!xgc2"]).toEqual({
       ...scopedAuthority.configById["3D!xgc2"],
-      cameraState,
-      followMode: followMode === "follow-none" ? "follow-none" : "follow-position",
-      followTf: followMode === "follow-none" ? "world" : "xgc/robots/uav1/root",
     });
     expect(restored.configById["Image!xgc2-camera-ar"]).toEqual({
       ...authorityImage,
       cameraState: { distance: 2 },
     });
     expect(restored.layout).toEqual(scopedAuthority.layout);
-    expect(restored.metadata).toEqual({ xgc2LayoutScope: scope });
+    expect(restored.metadata).toEqual({ xgc2LayoutScope: caseScope });
+    expect(takeXgc2DeferredView(caseScope, "3D!xgc2")).toEqual({
+      cameraState,
+      followMode,
+      followTf: "xgc/robots/uav1/root",
+    });
+    expect(takeXgc2DeferredView(caseScope, "3D!xgc2")).toBeUndefined();
+    expect(previous.configById["3D!xgc2"]?.cameraState).toEqual(cameraState);
   });
 
   it.each([
@@ -189,6 +196,44 @@ describe("xgc managed layout import", () => {
         "3D!xgc2"
       ],
     ).toEqual(scopedAuthority.configById["3D!xgc2"]);
+  });
+
+  it.each([
+    "manual-before-import",
+    "explicit-before-import",
+    "after-import",
+  ])("does not rearm deferred restore after %s", (caseId) => {
+    const caseScope = [caseId, "viewer"] as const;
+    const previous = { ...authorityLayout, metadata: { xgc2LayoutScope: caseScope } };
+    if (caseId === "after-import") {
+      mergeManagedLayoutFromUrl(scopedAuthority, previous, caseScope);
+    }
+    discardXgc2DeferredView(caseScope, "3D!xgc2");
+    const result = mergeManagedLayoutFromUrl(scopedAuthority, previous, caseScope) as LayoutData;
+    expect(result.configById["3D!xgc2"]).toEqual(scopedAuthority.configById["3D!xgc2"]);
+    expect(takeXgc2DeferredView(caseScope, "3D!xgc2")).toBeUndefined();
+    expect(previous.configById["3D!xgc2"]).toEqual(authorityThreeD);
+  });
+
+  it("never defers a foreign scope or a different exact native panel", () => {
+    for (const [tag, previous] of [
+      [
+        "foreign",
+        { ...authorityLayout, metadata: { xgc2LayoutScope: ["another-experiment", "viewer"] } },
+      ],
+      [
+        "other-panel",
+        {
+          ...authorityLayout,
+          metadata: { xgc2LayoutScope: ["other-panel", "viewer"] },
+          configById: { "3D!different": authorityThreeD },
+        },
+      ],
+    ] as const) {
+      const caseScope = [tag, "viewer"] as const;
+      mergeManagedLayoutFromUrl(scopedAuthority, previous, caseScope);
+      expect(takeXgc2DeferredView(caseScope, "3D!xgc2")).toBeUndefined();
+    }
   });
 
   it("keeps camera, mosaic, theme-like presentation and restores managed wiring", () => {

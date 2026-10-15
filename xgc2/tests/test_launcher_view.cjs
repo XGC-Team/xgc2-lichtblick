@@ -85,9 +85,15 @@ test("pages read the desired view and hear changes over the same-origin gateway"
   const control = await launcher.control();
   assert.equal(control.described.ready, true, "ready once the page listener is up");
   assert.equal(control.described.facts.http_port, launcher.port);
-  assert.deepEqual(control.described.facts.capabilities, ["view.v1"]);
+  assert.deepEqual(control.described.facts.capabilities, ["view.v1", "viewpoint.v1"]);
   assert.equal(control.described.facts.storage, undefined);
   assert.equal(control.described.facts.assets, undefined);
+  assert.deepEqual((await control.call("GET", "/v1/viewpoints")).json, {
+    items: [
+      { id: "world", label: "World" },
+      { id: "xgc/robots/uav1/base_link", label: "uav1" },
+    ],
+  });
   // The state a page finds when it connects: nothing stated yet.
   let page = await get(launcher.base, "/xgc2/view");
   assert.equal(page.status, 200);
@@ -347,5 +353,26 @@ test("the layout and desired-view gateway use the configured public URL prefix",
       })
     ).status,
     404,
+  );
+});
+
+test("native viewpoint menu keeps World first and sorts robot display names naturally", async (t) => {
+  const input = structuredClone(require("../launcher/testdata/frozen-layouts.json")[0].input);
+  const template = input.robots[0];
+  input.robots = ["uav10", "uav2", "uav1"].map((name) => ({
+    ...structuredClone(template),
+    slotId: name,
+    name,
+    namespace: `/${name}`,
+    binding: { ...structuredClone(template.binding), id: name, namespace: `/${name}` },
+  }));
+  const { launcher } = await startLauncher(t, { stdin: JSON.stringify(input) });
+  await launcher.waitForPort();
+  const control = await launcher.control();
+  const response = await control.call("GET", "/v1/viewpoints");
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    response.json.items.map((item) => item.label),
+    ["World", "uav1", "uav2", "uav10"],
   );
 });

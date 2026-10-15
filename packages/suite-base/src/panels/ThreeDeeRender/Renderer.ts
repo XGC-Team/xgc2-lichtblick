@@ -1071,6 +1071,18 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.cameraHandler.setCameraState(cameraState);
   }
 
+  public transitionCameraState(cameraState: CameraState, options: { durationMs: number }): void {
+    if (this.#disposed) {
+      return;
+    }
+    if (this.cameraHandler.transitionCameraState) {
+      this.cameraHandler.transitionCameraState(cameraState, options);
+    } else {
+      this.setCameraState(cameraState);
+    }
+    this.queueAnimationFrame();
+  }
+
   public getCameraState(): CameraState | undefined {
     return this.cameraHandler.getCameraState();
   }

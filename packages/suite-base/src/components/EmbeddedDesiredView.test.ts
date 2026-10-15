@@ -44,6 +44,36 @@ describe("parseDesiredViewState", () => {
     });
   });
 
+  it.each([
+    "world",
+    "restore",
+    "xgc/robots/uav1/base_link",
+  ])("reads explicit %s viewpoint and transition", (id) => {
+    expect(
+      parseDesiredViewState({ revision: "1", view: { viewpoint: { id, transition: "smooth" } } }),
+    ).toEqual({ revision: "1", view: { viewpoint: { id, transition: "smooth" } } });
+  });
+
+  it.each([
+    null,
+    {},
+    { id: "world" },
+    { id: "world", transition: "other" },
+    { id: "xgc/robots/foreign/root", transition: "smooth" },
+    { id: "world", transition: "instant", extra: true },
+  ])("rejects malformed viewpoint %j", (viewpoint) => {
+    expect(parseDesiredViewState({ revision: "1", view: { viewpoint } })).toBeUndefined();
+  });
+
+  it("does not accept simultaneous legacy follow and viewpoint", () => {
+    expect(
+      parseDesiredViewState({
+        revision: "1",
+        view: { followRobot: "uav1", viewpoint: { id: "world", transition: "instant" } },
+      }),
+    ).toBeUndefined();
+  });
+
   it("treats null fields as unstated and keeps an empty surface list as stated", () => {
     expect(
       parseDesiredViewState({
@@ -175,6 +205,25 @@ describe("planDesiredView", () => {
       { layoutSettled: true },
     );
     expect(changed.steps).toEqual([]);
+  });
+
+  it("applies a viewpoint once after layout/panel readiness and never replays it from arrival", () => {
+    const explicitView: DesiredView = { viewpoint: { id: "restore", transition: "smooth" } };
+    const pending = viewFields(explicitView);
+    expect(
+      planDesiredView(explicitView, NO_PANEL, pending, { layoutSettled: true }).pending,
+    ).toEqual(pending);
+    const plan = planDesiredView(explicitView, { ...NO_PANEL, panel }, pending, {
+      layoutSettled: true,
+    });
+    expect(plan.steps).toEqual([
+      { type: "viewpoint", panelId: panel.panelId, viewpoint: explicitView.viewpoint },
+    ]);
+    expect(plan.pending.size).toBe(0);
+    expect(
+      planDesiredView(explicitView, { ...NO_PANEL, panel }, plan.pending, { layoutSettled: true })
+        .steps,
+    ).toEqual([]);
   });
 
   it("states nothing about fields the view leaves out", () => {

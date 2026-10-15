@@ -13,9 +13,9 @@ const { rawCall } = require("./raw_call.cjs");
 const { createControlService } = require("../launcher/control-service.cjs");
 const { ViewStore } = require("../launcher/view-state.cjs");
 
-async function startControl(t, { ready = true } = {}) {
+async function startControl(t, { ready = true, viewpoints } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "lichtblick-control-"));
-  const viewStore = new ViewStore();
+  const viewStore = new ViewStore(viewpoints);
   const socketPath = path.join(root, "control.sock");
   const control = createControlService({
     socketPath,

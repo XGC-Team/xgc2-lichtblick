@@ -716,6 +716,31 @@ describe("EmbeddedWorkspaceBridge desired view", () => {
     expect(commands[2]).toEqual(expect.objectContaining({ action: "perspective" }));
   });
 
+  it("routes each explicit viewpoint revision once to the exact panel, including repeated selection", () => {
+    render(<EmbeddedWorkspaceBridge />);
+    emitView("1", { viewpoint: { id: "restore", transition: "smooth" } });
+    expect(commands).toHaveLength(0);
+    reportPanel({ available: true });
+    expect(commands).toEqual([
+      expect.objectContaining({
+        panelId: PANEL_ID,
+        action: "viewpoint",
+        id: "restore",
+        transition: "smooth",
+      }),
+    ]);
+    reportPanel({ perspective: true });
+    emitView("1", { viewpoint: { id: "restore", transition: "smooth" } });
+    expect(commands).toHaveLength(1);
+    emitView("2", { viewpoint: { id: "restore", transition: "smooth" } });
+    expect(commands).toHaveLength(2);
+    emitView("3", { viewpoint: { id: "world", transition: "instant" } });
+    expect(commands.at(-1)).toEqual(
+      expect.objectContaining({ action: "viewpoint", id: "world", transition: "instant" }),
+    );
+    expect(isEmbeddedNavigationCommand(commands.at(-1))).toBe(true);
+  });
+
   it("waits for the panel and applies the camera to the first one that appears", () => {
     render(<EmbeddedWorkspaceBridge />);
     emitView("1", { followRobot: "ugv2" });

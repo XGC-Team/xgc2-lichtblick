@@ -53,6 +53,14 @@ import {
   MAX_TRANSFORM_MESSAGES,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/constants";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
+import {
+  declaredXgc2RobotFrame,
+  discardXgc2DeferredView,
+  getXgc2WorldCamera,
+  parseXgc2LayoutScope,
+  rememberXgc2WorldCamera,
+  takeXgc2DeferredView,
+} from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
 import type { IRenderer, ImageModeConfig, RendererConfig, RendererSubscription } from "./IRenderer";
 import type { Path } from "./LayerErrors";
@@ -93,6 +101,16 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     logError,
   } = props;
   const { embedded, hostTheme } = useEmbeddedWorkspaceControls();
+  const [restoreScope] = useState(() =>
+    embedded && interfaceMode === "3d"
+      ? parseXgc2LayoutScope(new URLSearchParams(window.location.search).get("xgc2LayoutScope"))
+      : undefined,
+  );
+  const discardDeferredView = useCallback(() => {
+    if (restoreScope && embeddedPanelId) {
+      discardXgc2DeferredView(restoreScope, embeddedPanelId);
+    }
+  }, [restoreScope, embeddedPanelId]);
   const {
     initialState,
     saveState,
@@ -151,9 +169,39 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   const obstacleSceneColor = config.scene.obstacleScene?.color?.join(",");
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | ReactNull>(ReactNull);
+  useEffect(() => {
+    // Fence a delayed startup restore at interaction start, before the first changed frame.
+    canvas?.addEventListener("pointerdown", discardDeferredView, { capture: true });
+    canvas?.addEventListener("wheel", discardDeferredView, { capture: true });
+    return () => {
+      canvas?.removeEventListener("pointerdown", discardDeferredView, { capture: true });
+      canvas?.removeEventListener("wheel", discardDeferredView, { capture: true });
+    };
+  }, [canvas, discardDeferredView]);
   const [paintedRenderer, setPaintedRenderer] = useState<IRenderer | undefined>();
   const [renderer, setRenderer] = useState<IRenderer | undefined>(undefined);
   const rendererRef = useRef<IRenderer | undefined>(undefined);
+  const commandedCamera = useRef<{ renderer: IRenderer; target: CameraState }>();
+  const rememberedWorld = useRef<CameraState>();
+  const captureWorldAllowed = useRef(true);
+  const rememberWorld = useCallback(() => {
+    const active = rendererRef.current;
+    // A robot-local orbit must never overwrite global memory, even in follow-none mode.
+    if (
+      !captureWorldAllowed.current ||
+      active?.config.followMode !== "follow-none" ||
+      active.config.followTf !== "world"
+    ) {
+      return;
+    }
+    const camera = active.getCameraState();
+    if (camera) {
+      rememberedWorld.current = _.cloneDeep(camera);
+      if (restoreScope && embeddedPanelId) {
+        rememberXgc2WorldCamera(restoreScope, embeddedPanelId, camera);
+      }
+    }
+  }, [restoreScope, embeddedPanelId]);
 
   const displayTemporaryError = useCallback(
     (errorString: string) => {
@@ -264,6 +312,13 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   useEffect(() => {
     const listener = () => {
       if (renderer) {
+        // Only actual manual OrbitControls movement emits cameraMove in 3D, including keys.
+        discardDeferredView();
+        commandedCamera.current = undefined;
+        // A real global camera edit establishes a new rendered global pose. Programmatic
+        // returns cannot rearm this flag: config changes before their first paint.
+        captureWorldAllowed.current = true;
+        rememberWorld();
         const newCameraState = renderer.getCameraState();
         if (!newCameraState) {
           return;
@@ -287,7 +342,15 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     };
     renderer?.addListener("cameraMove", listener);
     return () => void renderer?.removeListener("cameraMove", listener);
-  }, [config.scene.syncCamera, config.followMode, context, renderer?.followFrameId, renderer]);
+  }, [
+    config.scene.syncCamera,
+    config.followMode,
+    context,
+    renderer?.followFrameId,
+    renderer,
+    discardDeferredView,
+    rememberWorld,
+  ]);
 
   // Handle user changes in the settings sidebar
   const actionHandler = useCallback(
@@ -823,7 +886,13 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     // Settings update renderer.config before this effect runs. getCameraState()
     // reads projection from that config, so equality does not prove the actual
     // camera was initialized (especially on the first switch to orthographic).
-    renderer?.setCameraState(cameraState);
+    const commanded = commandedCamera.current;
+    if (commanded && commanded.renderer === renderer && _.isEqual(commanded.target, cameraState)) {
+      // This target was already applied synchronously. Reapplying cancels its native tween.
+      commandedCamera.current = undefined;
+    } else {
+      renderer?.setCameraState(cameraState);
+    }
     renderRef.current.needsRender = true;
   }, [cameraState, renderer]);
 
@@ -1061,6 +1130,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
 
   const onFollowRobot = useCallback(
     (frameId: string, followMode: "follow-position" | "follow-pose" = "follow-position") => {
+      rememberWorld();
+      captureWorldAllowed.current = false;
+      discardDeferredView();
       actionHandler({
         action: "update",
         payload: { input: "select", path: ["general", "followTf"], value: frameId },
@@ -1070,17 +1142,24 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         payload: { input: "select", path: ["general", "followMode"], value: followMode },
       });
     },
-    [actionHandler],
+    [actionHandler, rememberWorld, discardDeferredView],
   );
 
   const onOverview = useCallback(() => {
     if (!renderer) {
       return;
     }
+    rememberWorld();
+    discardDeferredView();
+    const savedWorld =
+      restoreScope && embeddedPanelId
+        ? getXgc2WorldCamera(restoreScope, embeddedPanelId)
+        : rememberedWorld.current;
     const overview = {
-      ...overviewCameraState,
-      perspective: renderer.getCameraState()?.perspective ?? config.cameraState.perspective,
-    };
+      ..._.cloneDeep(savedWorld ?? overviewCameraState),
+      perspective: renderer.config.cameraState.perspective,
+    } as CameraState;
+    captureWorldAllowed.current = false;
     actionHandler({
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
@@ -1090,15 +1169,102 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
       payload: {
         input: "select",
         path: ["general", "followTf"],
-        value: renderer.fixedFrameId,
+        value: "world",
       },
     });
-    renderer.setCameraState(overview);
     renderer.updateConfig((draft) => {
       draft.cameraState = _.cloneDeep(overview);
     });
-    renderer.frameVisibleContent();
-  }, [actionHandler, config.cameraState.perspective, overviewCameraState, renderer]);
+    renderer.setFollowFrameId("world");
+    renderer.setCameraState(overview);
+  }, [
+    actionHandler,
+    overviewCameraState,
+    renderer,
+    rememberWorld,
+    discardDeferredView,
+    restoreScope,
+    embeddedPanelId,
+  ]);
+
+  const onViewpoint = useCallback(
+    (id: string, transition: "smooth" | "instant") => {
+      if (!renderer || !embeddedPanelId) {
+        return;
+      }
+      let target: CameraState;
+      let followMode: RendererConfig["followMode"];
+      let followTf: string;
+      if (id === "restore") {
+        const saved = restoreScope
+          ? takeXgc2DeferredView(restoreScope, embeddedPanelId)
+          : undefined;
+        if (
+          !saved ||
+          (saved.followTf != undefined &&
+            saved.followTf !== "world" &&
+            !declaredXgc2RobotFrame(renderer.config, saved.followTf))
+        ) {
+          return;
+        }
+        target = _.merge(_.cloneDeep(DEFAULT_CAMERA_STATE), saved.cameraState);
+        followMode = saved.followMode;
+        followTf = saved.followTf ?? "world";
+      } else {
+        if (id !== "world" && !declaredXgc2RobotFrame(renderer.config, id)) {
+          return;
+        }
+        discardDeferredView();
+        if (id === "world") {
+          rememberWorld();
+          const saved = restoreScope
+            ? getXgc2WorldCamera(restoreScope, embeddedPanelId)
+            : rememberedWorld.current;
+          target = {
+            ..._.cloneDeep(saved ?? overviewCameraState),
+            perspective: renderer.config.cameraState.perspective,
+          } as CameraState;
+          followMode = "follow-none";
+          followTf = "world";
+        } else {
+          target = {
+            ..._.cloneDeep(overviewCameraState),
+            perspective: renderer.config.cameraState.perspective,
+            target: [0, 0, 0],
+            targetOffset: [0, 0, 0],
+          };
+          followMode = "follow-position";
+          followTf = id;
+        }
+      }
+      // Capture while the old frame/config is still active. The renderer snapshots painted WORLD
+      // pose for interpolation independently of this per-view orbit memory.
+      if (followTf !== "world") {
+        rememberWorld();
+      }
+      captureWorldAllowed.current = false;
+      commandedCamera.current = { renderer, target };
+      renderer.updateConfig((draft) => {
+        draft.followTf = followTf;
+        draft.followMode = followMode;
+        draft.cameraState = _.cloneDeep(target);
+      });
+      if (transition === "smooth") {
+        renderer.transitionCameraState(target, { durationMs: 500 });
+      } else {
+        renderer.setFollowFrameId(followTf);
+        renderer.setCameraState(target);
+      }
+    },
+    [
+      renderer,
+      embeddedPanelId,
+      restoreScope,
+      discardDeferredView,
+      rememberWorld,
+      overviewCameraState,
+    ],
+  );
 
   const onGoal = useCallback(() => {
     if (!renderer) {
@@ -1223,6 +1389,9 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         case "overview":
           onOverview();
           break;
+        case "viewpoint":
+          onViewpoint(command.id, command.transition);
+          break;
         case "follow":
           onFollowRobot(command.frameId);
           break;
@@ -1258,6 +1427,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     onGoal,
     onFollowRobot,
     onOverview,
+    onViewpoint,
     onTogglePerspective,
     renderer,
   ]);

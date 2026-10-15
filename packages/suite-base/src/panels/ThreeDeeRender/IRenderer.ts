@@ -370,6 +370,9 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setCameraState(cameraState: CameraState): void;
 
+  /** Animate from the last rendered world pose after the caller updates follow configuration. */
+  transitionCameraState(cameraState: CameraState, options: { durationMs: number }): void;
+
   /** Frame the currently visible 3D content once, after the next native pose update. */
   frameVisibleContent(): void;
 

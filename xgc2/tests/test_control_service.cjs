@@ -48,7 +48,7 @@ test("describe is the unbound discovery call and reports readiness and facts", a
     },
   );
   assert.equal(response.json.facts.reason, "starting");
-  assert.deepEqual(response.json.facts.capabilities, ["view.v1"]);
+  assert.deepEqual(response.json.facts.capabilities, ["view.v1", "viewpoint.v1"]);
   assert.equal(response.json.facts.view_revision, "0");
   control.markReady();
   response = await rawCall(socketPath, "GET", "/v1/describe");
@@ -266,4 +266,65 @@ test("the socket is private, a stale one is reclaimed and a live one is never ta
     (await rawCall(socketPath, "GET", "/v1/view", { instance: next.instanceId })).status,
     200,
   );
+});
+
+test("viewpoint menu and smooth/instant commands share the exact native service owner", async (t) => {
+  const items = [
+    { id: "world", label: "World" },
+    { id: "xgc/robots/ugv1/base_link", label: "ugv1" },
+  ];
+  const { call } = await startControl(t, { viewpoints: items });
+  assert.deepEqual((await call("GET", "/v1/viewpoints")).json, { items });
+  const viewpoint = { id: items[1].id, transition: "smooth" };
+  let response = await call("PUT", "/v1/view", {
+    body: { view: { viewpoint } },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.json.view.viewpoint, viewpoint);
+  const first = response.json.revision;
+  response = await call("PUT", "/v1/view", { body: { view: { viewpoint } } });
+  assert.notEqual(
+    response.json.revision,
+    first,
+    "repeat selection can reframe after a manual camera move",
+  );
+  assert.equal(response.json.unchanged, false);
+  response = await call("PUT", "/v1/view", {
+    body: { view: { viewpoint: { id: "world", transition: "instant" } } },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.view.viewpoint.transition, "instant");
+  response = await call("PUT", "/v1/view", {
+    body: { view: { viewpoint: { id: "restore", transition: "smooth" } } },
+  });
+  assert.equal(response.status, 200);
+  for (const bad of [
+    { id: "foreign/frame", transition: "smooth" },
+    { id: "world", transition: "warp" },
+    { id: "world", transition: "smooth", delayMs: 5000 },
+  ]) {
+    assert.equal(
+      (await call("PUT", "/v1/view", { body: { view: { viewpoint: bad } } })).status,
+      400,
+    );
+  }
+});
+
+test("automatic restore at startup cannot override an explicit manual viewpoint", async (t) => {
+  const { call } = await startControl(t);
+  assert.equal((await call("GET", "/v1/view")).json.revision, "0");
+  const manual = await call("PUT", "/v1/view", {
+    body: { view: { viewpoint: { id: "world", transition: "smooth" } } },
+  });
+  assert.equal(manual.status, 200);
+  const restore = await call("PUT", "/v1/view", {
+    body: {
+      view: { viewpoint: { id: "restore", transition: "smooth" } },
+      expectedRevision: "0",
+    },
+  });
+  assert.equal(restore.status, 409);
+  const current = (await call("GET", "/v1/view")).json;
+  assert.equal(current.revision, manual.json.revision);
+  assert.deepEqual(current.view.viewpoint, { id: "world", transition: "smooth" });
 });

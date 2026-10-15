@@ -8,7 +8,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import "@testing-library/jest-dom";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { produce } from "immer";
 import * as _ from "lodash-es";
 
@@ -30,6 +30,10 @@ import {
 import type { MessageEvent } from "@lichtblick/suite-base/players/types";
 import MessageEventBuilder from "@lichtblick/suite-base/testing/builders/MessageEventBuilder";
 import RenderStateBuilder from "@lichtblick/suite-base/testing/builders/RenderStateBuilder";
+import {
+  mergeManagedLayoutFromUrl,
+  takeXgc2DeferredView,
+} from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
 import type { RendererConfig } from "./IRenderer";
 import { Renderer } from "./Renderer";
@@ -66,6 +70,8 @@ const createMockRenderer = (overrides?: Record<string, any>) => {
     handleAllFramesMessages: jest.fn(),
     addMessageEvent: jest.fn(),
     setCameraState: jest.fn(),
+    transitionCameraState: jest.fn(),
+    setFollowFrameId: jest.fn(),
     frameVisibleContent: jest.fn(),
     updateConfig: jest.fn(),
     getCameraState: jest.fn().mockReturnValue(undefined),
@@ -246,6 +252,272 @@ describe("ThreeDeeRender", () => {
     });
   });
 
+  describe("explicit native viewpoints", () => {
+    const panelId = "3D!viewpoint";
+    const layers = {
+      "xgc2-urdf-uav1": { layerId: "foxglove.Urdf", framePrefix: "xgc/robots/uav1/" },
+    };
+    function mountView(caseId: string, parked?: Record<string, unknown>) {
+      const scope = [`viewpoint-${caseId}`, "viewer"] as const;
+      const originalUrl = window.location.href;
+      window.history.replaceState(
+        {},
+        "",
+        `/?xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope)!)}`,
+      );
+      const initialState = {
+        cameraState: DEFAULT_CAMERA_STATE,
+        followTf: "world",
+        followMode: "follow-none",
+        layers,
+      };
+      const managed = { configById: { [panelId]: initialState } };
+      if (parked) {
+        mergeManagedLayoutFromUrl(
+          managed,
+          { configById: { [panelId]: parked }, metadata: { xgc2LayoutScope: scope } } as never,
+          scope,
+        );
+      }
+      let painted = _.cloneDeep(DEFAULT_CAMERA_STATE);
+      mockedRenderer.mockImplementationOnce(({ config }) => {
+        const instance = createMockRenderer({ config });
+        instance.getCameraState.mockImplementation(() => _.cloneDeep(painted));
+        instance.updateConfig.mockImplementation((update: (draft: RendererConfig) => void) => {
+          instance.config = produce(instance.config, update);
+          instance.emit("configChange", instance);
+        });
+        return instance as unknown as Renderer;
+      });
+      const props = setup({ embeddedPanelId: panelId }, { initialState });
+      const view = render(
+        <EmbeddedWorkspaceControlsProvider embedded>
+          <ThreeDeeRender {...props} />
+        </EmbeddedWorkspaceControlsProvider>,
+      );
+      const instance = mockedRenderer.mock.results[0]!.value;
+      const element = view.container.querySelector("[data-xgc-native-3d-panel-id]")!;
+      const navigate = (id: string, transition = "smooth", targetPanel = panelId) => {
+        act(() => {
+          element.dispatchEvent(
+            new CustomEvent(EMBEDDED_NAVIGATION_EVENT, {
+              detail: { panelId: targetPanel, action: "viewpoint", id, transition },
+            }),
+          );
+        });
+      };
+      window.history.replaceState({}, "", originalUrl);
+      return {
+        ...view,
+        scope,
+        instance,
+        navigate,
+        paint: (camera: typeof DEFAULT_CAMERA_STATE) => {
+          painted = _.cloneDeep(camera);
+        },
+        managed,
+      };
+    }
+
+    it.each([
+      "smooth",
+      "instant",
+    ] as const)("remembers exact manually moved WORLD through robot and WORLD (%s)", (transition) => {
+      const v = mountView(`roundtrip-${transition}`);
+      for (const perspective of [true, false]) {
+        const globalCamera = {
+          ...DEFAULT_CAMERA_STATE,
+          perspective,
+          phi: 37,
+          thetaOffset: -123,
+          distance: 56,
+          target: [1500, -2500, 30] as const,
+          targetOffset: [2, -4, 8] as const,
+          fovy: 53,
+          near: 0.2,
+          far: 12000,
+        };
+        v.paint(globalCamera);
+        act(() => {
+          v.instance.emit("cameraMove", v.instance);
+        });
+        v.instance.setCameraState.mockClear();
+        v.instance.transitionCameraState.mockClear();
+        const configuredBefore = v.instance.config;
+        v.navigate("xgc/robots/uav1/base_link", transition);
+        expect(v.instance.config).toMatchObject({
+          followTf: "xgc/robots/uav1/base_link",
+          followMode: "follow-position",
+        });
+        const call =
+          transition === "smooth" ? v.instance.transitionCameraState : v.instance.setCameraState;
+        expect(call).toHaveBeenCalledTimes(1);
+        expect(v.instance.setCameraState).toHaveBeenCalledTimes(transition === "smooth" ? 0 : 1);
+        expect(v.instance.transitionCameraState).toHaveBeenCalledTimes(
+          transition === "smooth" ? 1 : 0,
+        );
+        const cameraMatcher = expect.any(Object);
+        expect(call.mock.calls[0]).toEqual(
+          transition === "smooth" ? [cameraMatcher, { durationMs: 500 }] : [cameraMatcher],
+        );
+        expect(v.instance.setFollowFrameId.mock.calls.at(-1)).toEqual(
+          transition === "smooth" ? undefined : ["xgc/robots/uav1/base_link"],
+        );
+        expect(configuredBefore.followTf).toBe("world");
+        // A very different robot-local rendered orbit must never replace WORLD memory.
+        v.paint({
+          ...DEFAULT_CAMERA_STATE,
+          distance: 3,
+          phi: 88,
+          thetaOffset: 12,
+          target: [0, 0, 1],
+        });
+        v.navigate("world", transition);
+        expect(v.instance.config).toMatchObject({
+          followTf: "world",
+          followMode: "follow-none",
+          cameraState: globalCamera,
+        });
+        expect(call.mock.calls.at(-1)![0]).toEqual(globalCamera);
+        expect(v.instance.frameVisibleContent).not.toHaveBeenCalled();
+        v.paint(globalCamera);
+      }
+    });
+
+    it("does not replace remembered WORLD with a robot-local getter when a smooth return is interrupted before paint", () => {
+      const v = mountView("interrupted-return");
+      const globalCamera = {
+        ...DEFAULT_CAMERA_STATE,
+        distance: 83,
+        phi: 26,
+        thetaOffset: -79,
+        target: [920, -1210, 73] as const,
+      };
+      v.paint(globalCamera);
+      act(() => {
+        v.instance.emit("cameraMove", v.instance);
+      });
+      v.navigate("xgc/robots/uav1/base_link");
+      v.paint({ ...DEFAULT_CAMERA_STATE, distance: 2, phi: 89, thetaOffset: 163 });
+      v.navigate("world");
+      // No returned WORLD frame was painted; config already says WORLD, getter is still robot-local.
+      v.navigate("xgc/robots/uav1/base_link");
+      v.navigate("world");
+      expect(v.instance.transitionCameraState).toHaveBeenLastCalledWith(globalCamera, {
+        durationMs: 500,
+      });
+      expect(v.instance.config.cameraState).toEqual(globalCamera);
+    });
+
+    it("restores WORLD orbit with the current projection while explicit prior-run restore owns its authored projection", () => {
+      const v = mountView("projection-independent");
+      const globalCamera = { ...DEFAULT_CAMERA_STATE, phi: 35, distance: 64, thetaOffset: 12 };
+      v.paint(globalCamera);
+      act(() => {
+        v.instance.emit("cameraMove", v.instance);
+      });
+      v.navigate("xgc/robots/uav1/base_link");
+      act(() => {
+        v.instance.updateConfig((draft: RendererConfig) => {
+          draft.cameraState.perspective = false;
+        });
+      });
+      v.navigate("world");
+      expect(v.instance.transitionCameraState).toHaveBeenLastCalledWith(
+        { ...globalCamera, perspective: false },
+        { durationMs: 500 },
+      );
+    });
+
+    it("restores prior-run view exactly once and skips same-command effect cancellation", () => {
+      const saved = {
+        cameraState: { ...DEFAULT_CAMERA_STATE, phi: 28, thetaOffset: 71, distance: 7 },
+        followMode: "follow-pose",
+        followTf: "xgc/robots/uav1/root",
+      };
+      const v = mountView("restore-once", saved);
+      expect(v.instance.config).toMatchObject({
+        followTf: "world",
+        cameraState: DEFAULT_CAMERA_STATE,
+      });
+      v.instance.setCameraState.mockClear();
+      v.navigate("restore");
+      expect(v.instance.config).toMatchObject(saved);
+      expect(v.instance.transitionCameraState).toHaveBeenCalledTimes(1);
+      expect(v.instance.setCameraState).not.toHaveBeenCalled();
+      v.navigate("restore");
+      expect(v.instance.transitionCameraState).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      "pointer",
+      "keyboard",
+      "world",
+      "follow",
+    ])("a newer %s choice cancels deferred restore including a later import", (action) => {
+      const saved = {
+        cameraState: { ...DEFAULT_CAMERA_STATE, distance: 2 },
+        followMode: "follow-none",
+        followTf: "world",
+      };
+      const v = mountView(`cancel-${action}`, saved);
+      if (action === "pointer") {
+        fireEvent.pointerDown(v.container.querySelector("canvas")!);
+      }
+      if (action === "keyboard") {
+        act(() => {
+          v.instance.emit("cameraMove", v.instance);
+        });
+      }
+      if (action === "world") {
+        v.navigate("world", "instant");
+      }
+      if (action === "follow") {
+        v.navigate("xgc/robots/uav1/base_link", "instant");
+      }
+      mergeManagedLayoutFromUrl(
+        v.managed,
+        { configById: { [panelId]: saved }, metadata: { xgc2LayoutScope: v.scope } } as never,
+        v.scope,
+      );
+      v.instance.transitionCameraState.mockClear();
+      const selected = v.instance.config;
+      v.navigate("restore");
+      expect(v.instance.transitionCameraState).not.toHaveBeenCalled();
+      expect(v.instance.config).toBe(selected);
+      expect(takeXgc2DeferredView(v.scope, panelId)).toBeUndefined();
+    });
+
+    it("revalidates a prior robot-local follow-none frame against the current roster on restore", () => {
+      const v = mountView("roster-removed-after-capture", {
+        cameraState: { ...DEFAULT_CAMERA_STATE, distance: 2 },
+        followMode: "follow-none",
+        followTf: "xgc/robots/uav1/base_link",
+      });
+      act(() => {
+        v.instance.updateConfig((draft: RendererConfig) => {
+          draft.layers = {};
+        });
+      });
+      v.navigate("restore");
+      expect(v.instance.transitionCameraState).not.toHaveBeenCalled();
+      expect(v.instance.config).toMatchObject({ followMode: "follow-none", followTf: "world" });
+    });
+
+    it("rejects foreign panel/undeclared robot and missing robot-local follow-none restore", () => {
+      const v = mountView("missing-frame", {
+        cameraState: DEFAULT_CAMERA_STATE,
+        followMode: "follow-none",
+        followTf: "xgc/robots/removed/base_link",
+      });
+      v.navigate("xgc/robots/uav1/base_link", "smooth", "3D!foreign");
+      v.navigate("xgc/robots/foreign/base_link");
+      v.navigate("restore");
+      expect(v.instance.transitionCameraState).not.toHaveBeenCalled();
+      expect(v.instance.config).toMatchObject({ followTf: "world", followMode: "follow-none" });
+    });
+  });
+
   it("renders without crashing", () => {
     // Given
     const props = setup();
@@ -386,7 +658,7 @@ describe("ThreeDeeRender", () => {
       },
     });
     navigate("overview");
-    expect(renderer.frameVisibleContent).toHaveBeenCalledTimes(1);
+    expect(renderer.frameVisibleContent).not.toHaveBeenCalled();
     expect(renderer.settings.handleAction).toHaveBeenCalledWith({
       action: "update",
       payload: { input: "select", path: ["general", "followMode"], value: "follow-none" },
@@ -474,7 +746,7 @@ describe("ThreeDeeRender", () => {
     act(() => {
       mockOverlayProps.onTogglePerspective();
     });
-    expect(renderer.frameVisibleContent).toHaveBeenCalledTimes(1);
+    expect(renderer.frameVisibleContent).not.toHaveBeenCalled();
     expect(renderer.config.followMode).toBe("follow-none");
     expect(renderer.config.cameraState.perspective).toBe(true);
     const beforeCancel = renderer.config;

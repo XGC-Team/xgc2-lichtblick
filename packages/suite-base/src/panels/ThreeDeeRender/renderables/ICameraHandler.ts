@@ -22,6 +22,8 @@ export interface ICameraHandler extends SceneExtension {
    * @param state - The new camera state
    */
   setCameraState(state: CameraState | undefined): void;
+  /** Optional in image mode, which retains its existing instant camera behavior. */
+  transitionCameraState?(state: CameraState, options: { durationMs: number }): void;
   /**
    * Gets the state of the camera if interface mode supports it, otherwise undefined
    */

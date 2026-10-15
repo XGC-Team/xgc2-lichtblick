@@ -22,11 +22,13 @@ export type DesiredView = {
   followRobot?: string;
   perspective?: boolean;
   visibleSurfaces?: readonly Xgc2EmbeddedSurface[];
+  viewpoint?: { id: string; transition: "smooth" | "instant" };
 };
 
 export type DesiredViewState = { revision: string; view: DesiredView };
 
-const VIEW_FIELDS = ["layoutId", "followRobot", "perspective", "visibleSurfaces"];
+const VIEW_FIELDS = ["layoutId", "followRobot", "perspective", "visibleSurfaces", "viewpoint"];
+const VIEWPOINT_ID = /^(world|restore|xgc\/robots\/[A-Za-z_][A-Za-z0-9_]{0,126}\/base_link)$/;
 const REVISION = /^(0|[1-9]\d*)$/;
 const VIEW_EVENTS_PATH = "xgc2/view/events";
 
@@ -53,7 +55,7 @@ export function parseDesiredViewState(value: unknown): DesiredViewState | undefi
   if (!isPlainRecord(wire) || Object.keys(wire).some((key) => !VIEW_FIELDS.includes(key))) {
     return undefined;
   }
-  const { layoutId, followRobot, perspective, visibleSurfaces } = wire;
+  const { layoutId, followRobot, perspective, visibleSurfaces, viewpoint } = wire;
   const view: DesiredView = {};
   if (layoutId != undefined) {
     if (typeof layoutId !== "string" || layoutId === "") {
@@ -86,6 +88,20 @@ export function parseDesiredViewState(value: unknown): DesiredViewState | undefi
     }
     view.visibleSurfaces = visibleSurfaces as Xgc2EmbeddedSurface[];
   }
+  if (Object.hasOwn(wire, "viewpoint")) {
+    if (
+      !isPlainRecord(viewpoint) ||
+      Object.keys(viewpoint).length !== 2 ||
+      Object.keys(viewpoint).some((key) => key !== "id" && key !== "transition") ||
+      typeof viewpoint.id !== "string" ||
+      !VIEWPOINT_ID.test(viewpoint.id) ||
+      (viewpoint.transition !== "smooth" && viewpoint.transition !== "instant") ||
+      followRobot != undefined
+    ) {
+      return undefined;
+    }
+    view.viewpoint = { id: viewpoint.id, transition: viewpoint.transition };
+  }
   return { revision: value.revision, view };
 }
 
@@ -102,12 +118,13 @@ export type ObservedView = {
   panel: { panelId: string; perspective: boolean; followFrameId: string | undefined } | undefined;
 };
 
-export type ViewField = "layout" | "surfaces" | "follow" | "perspective";
+export type ViewField = "layout" | "surfaces" | "follow" | "perspective" | "viewpoint";
 export type ViewStep =
   | { type: "layout"; layoutId: string }
   | { type: "surface"; surface: Xgc2EmbeddedSurface }
   | { type: "follow"; panelId: string; frameId: string }
-  | { type: "perspective"; panelId: string };
+  | { type: "perspective"; panelId: string }
+  | { type: "viewpoint"; panelId: string; viewpoint: NonNullable<DesiredView["viewpoint"]> };
 
 /** The fields of a view that state something. */
 export function viewFields(view: DesiredView): Set<ViewField> {
@@ -123,6 +140,9 @@ export function viewFields(view: DesiredView): Set<ViewField> {
   }
   if (view.perspective != undefined) {
     fields.add("perspective");
+  }
+  if (view.viewpoint != undefined) {
+    fields.add("viewpoint");
   }
   return fields;
 }
@@ -178,6 +198,12 @@ export function planDesiredView(
   }
   const { panel } = observed;
   if (layoutSettled && panel != undefined) {
+    if (next.has("viewpoint") && view.viewpoint != undefined) {
+      steps.push({ type: "viewpoint", panelId: panel.panelId, viewpoint: view.viewpoint });
+      // Explicit selections apply once per revision, even if the same view was selected again.
+      // No later TF/camera arrival may replay this command over an operator's change.
+      next.delete("viewpoint");
+    }
     if (next.has("follow") && view.followRobot != undefined) {
       const frameId = robotFollowFrameId(view.followRobot);
       if (panel.followFrameId === frameId) {

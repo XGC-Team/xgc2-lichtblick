@@ -85,6 +85,7 @@ export type EmbeddedNavigationCommand = {
 } & (
   | { action: "goal" | "overview" | "robot-frames" | "perspective" }
   | { action: "follow" | "follow-pose"; frameId: string }
+  | { action: "viewpoint"; id: string; transition: "smooth" | "instant" }
 );
 
 export function isEmbeddedNavigationCommand(value: unknown): value is EmbeddedNavigationCommand {
@@ -100,7 +101,16 @@ export function isEmbeddedNavigationCommand(value: unknown): value is EmbeddedNa
     return false;
   }
   const keys = ["channel", "version", "sender", "type", "panelId", "action"];
-  if (value.action === "follow" || value.action === "follow-pose") {
+  if (value.action === "viewpoint") {
+    keys.push("id", "transition");
+    if (
+      typeof value.id !== "string" ||
+      !/^(world|restore|xgc\/robots\/[A-Za-z_][A-Za-z0-9_]{0,126}\/base_link)$/.test(value.id) ||
+      (value.transition !== "smooth" && value.transition !== "instant")
+    ) {
+      return false;
+    }
+  } else if (value.action === "follow" || value.action === "follow-pose") {
     keys.push("frameId");
     if (typeof value.frameId !== "string" || !value.frameId) {
       return false;
@@ -232,7 +242,11 @@ function useEmbeddedDesiredView(
 
     const selectLayout = async (id: string): Promise<void> => {
       try {
-        if ((await layoutManager.getLayout(id as LayoutID)) != undefined) {
+        const layout = await layoutManager.getLayout(id as LayoutID);
+        if (progress.current?.revision !== revision) {
+          return;
+        }
+        if (layout != undefined) {
           setSelectedLayoutId(id as LayoutID);
           return;
         }
@@ -240,7 +254,9 @@ function useEmbeddedDesiredView(
       } catch (error) {
         log.warn(`The desired layout could not be selected: ${String(error)}`);
       }
-      setMissingLayoutRevision(revision);
+      if (progress.current?.revision === revision) {
+        setMissingLayoutRevision(revision);
+      }
     };
     const applyStep = (step: ViewStep): void => {
       switch (step.type) {
@@ -252,15 +268,18 @@ function useEmbeddedDesiredView(
           break;
         case "follow":
         case "perspective":
+        case "viewpoint":
           dispatchEmbeddedNavigation({
             channel: XGC2_EMBED_CHANNEL,
             version: XGC2_EMBED_VERSION,
             sender: "xgc2",
             type: "navigation",
             panelId: step.panelId,
-            ...(step.type === "follow"
-              ? { action: "follow", frameId: step.frameId }
-              : { action: "perspective" }),
+            ...(step.type === "viewpoint"
+              ? { action: "viewpoint", ...step.viewpoint }
+              : step.type === "follow"
+                ? { action: "follow", frameId: step.frameId }
+                : { action: "perspective" }),
           });
           break;
       }
