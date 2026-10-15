@@ -1235,7 +1235,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
             renderer.config.followMode === "follow-none" &&
             !captureWorldAllowed.current
               ? renderer.config.cameraState
-              : renderer.getCameraState() ?? renderer.config.cameraState;
+              : (renderer.getCameraState() ?? renderer.config.cameraState);
           target = robotViewpointCamera(orbit);
           followMode = "follow-position";
           followTf = id;
