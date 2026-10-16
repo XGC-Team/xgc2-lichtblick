@@ -25,6 +25,7 @@ import { withObstaclePose } from "./motion";
 import {
   geometryValid,
   initialPose,
+  inlineObstacle,
   OBSTACLE_VISUAL_COLOR,
   parseSceneEnvelope,
   sceneNamespace,
@@ -123,9 +124,9 @@ describe("rich scene geometry", () => {
 
   it("paints authored gray as the product amber", () => {
     const envelope = fixture();
-    envelope.document.obstacles[0]!.parts[0]!.color = [0.5, 0.5, 0.5, 1];
+    inlineObstacle(envelope.document.obstacles[0]).parts[0]!.color = [0.5, 0.5, 0.5, 1];
     expect(
-      parseSceneEnvelope(JSON.parse(JSON.stringify(envelope)!)).document.obstacles[0]!.parts[0]!
+      inlineObstacle(parseSceneEnvelope(JSON.parse(JSON.stringify(envelope)!)).document.obstacles[0]).parts[0]!
         .color,
     ).toEqual(OBSTACLE_VISUAL_COLOR);
   });
@@ -177,7 +178,7 @@ describe("rich scene geometry", () => {
     expect(geometryValid({ type: "box", size: [1, 0, 1] })).toBe(false);
     expect(geometryValid({ type: "cone", radius: 1, height: 2 })).toBe(false);
     const envelope = fixture();
-    envelope.document.obstacles[0]!.parts[0]!.geometry = { type: "cone" } as never;
+    inlineObstacle(envelope.document.obstacles[0]).parts[0]!.geometry = { type: "cone" } as never;
     expect(() => parseSceneEnvelope(envelope)).toThrow("Unsupported");
   });
 
@@ -245,9 +246,9 @@ describe("Math registry JSON geometry ingress", () => {
   it.each(registeredShapes)("preserves and renders named $type parameters", (shape) => {
     const original = JSON.stringify(shape);
     const envelope = fixture();
-    envelope.document.obstacles[0]!.parts[0]!.geometry = shape;
+    inlineObstacle(envelope.document.obstacles[0]).parts[0]!.geometry = shape;
     const parsed = parseSceneEnvelope(JSON.parse(JSON.stringify(envelope)!));
-    expect(parsed.document.obstacles[0]!.parts[0]!.geometry).toEqual(shape);
+    expect(inlineObstacle(parsed.document.obstacles[0]).parts[0]!.geometry).toEqual(shape);
     const surface = createGeometry(shape);
     surface.computeBoundingBox();
     expect(surface.boundingBox!.isEmpty()).toBe(false);

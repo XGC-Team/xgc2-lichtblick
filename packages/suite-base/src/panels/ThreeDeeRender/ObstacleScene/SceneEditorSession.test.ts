@@ -9,7 +9,7 @@ import { EmbeddedSceneBridge } from "@lichtblick/suite-base/components/EmbeddedS
 
 import { SceneEditorSession } from "./SceneEditorSession";
 import { createObstacle, createPlacementObstacle, SCENE_DRAFT_ID } from "./geometry";
-import { type SceneEnvelope, type SceneCommandResult } from "./types";
+import { type SceneEnvelope, type SceneCommandResult, type ScenePose } from "./types";
 
 function envelope(revision = 1): SceneEnvelope {
   return {
@@ -236,6 +236,31 @@ describe("scene authority and live edits", () => {
       expect.objectContaining({ operation: "save" }),
     );
     expect(command.mock.lastCall?.[1]).not.toHaveProperty("document");
+    session.dispose();
+  });
+
+  it("updates a model reference without writing compiled parts back", async () => {
+    const { session, command } = await createSession();
+    const pose: ScenePose = { position: [1, 2, 0], orientation: [0, 0, 0, 1] };
+    command.mockResolvedValue({ success: true, ...envelope() });
+    expect(
+      await session.command({
+        operation: "update",
+        obstacle: {
+          id: "barrier-1",
+          name: "Barrier",
+          pose,
+          motion: { type: "hold" },
+          model: "jersey",
+        },
+      }),
+    ).toBe(true);
+    const sent = command.mock.lastCall?.[1];
+    expect(sent).toMatchObject({
+      operation: "update",
+      obstacle: { model: "jersey", name: "Barrier" },
+    });
+    expect(sent && "obstacle" in sent ? sent.obstacle : undefined).not.toHaveProperty("parts");
     session.dispose();
   });
 });

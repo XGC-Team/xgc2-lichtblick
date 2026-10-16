@@ -25,10 +25,14 @@ import {
   type SceneScaleConstraint,
 } from "./geometry";
 import { withObstaclePose } from "./motion";
+import { SceneGeometryTable } from "./sceneRenderTable";
 import {
+  isInlineObstacle,
   isRecord,
+  OBSTACLE_VISUAL_COLOR,
   sceneColorOverride,
   sceneNamespace,
+  type CompiledModel,
   type SceneEnvelope,
   type SceneObstacle,
   type ScenePart,
@@ -89,7 +93,12 @@ function disposeVisuals(root: THREE.Object3D): void {
       object instanceof THREE.LineSegments ||
       object instanceof THREE.LineLoop
     ) {
-      object.geometry.dispose();
+      if (object.userData.sharedGeometry !== true) {
+        object.geometry.dispose();
+      }
+      if (object.userData.sharedMaterial === true) {
+        return;
+      }
       const material = object.material as THREE.Material | THREE.Material[];
       for (const entry of Array.isArray(material) ? material : [material]) {
         entry.dispose();
@@ -108,7 +117,7 @@ function poseMatrix(pose: ScenePose): THREE.Matrix4 {
 
 /** Sibling face planes in this part's local frame, for decomposition seam suppression. */
 function seamBlockers(
-  parts: ScenePart[],
+  parts: readonly { pose: ScenePose }[],
   planeSets: THREE.Plane[][],
   index: number,
 ): THREE.Plane[][] {
@@ -146,6 +155,9 @@ export class ObstacleSceneExtension extends SceneExtension {
   #scaleConstraint: SceneScaleConstraint = "xyz";
   #scaleHandles: { group: THREE.Object3D; children: THREE.Object3D[] }[];
   #draftGroup: THREE.Group | undefined;
+  /** Definition buffers for the accepted revision. Draft meshes are not stored here. */
+  #geometryTable: SceneGeometryTable | undefined;
+  #modelPlanes = new Map<string, THREE.Plane[][]>();
   #colorOverride: [number, number, number, number] | undefined;
   /** Image panes render the glass overlay; every other pane renders the lit solid. */
   #imagePane: boolean;
@@ -310,32 +322,27 @@ export class ObstacleSceneExtension extends SceneExtension {
       this.#accepted = undefined;
       return;
     }
-    if (envelope.epoch !== this.#accepted?.epoch || envelope.revision !== this.#accepted.revision) {
+    if (this.#definitionChanged(envelope)) {
       this.cancelPreview();
       this.#committing = undefined;
       this.#setTransform({ preview: undefined, scaleFactor: undefined });
       this.#clearGeometry();
       this.renderer.addCoordinateFrame(envelope.document.frame);
-      for (const obstacle of envelope.document.obstacles) {
-        const group = new THREE.Group();
-        group.name = obstacle.id;
-        applyPose(group, obstacle.pose);
-        const planeSets = this.#partPlaneSets(obstacle.parts);
-        obstacle.parts.forEach((part, index) => {
-          const mesh = this.#partMesh(
-            obstacle.parts,
-            planeSets,
-            index,
-            this.#colorOverride ?? part.color,
-          );
-          mesh.userData.obstacleId = obstacle.id;
-          mesh.userData.partId = part.id;
-          group.add(mesh);
-          this.#meshes.push(mesh);
-        });
-        this.#groups.set(obstacle.id, group);
-        this.#frame.add(group);
+      if (envelope.compiled) {
+        this.#geometryTable = new SceneGeometryTable(envelope.compiled.geometries);
       }
+      const compiledById = new Map(
+        (envelope.compiled?.obstacles ?? []).map((item) => [item.id, item.model]),
+      );
+      for (const obstacle of envelope.document.obstacles) {
+        const modelId = compiledById.get(obstacle.id);
+        if (envelope.compiled && modelId != undefined) {
+          this.#renderCompiledInstance(envelope, obstacle, modelId);
+        } else {
+          this.#holdUnrenderedModel(obstacle);
+        }
+      }
+      this.#renderGround(envelope);
     }
     this.#accepted = envelope;
     if (
@@ -414,6 +421,9 @@ export class ObstacleSceneExtension extends SceneExtension {
     ) {
       return;
     }
+    if (!isInlineObstacle(placement)) {
+      return;
+    }
     const group = new THREE.Group();
     group.name = SCENE_DRAFT_ID;
     applyPose(group, placement.pose);
@@ -452,9 +462,10 @@ export class ObstacleSceneExtension extends SceneExtension {
 
   public canScale(): boolean {
     const state = this.session?.getSnapshot();
-    return (
-      state?.envelope?.document.obstacles.some((o) => o.id === state.selection?.obstacleId) === true
+    const obstacle = state?.envelope?.document.obstacles.find(
+      (item) => item.id === state.selection?.obstacleId,
     );
+    return obstacle != undefined && obstacle.model == undefined;
   }
 
   public getTransformSnapshot = (): TransformState => this.#transform;
@@ -504,11 +515,10 @@ export class ObstacleSceneExtension extends SceneExtension {
     const obstacle = this.session
       ?.getSnapshot()
       .envelope?.document.obstacles.find((o) => o.id === selection.obstacleId);
+    const parts = obstacle && isInlineObstacle(obstacle) ? obstacle.parts : [];
     const partId =
       selection.partId ??
-      (this.#transform.mode === "scale" && obstacle?.parts.length === 1
-        ? obstacle.parts[0]!.id
-        : undefined);
+      (this.#transform.mode === "scale" && parts.length === 1 ? parts[0]!.id : undefined);
     return partId ? group?.children.find((child) => child.name === partId) : group;
   }
 
@@ -517,9 +527,10 @@ export class ObstacleSceneExtension extends SceneExtension {
     const obstacle = state?.envelope?.document.obstacles.find(
       (o) => o.id === state.selection?.obstacleId,
     );
+    const parts = obstacle && isInlineObstacle(obstacle) ? obstacle.parts : [];
     const part =
-      obstacle?.parts.find((p) => p.id === state?.selection?.partId) ??
-      (obstacle?.parts.length === 1 ? obstacle.parts[0] : undefined);
+      parts.find((p) => p.id === state?.selection?.partId) ??
+      (parts.length === 1 ? parts[0] : undefined);
     const constraint = part ? geometryScaleConstraint(part.geometry) : "uniform";
     if (constraint === this.#scaleConstraint) {
       return;
@@ -649,7 +660,9 @@ export class ObstacleSceneExtension extends SceneExtension {
         mode: this.#transform.mode,
         partId:
           state.selection.partId ??
-          (this.#transform.mode === "scale" && obstacle.parts.length === 1
+          (this.#transform.mode === "scale" &&
+          isInlineObstacle(obstacle) &&
+          obstacle.parts.length === 1
             ? obstacle.parts[0]!.id
             : undefined),
       };
@@ -706,6 +719,9 @@ export class ObstacleSceneExtension extends SceneExtension {
       position: target.position.toArray(),
       orientation: target.quaternion.clone().normalize().toArray() as ScenePose["orientation"],
     };
+    if (!isInlineObstacle(obstacle)) {
+      return withObstaclePose(obstacle, pose);
+    }
     if (partId) {
       return {
         ...obstacle,
@@ -786,6 +802,9 @@ export class ObstacleSceneExtension extends SceneExtension {
         continue;
       }
       applyPose(group, obstacle.pose);
+      if (!isInlineObstacle(obstacle)) {
+        continue;
+      }
       for (const part of obstacle.parts) {
         const child = group.children.find((object) => object.name === part.id);
         if (child) {
@@ -896,9 +915,152 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#controls.detach();
     this.#clearDraft();
     disposeVisuals(this.#frame);
+    this.#geometryTable?.dispose();
+    this.#geometryTable = undefined;
+    this.#modelPlanes.clear();
     this.#meshes = [];
     this.#groups.clear();
     this.#frame.clear();
+  }
+
+  /** Same envelope epoch/revision only. A missing compiled sibling drops the previous table. */
+  #definitionChanged(envelope: SceneEnvelope): boolean {
+    const accepted = this.#accepted;
+    if (!accepted) {
+      return true;
+    }
+    return (
+      envelope.epoch !== accepted.epoch ||
+      envelope.revision !== accepted.revision ||
+      this.#compiledStamp(envelope) !== this.#compiledStamp(accepted)
+    );
+  }
+
+  #compiledStamp(envelope: SceneEnvelope | undefined): string {
+    const compiled = envelope?.compiled;
+    if (envelope == undefined || compiled == undefined) {
+      return "";
+    }
+    return `${envelope.epoch}:${envelope.revision}:${compiled.id}:${compiled.frame}`;
+  }
+
+  /** Live source without this envelope's compiled scene is not a rendered resource. */
+  #holdUnrenderedModel(obstacle: SceneObstacle): void {
+    const group = new THREE.Group();
+    group.name = obstacle.id;
+    group.userData.resourceRendered = false;
+    applyPose(group, obstacle.pose);
+    this.#groups.set(obstacle.id, group);
+    this.#frame.add(group);
+  }
+
+  /**
+   * Accepted bodies, inline or resource, borrow compiled.obstacles[id].model.
+   * Source parts stay the edit and draft authority and are not tessellated here.
+   */
+  #renderCompiledInstance(envelope: SceneEnvelope, obstacle: SceneObstacle, modelId: string): void {
+    const compiled = envelope.compiled;
+    const table = this.#geometryTable;
+    const group = new THREE.Group();
+    group.name = obstacle.id;
+    applyPose(group, obstacle.pose);
+    const definition = compiled && table ? compiled.models[modelId] : undefined;
+    if (compiled && table && definition && definition.parts.length > 0) {
+      const planeSets = this.#compiledPlaneSets(modelId, definition, table);
+      definition.parts.forEach((part, index) => {
+        const mesh = this.#compiledMesh(modelId, definition, table, planeSets, index);
+        mesh.userData.obstacleId = obstacle.id;
+        mesh.userData.partId = part.id;
+        mesh.userData.sharedGeometry = true;
+        group.add(mesh);
+        this.#meshes.push(mesh);
+      });
+    } else {
+      group.userData.resourceRendered = false;
+    }
+    this.#groups.set(obstacle.id, group);
+    this.#frame.add(group);
+  }
+
+  /** Ground is a compiled model instance. It is not an obstacle id. */
+  #renderGround(envelope: SceneEnvelope): void {
+    const compiled = envelope.compiled;
+    const table = this.#geometryTable;
+    const ground = compiled?.ground;
+    if (!compiled || !table || ground?.mode !== "model") {
+      return;
+    }
+    const definition = compiled.models[ground.model];
+    if (!definition || definition.parts.length === 0) {
+      return;
+    }
+    const group = new THREE.Group();
+    group.name = `ground:${ground.model}`;
+    group.userData.sceneGround = true;
+    applyPose(group, ground.pose);
+    const planeSets = this.#compiledPlaneSets(ground.model, definition, table);
+    definition.parts.forEach((_part, index) => {
+      const mesh = this.#compiledMesh(ground.model, definition, table, planeSets, index);
+      mesh.userData.sharedGeometry = true;
+      mesh.userData.sceneGround = true;
+      group.add(mesh);
+    });
+    this.#frame.add(group);
+  }
+
+  #compiledPlaneSets(
+    modelId: string,
+    definition: CompiledModel,
+    table: SceneGeometryTable,
+  ): THREE.Plane[][] {
+    const cached = this.#modelPlanes.get(modelId);
+    if (cached) {
+      return cached;
+    }
+    const planeSets = this.#imagePane
+      ? definition.parts.map((part) =>
+          geometryIsConvex(table.shapes[part.geometryIndex]!)
+            ? convexFacePlanes(table.shared(part.geometryIndex).clone(), part.pose)
+            : [],
+        )
+      : [];
+    this.#modelPlanes.set(modelId, planeSets);
+    return planeSets;
+  }
+
+  #compiledMesh(
+    modelId: string,
+    definition: CompiledModel,
+    table: SceneGeometryTable,
+    planeSets: THREE.Plane[][],
+    index: number,
+  ): SceneMesh {
+    const part = definition.parts[index]!;
+    const blockers = this.#imagePane ? seamBlockers(definition.parts, planeSets, index) : [];
+    const key = `${modelId}:${part.id}`;
+    const geometry = this.#imagePane
+      ? table.imagePart(key, part.geometryIndex, blockers)
+      : table.shared(part.geometryIndex);
+    const rgba = this.#colorOverride ?? (definition.resource ? OBSTACLE_VISUAL_COLOR : part.color);
+    const mesh: SceneMesh = new THREE.Mesh(
+      geometry,
+      this.#imagePane ? createObstacleFill(rgba) : createObstacleSolid(rgba),
+    );
+    mesh.name = part.id;
+    if (this.#imagePane) {
+      mesh.renderOrder = RENDER_ORDER_FILL;
+      const edges = table.imageEdges(key, () => createObstacleEdges(geometry, rgba.slice(0, 3) as Rgb, []));
+      if (edges) {
+        const clone = edges.clone();
+        clone.name = `${part.id}:edges`;
+        clone.userData.sharedGeometry = true;
+        clone.userData.sharedMaterial = true;
+        mesh.add(clone);
+        mesh.userData.edges = clone;
+      }
+    }
+    applyPose(mesh, part.pose);
+    return mesh;
   }
 
   public override removeAllRenderables(): void {

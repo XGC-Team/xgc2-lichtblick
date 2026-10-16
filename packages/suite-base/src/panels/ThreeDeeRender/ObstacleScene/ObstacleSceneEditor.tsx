@@ -40,10 +40,15 @@ import {
 import { withObstacleMotion, withObstaclePose } from "./motion";
 import { canRetrySync } from "./sceneSync";
 import {
+  authoredObstacle,
   geometryValid,
   initialPose,
+  isInlineObstacle,
   isRecord,
+  sceneModelLabel,
+  type SceneDocument,
   type SceneGeometry,
+  type SceneGround,
   type SceneObstacle,
   type SceneMotion,
   type ScenePose,
@@ -393,6 +398,18 @@ function MotionFields({
       angular_speed: 0.2,
       phase: 0,
     },
+    waypoints: {
+      type: "waypoints",
+      waypoints: [
+        [...position],
+        [position[0] + 1, position[1], position[2]],
+      ],
+      velocity: 1,
+      orientation: true,
+      angular_velocity: 0.8,
+      loop: false,
+      sin: false,
+    },
   };
   return (
     <>
@@ -410,6 +427,7 @@ function MotionFields({
         <MenuItem value="constant_twist">{zh ? "恒定速度" : "Constant twist"}</MenuItem>
         <MenuItem value="ping_pong">{zh ? "往返" : "Back and forth"}</MenuItem>
         <MenuItem value="circle">{zh ? "圆周" : "Circle"}</MenuItem>
+        <MenuItem value="waypoints">{zh ? "路径点" : "Waypoints"}</MenuItem>
       </TextField>
       {motion.type === "constant_twist" && (
         <>
@@ -499,6 +517,16 @@ function MotionFields({
   );
 }
 
+function groundChoice(ground: SceneGround | undefined): string {
+  if (ground?.mode === "none") {
+    return "none";
+  }
+  if (ground?.mode === "model") {
+    return `model:${ground.model}`;
+  }
+  return "default_plane";
+}
+
 const PRESET_ZH: Record<ScenePreset, string> = {
   Box: "长方体",
   Sphere: "球",
@@ -530,6 +558,7 @@ function SceneInspector({
   );
   const { envelope, selection } = state;
   const [preset, setPreset] = useState<ScenePreset>("Box");
+  const [instanceModel, setInstanceModel] = useState("");
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
   const { mode, local } = transform;
@@ -543,8 +572,11 @@ function SceneInspector({
   const obstacle =
     transform.preview?.id === acceptedObstacle?.id ? transform.preview : acceptedObstacle;
   const placement = state.placement;
-  const part = obstacle?.parts.find((p) => p.id === selection?.partId);
-  const dimensionPart = part ?? (obstacle?.parts.length === 1 ? obstacle.parts[0] : undefined);
+  const inline = obstacle && isInlineObstacle(obstacle) ? obstacle : undefined;
+  const modelRef = obstacle != undefined && inline == undefined;
+  const part = inline?.parts.find((p) => p.id === selection?.partId);
+  const dimensionPart = part ?? (inline?.parts.length === 1 ? inline.parts[0] : undefined);
+  const models = envelope?.document.models ?? {};
   const pose = part?.pose ?? obstacle?.pose;
   const rotation = pose
     ? (new THREE.Euler()
@@ -565,17 +597,20 @@ function SceneInspector({
     );
   const retrySync = envelope != undefined && canRetrySync(envelope);
   const update = (next: SceneObstacle) => {
-    void session.command({ operation: "update", obstacle: next });
+    void session.command({ operation: "update", obstacle: authoredObstacle(next) });
+  };
+  const replaceDocument = (document: SceneDocument) => {
+    void session.command({ operation: "replace", document });
   };
   const updatePose = (next: ScenePose) => {
     if (!obstacle) {
       return;
     }
     update(
-      part
+      part && inline
         ? {
-            ...obstacle,
-            parts: obstacle.parts.map((p) => (p.id === part.id ? { ...p, pose: next } : p)),
+            ...inline,
+            parts: inline.parts.map((p) => (p.id === part.id ? { ...p, pose: next } : p)),
           }
         : withObstaclePose(obstacle, next),
     );
@@ -586,10 +621,24 @@ function SceneInspector({
       next.name = zh ? "几何体" : "Geometry";
       next.parts = [{ ...next.parts[0]!, geometry: customGeometry }];
     }
-    if (target === "part" && obstacle) {
+    if (instanceModel && target === "obstacle" && !customGeometry) {
+      const placementPose = placement?.pose ?? initialPose(DEFAULT_ADD_POSITION);
+      const body: SceneObstacle = {
+        id: uuid(),
+        name: sceneModelLabel(instanceModel, models[instanceModel]),
+        pose: placementPose,
+        motion: { type: "hold" },
+        model: instanceModel,
+      };
+      if (await session.command({ operation: "add", obstacle: body })) {
+        session.select({ obstacleId: body.id });
+      }
+      return;
+    }
+    if (target === "part" && inline) {
       update({
-        ...obstacle,
-        parts: [...obstacle.parts, ...next.parts.map((p) => ({ ...p, id: `${next.id}-${p.id}` }))],
+        ...inline,
+        parts: [...inline.parts, ...next.parts.map((p) => ({ ...p, id: `${next.id}-${p.id}` }))],
       });
     } else {
       const placementPose = placement?.pose ?? initialPose(DEFAULT_ADD_POSITION);
@@ -733,8 +782,62 @@ function SceneInspector({
           <TextField
             select
             size="small"
+            label={zh ? "地面" : "Ground"}
+            value={groundChoice(envelope?.document.ground)}
+            disabled={!writable || !envelope}
+            data-xgc-role="scene-ground-mode"
+            onChange={(event) => {
+              if (!envelope) {
+                return;
+              }
+              const choice = event.target.value;
+              const document: SceneDocument = { ...envelope.document };
+              if (choice === "default_plane") {
+                delete document.ground;
+              } else if (choice === "none") {
+                document.ground = { mode: "none" };
+              } else {
+                document.ground = {
+                  mode: "model",
+                  model: choice.slice("model:".length),
+                  pose: initialPose(),
+                };
+              }
+              replaceDocument(document);
+            }}
+          >
+            <MenuItem value="default_plane">{zh ? "默认平面" : "Default plane"}</MenuItem>
+            <MenuItem value="none">{zh ? "无" : "None"}</MenuItem>
+            {Object.entries(models).map(([id, model]) => (
+              <MenuItem key={id} value={`model:${id}`}>
+                {sceneModelLabel(id, model)}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            size="small"
+            label={zh ? "实例" : "Instance"}
+            value={models[instanceModel] ? instanceModel : ""}
+            disabled={!writable}
+            data-xgc-role="scene-instance-model-select"
+            onChange={(event) => {
+              setInstanceModel(event.target.value);
+            }}
+          >
+            <MenuItem value="">{zh ? "内联部件" : "Inline parts"}</MenuItem>
+            {Object.entries(models).map(([id, model]) => (
+              <MenuItem key={id} value={id}>
+                {sceneModelLabel(id, model)}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            size="small"
             label={zh ? "创建形状" : "Create shape"}
             value={preset}
+            disabled={instanceModel !== ""}
             onChange={(event) => {
               const next = event.target.value as ScenePreset;
               setPreset(next);
@@ -768,7 +871,11 @@ function SceneInspector({
             >
               {zh ? "添加障碍" : "Add obstacle"}
             </Button>
-            <Button size="small" disabled={!transformable} onClick={() => void create("part")}>
+            <Button
+              size="small"
+              disabled={!transformable || modelRef}
+              onClick={() => void create("part")}
+            >
               {zh ? "添加部件" : "Add part"}
             </Button>
             <Button
@@ -839,6 +946,34 @@ function SceneInspector({
           </TextField>
           {obstacle && (
             <>
+              {modelRef && (
+                <TextField
+                  select
+                  size="small"
+                  label={zh ? "模型" : "Model"}
+                  value={obstacle.model ?? ""}
+                  disabled={!writable}
+                  data-xgc-role="scene-instance-model"
+                  data-xgc-id={obstacle.id}
+                  onChange={(event) => {
+                    const model = event.target.value;
+                    update({
+                      id: obstacle.id,
+                      name: obstacle.name,
+                      pose: obstacle.pose,
+                      motion: obstacle.motion,
+                      model,
+                    });
+                  }}
+                >
+                  {Object.entries(models).map(([id, model]) => (
+                    <MenuItem key={id} value={id}>
+                      {sceneModelLabel(id, model)}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+              {inline && (
               <TextField
                 select
                 size="small"
@@ -853,12 +988,13 @@ function SceneInspector({
                 }}
               >
                 <MenuItem value="">{zh ? "整个障碍物" : "Whole obstacle"}</MenuItem>
-                {obstacle.parts.map((p) => (
+                {inline.parts.map((p) => (
                   <MenuItem value={p.id} key={p.id}>
                     {p.id} · {p.geometry.type}
                   </MenuItem>
                 ))}
               </TextField>
+              )}
               {obstacle.motion.type !== "hold" && !transformable && (
                 <Alert severity="info">
                   {zh
@@ -976,7 +1112,7 @@ function SceneInspector({
                   }}
                 />
               )}
-              {obstacle.parts.length > 1 && !part && (
+              {inline && inline.parts.length > 1 && !part && (
                 <>
                   <NumericField
                     key={`${obstacle.id}:${envelope?.epoch}:${envelope?.revision}`}
@@ -1012,9 +1148,12 @@ function SceneInspector({
                       );
                       return;
                     }
+                    if (!inline) {
+                      return;
+                    }
                     update({
-                      ...obstacle,
-                      parts: obstacle.parts.map((p) =>
+                      ...inline,
+                      parts: inline.parts.map((p) =>
                         p.id === dimensionPart.id ? { ...p, geometry } : p,
                       ),
                     });
@@ -1061,7 +1200,7 @@ function SceneInspector({
                 </Button>
                 <Button
                   size="small"
-                  disabled={!transformable}
+                  disabled={!transformable || modelRef}
                   data-xgc-role="obstacle-scene-snap-ground"
                   onClick={() => {
                     update(snapObstacleToGround(obstacle));
@@ -1074,13 +1213,13 @@ function SceneInspector({
                   color="error"
                   disabled={
                     !writable ||
-                    (part != undefined && (!transformable || obstacle.parts.length === 1))
+                    (part != undefined && (!transformable || inline?.parts.length === 1))
                   }
                   onClick={() => {
-                    if (part) {
+                    if (part && inline) {
                       update({
-                        ...obstacle,
-                        parts: obstacle.parts.filter((p) => p.id !== part.id),
+                        ...inline,
+                        parts: inline.parts.filter((p) => p.id !== part.id),
                       });
                     } else {
                       void session.command({

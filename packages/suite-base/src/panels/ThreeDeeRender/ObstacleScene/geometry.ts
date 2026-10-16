@@ -15,6 +15,8 @@ import {
   initialPose,
   OBSTACLE_VISUAL_COLOR,
   type SceneGeometry,
+  isInlineObstacle,
+  type SceneInlineObstacle,
   type SceneObstacle,
   type ScenePart,
   type ScenePose,
@@ -203,7 +205,7 @@ function icosahedron(): SceneGeometry {
 }
 
 /** Presets are authoring conveniences over one compound schema, never a shape-name protocol. */
-export function createObstacle(preset: ScenePreset, id: string): SceneObstacle {
+export function createObstacle(preset: ScenePreset, id: string): SceneInlineObstacle {
   let parts: ScenePart[];
   switch (preset) {
     case "Box":
@@ -274,6 +276,9 @@ function applyObjectPose(object: THREE.Object3D, pose: ScenePose): void {
 
 /** Lowest world Z of the compound obstacle, including part poses and extents. */
 export function obstacleLowestWorldZ(obstacle: SceneObstacle): number {
+  if (!isInlineObstacle(obstacle)) {
+    return obstacle.pose.position[2];
+  }
   const root = new THREE.Group();
   applyObjectPose(root, obstacle.pose);
   const geometries: THREE.BufferGeometry[] = [];
@@ -311,7 +316,7 @@ export function snapObstacleToGround(obstacle: SceneObstacle): SceneObstacle {
 export function createPlacementObstacle(
   preset: ScenePreset,
   pose: ScenePose = initialPose(DEFAULT_ADD_POSITION),
-): SceneObstacle {
+): SceneInlineObstacle {
   return withObstaclePose(createObstacle(preset, SCENE_DRAFT_ID), pose);
 }
 
@@ -392,7 +397,13 @@ export function geometryScaleConstraint(shape: SceneGeometry): SceneScaleConstra
 }
 
 /** Bake an equal-axis resize about the authored root, keeping each collision part separate. */
-export function scaleObstacleUniformly(obstacle: SceneObstacle, factor: number): SceneObstacle {
+export function scaleObstacleUniformly(
+  obstacle: SceneObstacle,
+  factor: number,
+): SceneInlineObstacle {
+  if (!isInlineObstacle(obstacle)) {
+    throw new Error("A model reference has no inline parts to scale.");
+  }
   if (!Number.isFinite(factor) || factor <= 0) {
     throw new Error("Scale must be a positive finite number.");
   }

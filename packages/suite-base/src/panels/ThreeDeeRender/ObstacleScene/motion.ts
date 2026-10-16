@@ -5,10 +5,10 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { type SceneMotion, type SceneObstacle, type ScenePose, type Vec3 } from "./types";
+import { authoredObstacle, type SceneMotion, type SceneObstacle, type ScenePose, type Vec3 } from "./types";
 
-/** Moving a body also moves its absolute trajectory; local part transforms do not. */
-export function withObstaclePose(obstacle: SceneObstacle, pose: ScenePose): SceneObstacle {
+/** Moving a body moves ping-pong and circle paths. An absolute waypoint list stays independent. */
+export function withObstaclePose<T extends SceneObstacle>(obstacle: T, pose: ScenePose): T {
   const delta = pose.position.map((value, index) => value - obstacle.pose.position[index]!) as Vec3;
   const translate = (point: Vec3): Vec3 =>
     point.map((value, index) => value + delta[index]!) as Vec3;
@@ -18,10 +18,10 @@ export function withObstaclePose(obstacle: SceneObstacle, pose: ScenePose): Scen
   } else if (motion.type === "circle") {
     motion = { ...motion, center: translate(motion.center) };
   }
-  return { ...obstacle, pose, motion };
+  return authoredObstacle({ ...obstacle, pose, motion }) as T;
 }
 
-/** A trajectory is authored in the scene frame and its initial pose must be its path start. */
+/** Ping-pong and circle start at their path. Waypoint metadata does not rewrite the initial pose. */
 export function withObstacleMotion(obstacle: SceneObstacle, motion: SceneMotion): SceneObstacle {
   let position = obstacle.pose.position;
   if (motion.type === "ping_pong") {

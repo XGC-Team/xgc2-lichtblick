@@ -14,6 +14,8 @@ import {
 
 import { SCENE_DRAFT_ID } from "./geometry";
 import {
+  authoredObstacle,
+  isInlineObstacle,
   parseSceneEnvelope,
   type SceneCommand,
   type SceneEnvelope,
@@ -122,11 +124,12 @@ export class SceneEditorSession {
       }
       const selection = this.#state.selection;
       const obstacle = envelope.document.obstacles.find((o) => o.id === selection?.obstacleId);
+      const parts = obstacle && isInlineObstacle(obstacle) ? obstacle.parts : [];
       this.#set({
         envelope,
         needsRefresh: this.#state.error != undefined,
         selection: obstacle
-          ? selection?.partId && !obstacle.parts.some((p) => p.id === selection.partId)
+          ? selection?.partId && !parts.some((p) => p.id === selection.partId)
             ? { obstacleId: obstacle.id }
             : selection
           : undefined,
@@ -186,8 +189,20 @@ export class SceneEditorSession {
       ...(action.operation === "resync" ? {} : { error: undefined }),
     });
     try {
+      const authored =
+        action.operation === "add" || action.operation === "update"
+          ? { ...action, obstacle: authoredObstacle(action.obstacle) }
+          : action.operation === "replace"
+            ? {
+                ...action,
+                document: {
+                  ...action.document,
+                  obstacles: action.document.obstacles.map(authoredObstacle),
+                },
+              }
+            : action;
       const command: SceneCommand = {
-        ...action,
+        ...authored,
         requestId: uuid(),
         ...(envelope
           ? {

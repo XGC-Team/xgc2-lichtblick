@@ -5,9 +5,9 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { createObstacle } from "./geometry";
+import { createObstacle, scaleObstacleUniformly } from "./geometry";
 import { withObstacleMotion, withObstaclePose } from "./motion";
-import { initialPose } from "./types";
+import { initialPose, inlineObstacle, type SceneMotion } from "./types";
 
 describe("dynamic obstacle authoring", () => {
   it("translates an entire ping-pong path with the body without changing its extent", () => {
@@ -62,5 +62,30 @@ describe("dynamic obstacle authoring", () => {
     expect(moved.pose.position).toEqual([6, 7, 8]);
     const held = withObstacleMotion(moved, { type: "hold" });
     expect(held.pose).toEqual(moved.pose);
+  });
+  it("keeps an absolute waypoint path when the initial pose or geometry changes", () => {
+    const path: SceneMotion = {
+      type: "waypoints",
+      waypoints: [
+        [8, 9, 1],
+        [9, 9, 1],
+      ],
+      velocity: 1,
+      orientation: true,
+      angular_velocity: 0.8,
+      loop: false,
+      sin: false,
+    };
+    const original = createObstacle("Box", "box");
+    const assigned = withObstacleMotion(original, path);
+    expect(assigned.pose).toEqual(original.pose);
+    expect(assigned.motion).toEqual(path);
+    const moved = withObstaclePose(assigned, initialPose([2, 3, 4]));
+    expect(moved.pose.position).toEqual([2, 3, 4]);
+    expect(moved.motion).toEqual(path);
+    const scaled = scaleObstacleUniformly(moved, 2);
+    expect(scaled.motion).toEqual(path);
+    expect(scaled.pose).toEqual(moved.pose);
+    expect(scaled.parts[0]?.geometry).not.toEqual(inlineObstacle(moved).parts[0]?.geometry);
   });
 });

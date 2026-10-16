@@ -23,7 +23,13 @@ import {
 import { ObstacleSceneEditor } from "./ObstacleSceneEditor";
 import { ObstacleSceneExtension } from "./ObstacleSceneExtension";
 import { createObstacle, SCENE_DRAFT_ID, type ScenePreset } from "./geometry";
-import type { SceneEnvelope, SceneGeometry } from "./types";
+import {
+  inlineObstacle,
+  isInlineObstacle,
+  parseSceneEnvelope,
+  type SceneEnvelope,
+  type SceneGeometry,
+} from "./types";
 import type { IRenderer } from "../IRenderer";
 import { RendererContext } from "../RendererContext";
 
@@ -34,6 +40,62 @@ jest.mock("react-i18next", () => ({
 function SceneTools() {
   const { toggleObstacleScene } = useEmbeddedWorkspaceControls();
   return <button onClick={toggleObstacleScene}>Obstacle scene</button>;
+}
+
+/** Same intern as compile.cpp: one inline body becomes __inline_<id> at this envelope revision. */
+function attachCompiled(scene: SceneEnvelope): void {
+  const geometries: SceneGeometry[] = [];
+  const indexByGeometry = new Map<string, number>();
+  const intern = (geometry: SceneGeometry): number => {
+    const key = JSON.stringify(geometry);
+    if (key == undefined) {
+      throw new Error("Scene geometry cannot be interned.");
+    }
+    const found = indexByGeometry.get(key);
+    if (found != undefined) {
+      return found;
+    }
+    const index = geometries.length;
+    geometries.push(geometry);
+    indexByGeometry.set(key, index);
+    return index;
+  };
+  const models: NonNullable<SceneEnvelope["compiled"]>["models"] = {};
+  scene.compiled = {
+    schema: "xgc2.scene.compiled.v1",
+    id: scene.document.id,
+    frame: scene.document.frame,
+    ground: scene.document.ground ?? { mode: "default_plane", z: 0 },
+    geometries,
+    models,
+    obstacles: scene.document.obstacles.map((obstacle) => {
+      if (!isInlineObstacle(obstacle)) {
+        return {
+          id: obstacle.id,
+          name: obstacle.name,
+          model: obstacle.model,
+          pose: obstacle.pose,
+          motion: obstacle.motion,
+        };
+      }
+      const model = `__inline_${obstacle.id}`;
+      models[model] = {
+        parts: obstacle.parts.map((part) => ({
+          id: part.id,
+          pose: part.pose,
+          geometryIndex: intern(part.geometry),
+          color: part.color,
+        })),
+      };
+      return {
+        id: obstacle.id,
+        name: obstacle.name,
+        model,
+        pose: obstacle.pose,
+        motion: obstacle.motion,
+      };
+    }),
+  };
 }
 
 function setup(preset: ScenePreset = "Sphere") {
@@ -183,7 +245,7 @@ describe("obstacle editor operator flow", () => {
   it("edits ellipsoid semiaxes without changing the other dimensions", async () => {
     const { extension, command, dispose } = setup();
     const initial = _.cloneDeep(extension.session!.getSnapshot().envelope!);
-    initial.document.obstacles[0]!.parts[0]!.geometry = { type: "ellipsoid", semiaxes: [1, 2, 3] };
+    inlineObstacle(initial.document.obstacles[0]).parts[0]!.geometry = { type: "ellipsoid", semiaxes: [1, 2, 3] };
     act(() => {
       extension.session!.accept(initial);
     });
@@ -215,7 +277,7 @@ describe("obstacle editor operator flow", () => {
       [0, 0, 1, -1],
       [0, 0, -1, -1],
     ];
-    initial.document.obstacles[0]!.parts[0]!.geometry = {
+    inlineObstacle(initial.document.obstacles[0]).parts[0]!.geometry = {
       type: "halfspaces",
       halfspaces: rows as [number, number, number, number][],
     };
@@ -258,7 +320,9 @@ describe("obstacle editor operator flow", () => {
     await waitFor(() => {
       expect(command).toHaveBeenCalledTimes(1);
     });
-    const obstacle = extension.session!.getSnapshot().envelope!.document.obstacles[0]!;
+    const obstacle = inlineObstacle(
+      extension.session!.getSnapshot().envelope!.document.obstacles[0],
+    );
     expect(obstacle.parts).toHaveLength(1);
     expect(obstacle.parts[0]!.geometry).toEqual({
       type: "ring",
@@ -275,6 +339,11 @@ describe("obstacle editor operator flow", () => {
 
   it("shows live scale dimensions without changing the accepted scene, then commits the same geometry", async () => {
     const { extension, command, dispose } = setup();
+    const live = _.cloneDeep(extension.session!.getSnapshot().envelope!);
+    attachCompiled(live);
+    act(() => {
+      extension.session!.accept(live);
+    });
     fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
     act(() => {
       extension.session!.select({ obstacleId: "sphere-1" });
@@ -291,7 +360,7 @@ describe("obstacle editor operator flow", () => {
     });
     expect(screen.getByLabelText("Radius (m)")).toHaveValue("1");
     expect(
-      extension.session!.getSnapshot().envelope!.document.obstacles[0]!.parts[0]!.geometry,
+      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!.geometry,
     ).toEqual({ type: "sphere", radius: 0.5 });
     expect(command).not.toHaveBeenCalled();
     await act(async () => {
@@ -311,7 +380,7 @@ describe("obstacle editor operator flow", () => {
       expect(command).toHaveBeenCalledTimes(2);
     });
     expect(
-      extension.session!.getSnapshot().envelope!.document.obstacles[0]!.parts[0]!.geometry,
+      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!.geometry,
     ).toEqual({ type: "sphere", radius: 1.5 });
     dispose();
   });
@@ -363,7 +432,9 @@ describe("obstacle editor operator flow", () => {
       expect(screen.getByLabelText("Whole obstacle scale factor")).toBeEnabled();
       expect(screen.getByLabelText("Whole obstacle scale factor")).toHaveValue("1");
     });
-    const resized = extension.session!.getSnapshot().envelope!.document.obstacles[0]!;
+    const resized = inlineObstacle(
+      extension.session!.getSnapshot().envelope!.document.obstacles[0],
+    );
     expect(resized.parts).toHaveLength(3);
     expect(resized.parts[0]!.pose.position).toEqual([-2, 0, 2]);
     expect(resized.parts[0]!.geometry).toEqual({
@@ -550,7 +621,7 @@ describe("obstacle editor operator flow", () => {
       expect(screen.getByText("Autosaved")).toBeInTheDocument();
     });
     expect(
-      extension.session!.getSnapshot().envelope!.document.obstacles[0]!.parts[0]!.geometry,
+      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!.geometry,
     ).toEqual({ type: "sphere", radius: 0.8 });
     command.mockResolvedValue({
       success: false,
@@ -688,6 +759,66 @@ describe("obstacle editor operator flow", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry sync" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add obstacle" })).toBeEnabled();
+    dispose();
+  });
+
+  it("shows a model reference by name and does not edit resource internals", async () => {
+    const { extension, command, dispose } = setup();
+    const pose = { position: [1, 2, 0], orientation: [0, 0, 0, 1] };
+    const parsed = parseSceneEnvelope({
+      epoch: "one",
+      revision: 2,
+      savedRevision: 2,
+      dirty: false,
+      playing: false,
+      sceneTime: 0,
+      consumers: [],
+      document: {
+        schema: "xgc2.scene.v1",
+        id: "yard",
+        frame: "world",
+        models: {
+          jersey: {
+            name: "Jersey barrier",
+            resource: { format: "sdformat-model", file: "models/jersey_barrier/model.sdf" },
+          },
+          curb: { name: "Curb", parts: [{ id: "body", pose, geometry: { type: "box", size: [1, 1, 0.2] }, color: [1, 1, 1, 1] }] },
+        },
+        obstacles: [
+          { id: "barrier-1", name: "North barrier", pose, motion: { type: "hold" }, model: "jersey" },
+        ],
+      },
+    });
+    act(() => {
+      extension.session!.accept(parsed);
+      extension.session!.select({ obstacleId: "barrier-1" });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Obstacle scene" }));
+    expect(screen.getByLabelText("Model")).toHaveTextContent("Jersey barrier");
+    expect(screen.queryByLabelText("Edit target")).toBeNull();
+    expect(screen.getByRole("button", { name: "Scale" })).toBeDisabled();
+    expect(screen.queryByText("models/jersey_barrier/model.sdf")).toBeNull();
+    expect(screen.queryByText("sdformat-model")).toBeNull();
+    expect(screen.queryByText("xgc2.scene.compiled.v1")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "South barrier" } });
+    fireEvent.blur(screen.getByLabelText("Name"));
+    await waitFor(() => {
+      expect(command).toHaveBeenCalled();
+    });
+    const sent = command.mock.lastCall?.[1];
+    expect(sent).toMatchObject({
+      operation: "update",
+      obstacle: { name: "South barrier", model: "jersey" },
+    });
+    expect(sent && "obstacle" in sent ? sent.obstacle : undefined).not.toHaveProperty("parts");
+    fireEvent.mouseDown(screen.getByLabelText("Ground"));
+    fireEvent.click(screen.getByRole("option", { name: "None" }));
+    await waitFor(() => {
+      expect(command.mock.lastCall?.[1]).toMatchObject({
+        operation: "replace",
+        document: { ground: { mode: "none" } },
+      });
+    });
     dispose();
   });
 });
