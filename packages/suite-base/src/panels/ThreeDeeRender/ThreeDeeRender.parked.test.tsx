@@ -9,7 +9,10 @@
 import "@testing-library/jest-dom";
 import { act, render } from "@testing-library/react";
 
-import { subscribeEmbeddedParkedState } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
+import {
+  resetEmbeddedHostVisibilityForTests,
+  subscribeEmbeddedParkedState,
+} from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import { XGC2_HOST_VISIBILITY_EVENT } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { BuiltinPanelExtensionContext } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
@@ -155,6 +158,7 @@ describe("ThreeDeeRender parked signal gating", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetEmbeddedHostVisibilityForTests();
     (useAnalytics as jest.Mock).mockReturnValue(mockAnalytics);
 
     HTMLCanvasElement.prototype.getContext = jest.fn().mockReturnValue({
@@ -214,6 +218,85 @@ describe("ThreeDeeRender parked signal gating", () => {
     });
     expect(renderer.setCanvasVisibility).toHaveBeenCalledWith("visible");
     expect(parkedStates).toEqual([false, true, false]);
+
+    view.unmount();
+    unsubscribe();
+    expect(parkedStates).toEqual([false, true, false]);
+  });
+
+  it("standalone ignores a host visibility event from before mount and still processes messages", () => {
+    window.dispatchEvent(
+      new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+    );
+    const parkedStates: boolean[] = [];
+    const unsubscribe = subscribeEmbeddedParkedState((parked) => parkedStates.push(parked));
+    const view = render(<ThreeDeeRender {...setup()} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+
+    expect(renderer.setCanvasVisibility).not.toHaveBeenCalledWith("hidden");
+    expect(parkedStates).toEqual([false]);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+      );
+    });
+    expect(renderer.setCanvasVisibility).toHaveBeenCalledWith("hidden");
+    expect(parkedStates).toEqual([false]);
+
+    view.unmount();
+    unsubscribe();
+    expect(parkedStates).toEqual([false]);
+  });
+
+  it("applies a host-hidden message that arrived before the panel mounted", () => {
+    const parkedStates: boolean[] = [];
+    const unsubscribe = subscribeEmbeddedParkedState((parked) => parkedStates.push(parked));
+    window.dispatchEvent(
+      new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+    );
+    const view = render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <ThreeDeeRender {...setup()} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    const renderer = mockedRenderer.mock.results[0]!.value;
+
+    expect(renderer.setCanvasVisibility).toHaveBeenCalledWith("hidden");
+    expect(parkedStates).toEqual([false, true]);
+
+    view.unmount();
+    unsubscribe();
+  });
+
+  it("keeps the player parked when the renderer is recreated while hidden", () => {
+    const parkedStates: boolean[] = [];
+    const unsubscribe = subscribeEmbeddedParkedState((parked) => parkedStates.push(parked));
+    const props = setup();
+    const view = render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <ThreeDeeRender {...props} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+      );
+    });
+    expect(parkedStates).toEqual([false, true]);
+    const renderersBeforeRecreate = mockedRenderer.mock.calls.length;
+
+    view.rerender(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <ThreeDeeRender {...props} customCameraModels={new Map()} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+
+    expect(mockedRenderer.mock.calls.length).toBeGreaterThan(renderersBeforeRecreate);
+    const recreated = mockedRenderer.mock.results.at(-1)!.value;
+    expect(recreated.setCanvasVisibility).toHaveBeenLastCalledWith("hidden");
+    expect(parkedStates).toEqual([false, true]);
 
     view.unmount();
     unsubscribe();

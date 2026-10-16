@@ -33,7 +33,11 @@ import {
   Topic,
 } from "@lichtblick/suite";
 import { AppSetting } from "@lichtblick/suite-base/AppSetting";
-import { registerEmbeddedCanvasVisibility } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
+import {
+  lastEmbeddedHostVisibility,
+  registerEmbeddedCanvasVisibility,
+  subscribeEmbeddedHostVisibility,
+} from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import {
   EMBEDDED_3D_PANEL_ATTRIBUTE,
   EMBEDDED_NAVIGATION_EVENT,
@@ -42,7 +46,6 @@ import {
   embeddedParentOrigin,
   publishNavigationState,
   type EmbeddedNavigationCommand,
-  XGC2_HOST_VISIBILITY_EVENT,
 } from "@lichtblick/suite-base/components/EmbeddedWorkspaceBridge";
 import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import { useEmbeddedWorkspaceControls } from "@lichtblick/suite-base/context/EmbeddedWorkspaceControlsContext";
@@ -381,48 +384,69 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   // every 3D canvas is hidden, the player pauses message processing, not just drawing.
   // Standalone sessions never register: a scrolled-away 3D panel must not starve Plot and
   // other history consumers, so there drawing stops but messages keep flowing.
+  //
+  // The parked registration outlives renderer identity. Recreating the renderer (scene
+  // settings, interface mode) must not dispose the canvas id: an empty registry is "not
+  // parked", which would resume subscriptions and drop the deferred latest-wins queue.
   const ioVisibleRef = useRef(true);
   const hostVisibleRef = useRef(true);
+  const parkedReporterRef = useRef<ReturnType<typeof registerEmbeddedCanvasVisibility> | undefined>(
+    undefined,
+  );
   const parkedCanvasId = useId();
+  const applyVisibility = useCallback(() => {
+    const visible = ioVisibleRef.current && hostVisibleRef.current;
+    rendererRef.current?.setCanvasVisibility(visible ? "visible" : "hidden");
+    parkedReporterRef.current?.setVisible(visible);
+  }, []);
+  useEffect(() => {
+    // Live events update drawing in every mode. Only an embedded panel seeds
+    // from a host message that arrived before this effect subscribed; standalone
+    // keeps the default visible canvas and never registers a parked reporter.
+    const unsubscribeHost = subscribeEmbeddedHostVisibility((visible) => {
+      hostVisibleRef.current = visible;
+      applyVisibility();
+    });
+    if (embedded) {
+      const latched = lastEmbeddedHostVisibility();
+      if (latched != undefined) {
+        hostVisibleRef.current = latched;
+      }
+    }
+    const convergedVisible = ioVisibleRef.current && hostVisibleRef.current;
+    const parkedReporter = embedded
+      ? registerEmbeddedCanvasVisibility(parkedCanvasId, convergedVisible ? "visible" : "hidden")
+      : undefined;
+    parkedReporterRef.current = parkedReporter;
+    applyVisibility();
+    return () => {
+      unsubscribeHost();
+      parkedReporter?.dispose();
+      if (parkedReporterRef.current === parkedReporter) {
+        parkedReporterRef.current = undefined;
+      }
+    };
+  }, [applyVisibility, embedded, parkedCanvasId]);
   useEffect(() => {
     if (!renderer) {
       return;
     }
-    const parkedReporter = embedded ? registerEmbeddedCanvasVisibility(parkedCanvasId) : undefined;
-    const apply = () => {
-      const visible = ioVisibleRef.current && hostVisibleRef.current;
-      renderer.setCanvasVisibility(visible ? "visible" : "hidden");
-      parkedReporter?.setVisible(visible);
-    };
-    // No initial apply(): the renderer already assumes visible; only events move it.
-    const onHostVisibility = (event: Event) => {
-      const detail = (event as CustomEvent<{ visible?: unknown } | null>).detail;
-      if (typeof detail?.visible === "boolean") {
-        hostVisibleRef.current = detail.visible;
-        apply();
-      }
-    };
-    window.addEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
+    applyVisibility();
     if (!canvas || typeof IntersectionObserver === "undefined") {
-      return () => {
-        window.removeEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
-        parkedReporter?.dispose();
-      };
+      return;
     }
     const observer = new IntersectionObserver((entries) => {
       const latest = entries[entries.length - 1];
       if (latest != undefined) {
         ioVisibleRef.current = latest.isIntersecting;
-        apply();
+        applyVisibility();
       }
     });
     observer.observe(canvas);
     return () => {
-      window.removeEventListener(XGC2_HOST_VISIBILITY_EVENT, onHostVisibility);
       observer.disconnect();
-      parkedReporter?.dispose();
     };
-  }, [canvas, renderer, embedded, parkedCanvasId]);
+  }, [applyVisibility, canvas, renderer]);
 
   // Maintain the settings tree
   const [settingsTree, setSettingsTree] = useState<SettingsTreeNodes | undefined>(undefined);

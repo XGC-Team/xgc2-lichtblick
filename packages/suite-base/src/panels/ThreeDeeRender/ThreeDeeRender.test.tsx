@@ -13,6 +13,7 @@ import { produce } from "immer";
 import * as _ from "lodash-es";
 
 import { SettingsTreeAction, Topic } from "@lichtblick/suite";
+import { resetEmbeddedHostVisibilityForTests } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import {
   EMBEDDED_NAVIGATION_EVENT,
   XGC2_HOST_VISIBILITY_EVENT,
@@ -240,6 +241,7 @@ describe("ThreeDeeRender", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetEmbeddedHostVisibilityForTests();
     (useAnalytics as jest.Mock).mockReturnValue(mockAnalytics);
 
     // WebGL context
