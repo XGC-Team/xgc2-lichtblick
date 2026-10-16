@@ -5,7 +5,13 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { authoredObstacle, type SceneMotion, type SceneObstacle, type ScenePose, type Vec3 } from "./types";
+import {
+  authoredObstacle,
+  type SceneMotion,
+  type SceneObstacle,
+  type ScenePose,
+  type Vec3,
+} from "./types";
 
 /** Moving a body moves ping-pong and circle paths. An absolute waypoint list stays independent. */
 export function withObstaclePose<T extends SceneObstacle>(obstacle: T, pose: ScenePose): T {

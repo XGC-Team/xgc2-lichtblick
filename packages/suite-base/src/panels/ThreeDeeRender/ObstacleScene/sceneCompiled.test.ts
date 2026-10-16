@@ -41,9 +41,7 @@ function source(extra: Record<string, unknown> = {}) {
 
 describe("scene source and compiled contract", () => {
   it("keeps omitted ground as the default plane and rejects a second terrain owner", () => {
-    const parsed = parseSceneEnvelope(
-      envelope(source({ obstacles: [] })),
-    );
+    const parsed = parseSceneEnvelope(envelope(source({ obstacles: [] })));
     expect(parsed.document).not.toHaveProperty("ground");
     expect(parsed).not.toHaveProperty("compiled");
     expect(() =>
@@ -160,7 +158,18 @@ describe("scene source and compiled contract", () => {
       parseSceneEnvelope(
         envelope(
           source({
-            models: { box: { parts: [{ id: "body", pose, geometry: { type: "box", size: [1, 1, 1] }, color: [1, 0, 0, 1] }] } },
+            models: {
+              box: {
+                parts: [
+                  {
+                    id: "body",
+                    pose,
+                    geometry: { type: "box", size: [1, 1, 1] },
+                    color: [1, 0, 0, 1],
+                  },
+                ],
+              },
+            },
             obstacles: [
               {
                 id: "box-1",
@@ -168,7 +177,14 @@ describe("scene source and compiled contract", () => {
                 pose,
                 motion: { type: "hold" },
                 model: "box",
-                parts: [{ id: "body", pose, geometry: { type: "box", size: [1, 1, 1] }, color: [1, 0, 0, 1] }],
+                parts: [
+                  {
+                    id: "body",
+                    pose,
+                    geometry: { type: "box", size: [1, 1, 1] },
+                    color: [1, 0, 0, 1],
+                  },
+                ],
               },
             ],
           }),

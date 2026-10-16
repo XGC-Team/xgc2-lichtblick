@@ -181,7 +181,15 @@ function poseValid(value: unknown): value is ScenePose {
 
 /** Source metadata only. Matches document.py; it does not sample a trajectory. */
 function waypointMotion(value: Record<string, unknown>): boolean {
-  const allowed = ["type", "waypoints", "velocity", "orientation", "angular_velocity", "loop", "sin"];
+  const allowed = [
+    "type",
+    "waypoints",
+    "velocity",
+    "orientation",
+    "angular_velocity",
+    "loop",
+    "sin",
+  ];
   const waypoints = value.waypoints;
   if (
     Object.keys(value).some((key) => !allowed.includes(key)) ||
@@ -427,7 +435,9 @@ function parseModels(value: unknown): Record<string, SceneModel> | undefined {
     if (parts === resource) {
       throw new Error(`Model ${id} is either analytic parts or one resource.`);
     }
-    const allowed = ["name", parts ? "parts" : "resource"].filter((key) => Object.hasOwn(model, key));
+    const allowed = ["name", parts ? "parts" : "resource"].filter((key) =>
+      Object.hasOwn(model, key),
+    );
     if (!exactKeys(model, allowed)) {
       throw new Error(`Model ${id} is either analytic parts or one resource.`);
     }
@@ -441,7 +451,9 @@ function parseModels(value: unknown): Record<string, SceneModel> | undefined {
       const partIds = new Set<string>();
       for (const part of model.parts) {
         if (!isRecord(part)) {
-          throw new Error(`Unsupported or invalid geometry in ${id}. Check its shape and dimensions.`);
+          throw new Error(
+            `Unsupported or invalid geometry in ${id}. Check its shape and dimensions.`,
+          );
         }
         paintPart(part, id, partIds);
       }

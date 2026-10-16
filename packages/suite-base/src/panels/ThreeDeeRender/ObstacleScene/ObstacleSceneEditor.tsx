@@ -400,10 +400,7 @@ function MotionFields({
     },
     waypoints: {
       type: "waypoints",
-      waypoints: [
-        [...position],
-        [position[0] + 1, position[1], position[2]],
-      ],
+      waypoints: [[...position], [position[0] + 1, position[1], position[2]]],
       velocity: 1,
       orientation: true,
       angular_velocity: 0.8,
@@ -974,26 +971,26 @@ function SceneInspector({
                 </TextField>
               )}
               {inline && (
-              <TextField
-                select
-                size="small"
-                label={zh ? "编辑范围" : "Edit target"}
-                slotProps={{ select: { displayEmpty: true } }}
-                value={part?.id ?? ""}
-                onChange={(event) => {
-                  session.select({
-                    obstacleId: obstacle.id,
-                    ...(event.target.value ? { partId: event.target.value } : {}),
-                  });
-                }}
-              >
-                <MenuItem value="">{zh ? "整个障碍物" : "Whole obstacle"}</MenuItem>
-                {inline.parts.map((p) => (
-                  <MenuItem value={p.id} key={p.id}>
-                    {p.id} · {p.geometry.type}
-                  </MenuItem>
-                ))}
-              </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label={zh ? "编辑范围" : "Edit target"}
+                  slotProps={{ select: { displayEmpty: true } }}
+                  value={part?.id ?? ""}
+                  onChange={(event) => {
+                    session.select({
+                      obstacleId: obstacle.id,
+                      ...(event.target.value ? { partId: event.target.value } : {}),
+                    });
+                  }}
+                >
+                  <MenuItem value="">{zh ? "整个障碍物" : "Whole obstacle"}</MenuItem>
+                  {inline.parts.map((p) => (
+                    <MenuItem value={p.id} key={p.id}>
+                      {p.id} · {p.geometry.type}
+                    </MenuItem>
+                  ))}
+                </TextField>
               )}
               {obstacle.motion.type !== "hold" && !transformable && (
                 <Alert severity="info">

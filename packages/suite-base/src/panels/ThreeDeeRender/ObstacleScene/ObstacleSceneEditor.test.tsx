@@ -245,7 +245,10 @@ describe("obstacle editor operator flow", () => {
   it("edits ellipsoid semiaxes without changing the other dimensions", async () => {
     const { extension, command, dispose } = setup();
     const initial = _.cloneDeep(extension.session!.getSnapshot().envelope!);
-    inlineObstacle(initial.document.obstacles[0]).parts[0]!.geometry = { type: "ellipsoid", semiaxes: [1, 2, 3] };
+    inlineObstacle(initial.document.obstacles[0]).parts[0]!.geometry = {
+      type: "ellipsoid",
+      semiaxes: [1, 2, 3],
+    };
     act(() => {
       extension.session!.accept(initial);
     });
@@ -360,7 +363,8 @@ describe("obstacle editor operator flow", () => {
     });
     expect(screen.getByLabelText("Radius (m)")).toHaveValue("1");
     expect(
-      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!.geometry,
+      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!
+        .geometry,
     ).toEqual({ type: "sphere", radius: 0.5 });
     expect(command).not.toHaveBeenCalled();
     await act(async () => {
@@ -380,7 +384,8 @@ describe("obstacle editor operator flow", () => {
       expect(command).toHaveBeenCalledTimes(2);
     });
     expect(
-      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!.geometry,
+      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!
+        .geometry,
     ).toEqual({ type: "sphere", radius: 1.5 });
     dispose();
   });
@@ -621,7 +626,8 @@ describe("obstacle editor operator flow", () => {
       expect(screen.getByText("Autosaved")).toBeInTheDocument();
     });
     expect(
-      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!.geometry,
+      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[0]!
+        .geometry,
     ).toEqual({ type: "sphere", radius: 0.8 });
     command.mockResolvedValue({
       success: false,
@@ -782,10 +788,26 @@ describe("obstacle editor operator flow", () => {
             name: "Jersey barrier",
             resource: { format: "sdformat-model", file: "models/jersey_barrier/model.sdf" },
           },
-          curb: { name: "Curb", parts: [{ id: "body", pose, geometry: { type: "box", size: [1, 1, 0.2] }, color: [1, 1, 1, 1] }] },
+          curb: {
+            name: "Curb",
+            parts: [
+              {
+                id: "body",
+                pose,
+                geometry: { type: "box", size: [1, 1, 0.2] },
+                color: [1, 1, 1, 1],
+              },
+            ],
+          },
         },
         obstacles: [
-          { id: "barrier-1", name: "North barrier", pose, motion: { type: "hold" }, model: "jersey" },
+          {
+            id: "barrier-1",
+            name: "North barrier",
+            pose,
+            motion: { type: "hold" },
+            model: "jersey",
+          },
         ],
       },
     });

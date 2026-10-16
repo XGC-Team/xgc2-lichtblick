@@ -457,7 +457,8 @@ describe("3D obstacle authoring", () => {
     controls.dispatchEvent({ type: "objectChange" });
     controls.dispatchEvent({ type: "objectChange" });
     expect(
-      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[2]!.pose.position[0],
+      inlineObstacle(extension.session!.getSnapshot().envelope!.document.obstacles[0]).parts[2]!
+        .pose.position[0],
     ).toBe(0);
     expect(command).not.toHaveBeenCalled();
     controls.dispatchEvent({ type: "mouseUp" });
@@ -815,9 +816,7 @@ describe("compiled model instances", () => {
       document: {
         ...scene.document,
         obstacles: scene.document.obstacles.map((obstacle, index) =>
-          index === 0
-            ? { ...obstacle, pose: { ...obstacle.pose, position: [3, 0, 0] } }
-            : obstacle,
+          index === 0 ? { ...obstacle, pose: { ...obstacle.pose, position: [3, 0, 0] } } : obstacle,
         ),
       },
     });

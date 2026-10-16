@@ -1049,7 +1049,9 @@ export class ObstacleSceneExtension extends SceneExtension {
     mesh.name = part.id;
     if (this.#imagePane) {
       mesh.renderOrder = RENDER_ORDER_FILL;
-      const edges = table.imageEdges(key, () => createObstacleEdges(geometry, rgba.slice(0, 3) as Rgb, []));
+      const edges = table.imageEdges(key, () =>
+        createObstacleEdges(geometry, rgba.slice(0, 3) as Rgb, []),
+      );
       if (edges) {
         const clone = edges.clone();
         clone.name = `${part.id}:edges`;

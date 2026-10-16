@@ -20,7 +20,10 @@ export class SceneGeometryTable {
   public readonly shapes: readonly SceneGeometry[];
   public readonly geometries: THREE.BufferGeometry[];
   #derived = new Map<string, THREE.BufferGeometry>();
-  #edges = new Map<string, THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | undefined>();
+  #edges = new Map<
+    string,
+    THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | undefined
+  >();
   #disposed = false;
 
   public constructor(shapes: readonly SceneGeometry[]) {
@@ -37,11 +40,7 @@ export class SceneGeometryTable {
     return geometry;
   }
 
-  public imagePart(
-    key: string,
-    index: number,
-    blockers: THREE.Plane[][],
-  ): THREE.BufferGeometry {
+  public imagePart(key: string, index: number, blockers: THREE.Plane[][]): THREE.BufferGeometry {
     this.#live();
     const existing = this.#derived.get(key);
     if (existing) {
