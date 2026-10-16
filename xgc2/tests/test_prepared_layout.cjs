@@ -521,7 +521,7 @@ test("obstacle projection stays in 3D and physical augmented views keep the tint
   );
 });
 
-test("prediction display copies remain line-only for every robot despite explicit pose axes", () => {
+test("prediction pose axes follow an explicit declaration, otherwise the panel flag", () => {
   const input = structuredClone(fixtures[1].input);
   for (const topic of input.visualizationTopics) {
     delete topic.maxRateHz;
@@ -548,18 +548,41 @@ test("prediction display copies remain line-only for every robot despite explici
   }
   assert.ok(topics["/robot_0/private_map"]);
   assert.equal(topics["/xgc/display/robot_0/private_map"], undefined);
-  input.parameters = { predictionShowPoseAxes: false };
-  const hiddenAxes = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics[
+  input.parameters = { predictionShowPoseAxes: true };
+  const panelAxes = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics[
     "/xgc/display/robot_0/plan"
   ];
-  assert.equal(hiddenAxes.type, "line");
-  assert.equal(hiddenAxes.axisScale, undefined);
+  assert.equal(panelAxes.type, "line-axes");
+  assert.equal(panelAxes.axisScale, 0.15);
+  const panelPoses = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics;
+  const poseArray = input.visualizationTopics.find(
+    (topic) => topic.role === "prediction" && topic.messageType === "geometry_msgs/PoseArray",
+  );
+  if (poseArray) {
+    assert.equal(panelPoses[`/xgc/display${poseArray.topic}`].type, "line-axes");
+  }
+  const marker = input.visualizationTopics.find(
+    (topic) => topic.role === "prediction" && topic.messageType.startsWith("visualization_msgs/"),
+  );
+  if (marker) {
+    const markerSettings = panelPoses[`/xgc/display${marker.topic}`];
+    assert.equal(markerSettings.type, undefined);
+    assert.equal(markerSettings.axisScale, undefined);
+  }
+  input.parameters = { predictionShowPoseAxes: false };
   input.visualizationTopics.find((topic) => topic.topic === "/robot_0/plan").showPoseAxes = true;
   const explicit = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics[
     "/xgc/display/robot_0/plan"
   ];
-  assert.equal(explicit.type, "line");
-  assert.equal(explicit.axisScale, undefined);
+  assert.equal(explicit.type, "line-axes");
+  assert.equal(explicit.axisScale, 0.15);
+  input.parameters = { predictionShowPoseAxes: true };
+  input.visualizationTopics.find((topic) => topic.topic === "/robot_0/plan").showPoseAxes = false;
+  const hidden = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics[
+    "/xgc/display/robot_0/plan"
+  ];
+  assert.equal(hidden.type, "line");
+  assert.equal(hidden.axisScale, undefined);
   input.parameters = { predictionMaxRateHz: 0 };
   assert.throws(() => prepareLayout(mapViewInput(input)), /predictionMaxRateHz/);
 });

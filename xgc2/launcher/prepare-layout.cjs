@@ -493,7 +493,15 @@ function prepareLayout(input) {
         flatColor: flat(t.role === "obstacle" ? "#3399ffb3" : "#8f8f8f99"),
       });
     }
-    const poseAxes = t.role !== "prediction" && t.showPoseAxes === true;
+    // Path and PoseArray only. An explicit showPoseAxes wins. Otherwise a
+    // prediction follows the panel flag. Markers keep their own geometry.
+    const poseMessage =
+      t.messageType === "nav_msgs/Path" || t.messageType === "geometry_msgs/PoseArray";
+    const poseAxes =
+      poseMessage &&
+      (typeof t.showPoseAxes === "boolean"
+        ? t.showPoseAxes
+        : t.role === "prediction" && p.predictionShowPoseAxes === true);
     if (t.messageType === "nav_msgs/Path") {
       Object.assign(s, {
         type: poseAxes ? "line-axes" : "line",
@@ -506,11 +514,16 @@ function prepareLayout(input) {
         s.axisScale = p.predictionAxisScale;
       }
     }
-    if (t.messageType === "geometry_msgs/PoseArray" && t.role === "prediction") {
+    if (t.messageType === "geometry_msgs/PoseArray" && (t.role === "prediction" || poseAxes)) {
       Object.assign(s, {
-        type: "line",
-        gradient: gradient(["#ffbf00ff", "#ffbf0040"]),
+        type: poseAxes ? "line-axes" : "line",
+        gradient: gradient(
+          t.role === "prediction" ? ["#ffbf00ff", "#ffbf0040"] : ["#000000ff", "#00000040"],
+        ),
       });
+      if (poseAxes) {
+        s.axisScale = p.predictionAxisScale;
+      }
     }
     if (
       t.messageType === "visualization_msgs/Marker" ||
