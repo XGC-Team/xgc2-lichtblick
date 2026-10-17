@@ -225,6 +225,7 @@ docker run "${docker_run_args[@]}" \
     NODE_PATH=/usr/lib/xgc2/node_modules node --test \
       "${tests}/test_lichtblick_web.js" "${tests}/test_view_state.cjs" \
       "${tests}/test_control_service.cjs" "${tests}/test_launcher_view.cjs" \
+      "${tests}/test_launcher_shutdown.cjs" \
       "${tests}/test_prepared_layout.cjs" \
       "${tests}/test_process_definition.cjs" \
       /workspace/source/xgc2/desktop/tests/test_startup_input.cjs \

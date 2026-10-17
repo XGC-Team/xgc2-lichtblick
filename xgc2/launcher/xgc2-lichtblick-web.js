@@ -821,11 +821,16 @@ async function main() {
   let allowedOrigins = configuredOrigins;
   let listenPort;
   let closing;
+  const proxies = new Set();
   const close = () => {
     if (!closing) {
       closing = (async () => {
         control?.markNotReady("stopping");
         views?.close();
+        for (const proxy of proxies) {
+          proxy.close();
+        }
+        proxies.clear();
         const results = await Promise.allSettled([hostRuntime?.close(), control?.close()]);
         const failure = results.find((result) => result.status === "rejected");
         if (failure) {
@@ -922,12 +927,14 @@ async function main() {
       clientSocket.destroy();
       return;
     }
-    proxyWebSocket(
+    const proxy = proxyWebSocket(
       req,
       clientSocket,
       head,
       `${targetWs.protocol}//${targetWs.hostname}:${targetWs.port}${targetWs.path}`,
     );
+    proxies.add(proxy);
+    clientSocket.once("close", () => proxies.delete(proxy));
   });
 
   server.on("listening", () => {
