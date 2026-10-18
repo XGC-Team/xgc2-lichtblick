@@ -13,7 +13,9 @@ const { WebSocket, WebSocketServer } = sdkRequire("ws");
 
 const { ORIGIN, startLauncher } = require("./launcher_fixture.cjs");
 
-test("SIGTERM owns the idle proxy and view stream without consuming the drain guard", { timeout: 25000 }, async (t) => {
+test("SIGTERM owns the idle proxy and view stream without consuming the drain guard", {
+  timeout: 25000,
+}, async (t) => {
   const upstream = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   upstream.on("connection", (socket) => {
     socket.on("error", () => {});
@@ -43,7 +45,9 @@ test("SIGTERM owns the idle proxy and view stream without consuming the drain gu
   assert.equal(upstream.clients.size, 1);
 
   const transientPeer = once(upstream, "connection");
-  const transient = new WebSocket(`${launcher.base.replace("http:", "ws:")}/ws`, { origin: ORIGIN });
+  const transient = new WebSocket(`${launcher.base.replace("http:", "ws:")}/ws`, {
+    origin: ORIGIN,
+  });
   transient.on("error", () => {});
   await once(transient, "open");
   const [peer] = await transientPeer;
@@ -58,7 +62,9 @@ test("SIGTERM owns the idle proxy and view stream without consuming the drain gu
   const [response] = await once(request, "response");
   assert.equal(response.statusCode, 200);
   let frames = "";
-  response.on("data", (chunk) => { frames += chunk; });
+  response.on("data", (chunk) => {
+    frames += chunk;
+  });
   await once(response, "data");
   const streamClosed = once(response, "close");
   const socketClosed = once(socket, "close");
@@ -66,11 +72,22 @@ test("SIGTERM owns the idle proxy and view stream without consuming the drain gu
   const exit = await launcher.stop();
   const elapsedMs = performance.now() - started;
   await Promise.all([streamClosed, socketClosed]);
-  t.diagnostic(JSON.stringify({ elapsedMs, exit, upstreamClients: upstream.clients.size, stdout: launcher.output, stderr: launcher.errors }));
+  t.diagnostic(
+    JSON.stringify({
+      elapsedMs,
+      exit,
+      upstreamClients: upstream.clients.size,
+      stdout: launcher.output,
+      stderr: launcher.errors,
+    }),
+  );
   assert.deepEqual(exit, { code: 0, signal: null });
   assert.match(frames, /event: closing/);
   assert.equal(fs.existsSync(launcher.socketPath), false);
-  assert.ok(elapsedMs < 3000, `known idle streams must be cancelled by their owner, took ${elapsedMs}ms`);
+  assert.ok(
+    elapsedMs < 3000,
+    `known idle streams must be cancelled by their owner, took ${elapsedMs}ms`,
+  );
 });
 
 test("SIGTERM still drains an admitted ordinary HTTP response", { timeout: 10000 }, async (t) => {
@@ -85,7 +102,9 @@ test("SIGTERM still drains an admitted ordinary HTTP response", { timeout: 10000
   response.pause();
   assert.equal(Number(response.headers["content-length"]), bytes);
   let received = 0;
-  response.on("data", (chunk) => { received += chunk.length; });
+  response.on("data", (chunk) => {
+    received += chunk.length;
+  });
   const bodyDone = once(response, "end");
   const signalled = once(launcher.child.stdout, "data");
   const stopping = launcher.stop();
