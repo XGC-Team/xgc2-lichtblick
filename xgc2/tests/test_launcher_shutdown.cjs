@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-License-Identifier: MPL-2.0
+
 // SPDX-FileCopyrightText: Copyright (C) 2026 XGC-Team
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
@@ -6,12 +9,14 @@ const assert = require("node:assert/strict");
 const { once } = require("node:events");
 const fs = require("node:fs");
 const http = require("node:http");
+const { createRequire } = require("node:module");
 const path = require("node:path");
 const test = require("node:test");
-const sdkRequire = require("node:module").createRequire(require.resolve("@xgc2/xrpc"));
-const { WebSocket, WebSocketServer } = sdkRequire("ws");
 
 const { ORIGIN, startLauncher } = require("./launcher_fixture.cjs");
+
+const sdkRequire = createRequire(require.resolve("@xgc2/xrpc"));
+const { WebSocket, WebSocketServer } = sdkRequire("ws");
 
 test("SIGTERM owns the idle proxy and view stream without consuming the drain guard", {
   timeout: 25000,
@@ -23,7 +28,9 @@ test("SIGTERM owns the idle proxy and view stream without consuming the drain gu
   });
   await once(upstream, "listening");
   t.after(async () => {
-    for (const socket of upstream.clients) socket.terminate();
+    for (const socket of upstream.clients) {
+      socket.terminate();
+    }
     await new Promise((resolve) => upstream.close(resolve));
   });
   const { launcher } = await startLauncher(t, {
