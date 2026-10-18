@@ -20,6 +20,7 @@ import { useAnalytics } from "@lichtblick/suite-base/context/AnalyticsContext";
 import { useAppParameters } from "@lichtblick/suite-base/context/AppParametersContext";
 import CurrentLayoutContext, {
   ICurrentLayout,
+  LayoutData,
   LayoutID,
   LayoutState,
 } from "@lichtblick/suite-base/context/CurrentLayoutContext";
@@ -59,6 +60,7 @@ import { getPanelTypeFromId } from "@lichtblick/suite-base/util/layout";
 import {
   layoutHasXgc2Scope,
   layoutNameFromLayoutUrl,
+  mergeManagedLayoutFromUrl,
   parseXgc2LayoutScope,
 } from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 
@@ -331,19 +333,31 @@ export default function CurrentLayoutProvider({
           ),
         );
       const reusable = scoped[0];
+      if (!isMounted() || layoutStateRef.current.selectedLayout?.data) {
+        return;
+      }
+      // Capture the previous view before the renderer can receive native restore.
+      // The later layoutUrl import uses this same merge and must not be the first
+      // opportunity to capture it. Current wiring/default framing still wins.
+      const data = mergeManagedLayoutFromUrl(
+        staticDefaultLayout,
+        reusable?.working?.data ?? reusable?.baseline.data,
+        managedScope,
+      ) as LayoutData;
       if (reusable) {
-        await setSelectedLayoutId(reusable.id, { saveToProfile: false });
+        setLayoutState({
+          selectedLayout: {
+            loading: false,
+            id: reusable.id,
+            name: reusable.name,
+            data,
+          },
+        });
         return;
       }
       const seeded = await layoutManager.saveNewLayout({
         name: layoutNameFromLayoutUrl(layoutUrl),
-        data: {
-          ...staticDefaultLayout,
-          metadata: {
-            ...staticDefaultLayout.metadata,
-            xgc2LayoutScope: [...managedScope],
-          },
-        },
+        data,
         permission: "CREATOR_WRITE",
         activate: false,
       });

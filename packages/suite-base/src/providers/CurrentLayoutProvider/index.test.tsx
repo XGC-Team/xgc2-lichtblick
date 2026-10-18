@@ -34,7 +34,14 @@ import {
   MAX_SUPPORTED_LAYOUT_VERSION,
 } from "@lichtblick/suite-base/providers/CurrentLayoutProvider/constants";
 import { ILayoutManager } from "@lichtblick/suite-base/services/ILayoutManager";
+import {
+  discardXgc2DeferredView,
+  mergeManagedLayoutFromUrl,
+  takeXgc2DeferredView,
+} from "@lichtblick/suite-base/util/xgcManagedLayoutImport";
 import { BasicBuilder } from "@lichtblick/test-builders";
+
+import { defaultLayout } from "./defaultLayout";
 
 jest.mock("notistack", () => ({
   ...jest.requireActual("notistack"),
@@ -93,10 +100,12 @@ function renderTest({
   mockLayoutManager,
   mockUserProfile,
   mockAppParameters = {},
+  onLayoutVisible,
 }: {
   mockLayoutManager: ILayoutManager;
   mockUserProfile: UserProfileStorage;
   mockAppParameters?: Record<string, string>;
+  onLayoutVisible?: (data: LayoutData) => void;
 }) {
   const childMounted = new Condvar();
   const childMountedWait = childMounted.wait();
@@ -113,6 +122,12 @@ function renderTest({
         childMounted: childMountedWait,
       };
       all.push(value);
+      useEffect(() => {
+        const selected = value.layoutState.selectedLayout;
+        if (selected?.data && selected.loading !== true) {
+          onLayoutVisible?.(selected.data);
+        }
+      }, [value.layoutState.selectedLayout]);
       return value;
     },
     {
@@ -647,7 +662,171 @@ describe("CurrentLayoutProvider", () => {
 
   describe("Managed layoutUrl seed", () => {
     afterEach(() => {
+      jest.restoreAllMocks();
       window.history.replaceState(null, "", "/");
+    });
+
+    const panelId = "3D!managed-startup";
+    const injectedLayout: LayoutData = {
+      ...TEST_LAYOUT,
+      layout: panelId,
+      configById: {
+        [panelId]: {
+          cameraState: { distance: 120, phi: 60, thetaOffset: 45 },
+          followMode: "follow-none",
+          followTf: "world",
+          topics: { "/current/pose": { visible: true } },
+          layers: {
+            "xgc2-urdf-uav1": {
+              layerId: "foxglove.Urdf",
+              framePrefix: "xgc/robots/uav1/",
+              parameter: "/uav1/current_description",
+            },
+          },
+        },
+      },
+    };
+    const savedView = {
+      cameraState: { distance: 7, phi: 28, thetaOffset: 71 },
+      followMode: "follow-pose",
+      followTf: "xgc/robots/uav1/base_link",
+    };
+
+    function startupFixture(caseId: string, { saved }: { saved: boolean }) {
+      const scope = [`startup-${caseId}`, "lichtblick"] as const;
+      window.history.replaceState(
+        null,
+        "",
+        `/?layoutUrl=${encodeURIComponent("http://core.example/layout.json")}&xgc2LayoutScope=${encodeURIComponent(JSON.stringify(scope)!)}`,
+      );
+      // This is the same module the launcher injects before the provider is imported.
+      jest.replaceProperty(defaultLayout, "layout", injectedLayout.layout);
+      jest.replaceProperty(defaultLayout, "configById", injectedLayout.configById);
+      const parked: LayoutData = {
+        ...TEST_LAYOUT,
+        layout: panelId,
+        metadata: { xgc2LayoutScope: scope },
+        configById: {
+          [panelId]: {
+            ...savedView,
+            topics: { "/obsolete/pose": { visible: true } },
+            layers: {
+              "xgc2-urdf-removed": {
+                layerId: "foxglove.Urdf",
+                framePrefix: "xgc/robots/removed/",
+                parameter: "/obsolete_description",
+              },
+            },
+          },
+        },
+      };
+      const stored = {
+        id: "scoped-startup",
+        name: "layout",
+        permission: "CREATOR_WRITE" as const,
+        baseline: {
+          data: {
+            ...parked,
+            configById: { [panelId]: { ...savedView, cameraState: { distance: 99 } } },
+          },
+          savedAt: "2026-10-17T00:00:00.000Z",
+        },
+        working: { data: parked, savedAt: "2026-10-18T00:00:00.000Z" },
+        syncInfo: undefined,
+      };
+      const manager = makeMockLayoutManager();
+      manager.getLayouts.mockResolvedValue(saved ? [stored] : []);
+      manager.getLayout.mockResolvedValue(stored);
+      manager.saveNewLayout.mockImplementation(async ({ data }: { data: LayoutData }) => {
+        const created = {
+          ...stored,
+          baseline: { data, savedAt: undefined },
+          working: undefined,
+        };
+        manager.getLayout.mockResolvedValue(created);
+        return created;
+      });
+      manager.updateLayout.mockResolvedValue(stored);
+      const profile = makeMockUserProfile();
+      profile.setUserProfile.mockResolvedValue(undefined);
+      return { scope, parked, manager, profile };
+    }
+
+    it("captures the working camera before the first visible managed layout can consume restore", async () => {
+      const { scope, parked, manager, profile } = startupFixture("restore-first", { saved: true });
+      let firstVisible: LayoutData | undefined;
+      let restored: ReturnType<typeof takeXgc2DeferredView>;
+      renderTest({
+        mockLayoutManager: manager,
+        mockUserProfile: profile,
+        onLayoutVisible: (data) => {
+          if (!firstVisible) {
+            firstVisible = data;
+            restored = takeXgc2DeferredView(scope, panelId);
+          }
+        },
+      });
+      await waitFor(() => {
+        expect(firstVisible).toBeDefined();
+      });
+
+      expect(restored).toEqual(savedView);
+      expect(firstVisible?.configById).toEqual(injectedLayout.configById);
+      expect(firstVisible?.metadata).toEqual({ xgc2LayoutScope: scope });
+      expect(profile.getUserProfile).not.toHaveBeenCalled();
+      expect(profile.setUserProfile).not.toHaveBeenCalled();
+
+      const lateImport = mergeManagedLayoutFromUrl(injectedLayout, parked, scope) as LayoutData;
+      expect(lateImport.configById).toEqual(injectedLayout.configById);
+      expect(takeXgc2DeferredView(scope, panelId)).toBeUndefined();
+    });
+
+    it("keeps the injected default for an unsaved scope at first visibility and after late import", async () => {
+      const { scope, manager, profile } = startupFixture("no-saved-view", { saved: false });
+      let firstVisible: LayoutData | undefined;
+      let restored: ReturnType<typeof takeXgc2DeferredView>;
+      renderTest({
+        mockLayoutManager: manager,
+        mockUserProfile: profile,
+        onLayoutVisible: (data) => {
+          if (!firstVisible) {
+            firstVisible = data;
+            restored = takeXgc2DeferredView(scope, panelId);
+          }
+        },
+      });
+      await waitFor(() => {
+        expect(firstVisible).toBeDefined();
+      });
+      expect(firstVisible?.configById).toEqual(injectedLayout.configById);
+      expect(restored).toBeUndefined();
+      const lateImport = mergeManagedLayoutFromUrl(injectedLayout, undefined, scope) as LayoutData;
+      expect(lateImport.configById).toEqual(injectedLayout.configById);
+      expect(takeXgc2DeferredView(scope, panelId)).toBeUndefined();
+    });
+
+    it("does not replay a saved camera after manual cancellation and a late managed import", async () => {
+      const { scope, parked, manager, profile } = startupFixture("manual-before-import", {
+        saved: true,
+      });
+      let firstVisible: LayoutData | undefined;
+      renderTest({
+        mockLayoutManager: manager,
+        mockUserProfile: profile,
+        onLayoutVisible: (data) => {
+          if (!firstVisible) {
+            firstVisible = data;
+            discardXgc2DeferredView(scope, panelId);
+          }
+        },
+      });
+      await waitFor(() => {
+        expect(firstVisible).toBeDefined();
+      });
+      expect(firstVisible?.configById).toEqual(injectedLayout.configById);
+      expect(takeXgc2DeferredView(scope, panelId)).toBeUndefined();
+      mergeManagedLayoutFromUrl(injectedLayout, parked, scope);
+      expect(takeXgc2DeferredView(scope, panelId)).toBeUndefined();
     });
 
     it("seeds the injected default layout instead of restoring a stored layout", async () => {
