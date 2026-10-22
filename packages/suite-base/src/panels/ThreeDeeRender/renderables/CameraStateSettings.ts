@@ -465,6 +465,11 @@ export class CameraStateSettings extends SceneExtension implements ICameraHandle
     if (!this.#isUpdatingCameraState) {
       this.#transition = undefined;
       this.renderer.emit("cameraMove", this.renderer);
+      // Manual drag/zoom/keys must not wait out the passive repaint-cap window:
+      // the interaction owner requests a prompt frame, which pre-empts any
+      // pending throttled timer. Message draining, the frame cap and the
+      // snapshot coalescing stay exactly as they are.
+      this.renderer.queueAnimationFrame();
     }
   };
 

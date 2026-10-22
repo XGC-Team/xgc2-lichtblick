@@ -257,6 +257,30 @@ describe("CameraStateSettings", () => {
     });
   });
 
+  it("pre-empts the passive frame timer on manual drag/zoom/keys", () => {
+    // Given: an active stream just rendered (fresh lastRenderAt)
+    const queue = jest.spyOn(renderer, "queueAnimationFrame");
+    queue.mockClear();
+
+    // When: a manual OrbitControls change (pointer drag, wheel zoom, keys)
+    getControlsHandler("change")();
+
+    // Then: the interaction owner requests a prompt frame immediately, so the
+    // manual input never waits out the passive 60fps throttle window.
+    expect(queue).toHaveBeenCalled();
+  });
+
+  it("does not open a render loop from programmatic camera writes", () => {
+    const queue = jest.spyOn(renderer, "queueAnimationFrame");
+    queue.mockClear();
+
+    // Programmatic writes (renderer.setCameraState / playback follow) never go
+    // through the controls change handler: no prompt frame, no loop.
+    renderer.setCameraState({ ...DEFAULT_CAMERA_STATE, distance: 3 });
+
+    expect(queue).not.toHaveBeenCalled();
+  });
+
   it("centers position follow without resetting the selected projection or viewing angle", () => {
     renderer.updateConfig((draft) => {
       draft.followMode = "follow-none";
