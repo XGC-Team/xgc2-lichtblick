@@ -301,7 +301,12 @@ class ArtifactManifestTests(unittest.TestCase):
         with deb.open("ab") as stream:
             stream.write(b"tampered\n")
         result = self.verify_build("amd64", expected_returncode=2)
-        self.assertIn("deb metadata mismatch", result.stderr)
+        # Older dpkg-deb accepts trailing bytes and the manifest catches the
+        # changed digest; newer dpkg-deb rejects the corrupt archive itself.
+        self.assertTrue(
+            "deb metadata mismatch" in result.stderr or "dpkg-deb" in result.stderr,
+            result.stderr,
+        )
         self.assertFalse((self.work / "verified/debs" / deb.name).exists())
 
 if __name__ == "__main__":
