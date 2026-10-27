@@ -12,6 +12,7 @@ import { ToWorkerMessage, FromWorkerMessage } from "./types";
 export default class WorkerSocketAdapter implements IWebSocket {
   #worker: Worker;
   #connectionClosed: boolean = false;
+  #closing: boolean = false;
   public binaryType: string = "";
   public protocol: string = "";
   public onerror: ((event: unknown) => void) | undefined = undefined;
@@ -28,12 +29,14 @@ export default class WorkerSocketAdapter implements IWebSocket {
       if (this.#connectionClosed) {
         return;
       }
-      if (this.onerror) {
-        this.onerror(ev);
-      }
       this.#connectionClosed = true;
+      this.#closing = true;
       this.#worker.terminate();
-      this.onclose?.({ code: 1006 });
+      try {
+        this.onerror?.(ev);
+      } finally {
+        this.onclose?.({ code: 1006 });
+      }
     };
 
     this.#worker.onmessage = (event: MessageEvent<FromWorkerMessage>) => {
@@ -42,6 +45,9 @@ export default class WorkerSocketAdapter implements IWebSocket {
       }
       switch (event.data.type) {
         case "open":
+          if (this.#closing) {
+            return;
+          }
           if (this.onopen) {
             this.protocol = event.data.protocol;
             this.onopen(event.data);
@@ -50,6 +56,7 @@ export default class WorkerSocketAdapter implements IWebSocket {
         case "close":
           // websocket connection got closed, we can terminate the worker
           this.#connectionClosed = true;
+          this.#closing = true;
           this.#worker.terminate();
 
           if (this.onclose) {
@@ -57,25 +64,43 @@ export default class WorkerSocketAdapter implements IWebSocket {
           }
           break;
         case "error":
-          if (this.onerror) {
+          if (!this.#closing && this.onerror) {
             this.onerror(event.data);
           }
           break;
-        case "message":
-          if (this.onmessage) {
-            this.onmessage(event.data);
+        case "messages": {
+          if (this.#closing) {
+            return;
+          }
+          let count = 0;
+          try {
+            for (const data of event.data.messages) {
+              if (this.#isClosed()) {
+                break;
+              }
+              this.onmessage?.({ data });
+              count++;
+            }
+          } finally {
+            // Confirm the synchronous consumer prefix, never a later render.
+            // A short prefix explicitly fails this connection in the worker.
+            if (!this.#isClosed()) {
+              this.#sendToWorker({ type: "consumed", data: { id: event.data.id, count } });
+            }
           }
           break;
+        }
       }
     };
   }
 
   public close(): void {
-    if (!this.#connectionClosed) {
+    if (!this.#connectionClosed && !this.#closing) {
       this.#sendToWorker({
         type: "close",
         data: undefined,
       });
+      this.#closing = true;
     }
   }
 
@@ -84,9 +109,13 @@ export default class WorkerSocketAdapter implements IWebSocket {
   }
 
   #sendToWorker(msg: ToWorkerMessage): void {
-    if (this.#connectionClosed) {
+    if (this.#connectionClosed || this.#closing) {
       throw Error("Can't send message over closed websocket connection");
     }
     this.#worker.postMessage(msg);
+  }
+
+  #isClosed(): boolean {
+    return this.#connectionClosed || this.#closing;
   }
 }

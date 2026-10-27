@@ -23,11 +23,12 @@ export type ResolvedService = {
   requestMessageWriter: MessageWriter;
 };
 export type MessageDefinitionMap = Map<string, MessageDefinition>;
+export type WebSocketMessage = string | ArrayBuffer;
 export type FromWorkerMessage =
   | { type: "open"; protocol: string }
   | { type: "close"; data: unknown }
   | { type: "error"; error: unknown }
-  | { type: "message"; data: unknown };
+  | { type: "messages"; id: number; messages: WebSocketMessage[] };
 
 export type ToWorkerMessage =
   | {
@@ -35,6 +36,7 @@ export type ToWorkerMessage =
       data: { wsUrl: string; protocols?: string[] | string };
     }
   | { type: "close"; data: undefined }
+  | { type: "consumed"; data: { id: number; count: number } }
   | { type: "data"; data: string | ArrayBuffer | ArrayBufferView };
 
 export interface MessageWriter {

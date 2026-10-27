@@ -5,9 +5,16 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { useLayoutEffect, useRef } from "react";
+import { useMediaQuery } from "@mui/material";
+import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { makeStyles } from "tss-react/mui";
+
+import { useVisibilityState } from "@lichtblick/hooks";
+import {
+  lastEmbeddedHostVisibility,
+  subscribeEmbeddedHostVisibility,
+} from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 
 const useStyles = makeStyles()({
   container: {
@@ -22,9 +29,18 @@ const useStyles = makeStyles()({
 export default function Snow({ effect }: { effect: "snow" | "confetti" }): React.JSX.Element {
   const { classes } = useStyles();
   const containerRef = useRef<HTMLDivElement>(ReactNull);
+  const documentVisibility = useVisibilityState();
+  const hostVisible = useSyncExternalStore(
+    subscribeEmbeddedHostVisibility,
+    lastEmbeddedHostVisibility,
+    () => undefined,
+  );
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const visible = documentVisibility === "visible" && hostVisible !== false && !reducedMotion;
+  const paintRef = useRef<{ setVisibility(value: "visible" | "hidden"): void }>();
 
   useLayoutEffect(() => {
-    let requestID: ReturnType<typeof requestAnimationFrame>;
+    let requestID: ReturnType<typeof requestAnimationFrame> | undefined;
     const container = containerRef.current;
     if (!container) {
       return;
@@ -111,35 +127,61 @@ export default function Snow({ effect }: { effect: "snow" | "confetti" }): React
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
 
-    const startTime = new Date();
+    let elapsed = 0;
+    let previousTime: number | undefined;
     function render() {
-      const time = (new Date().getTime() - startTime.getTime()) / 1000.0;
-      material.uniforms.time = { value: time };
-
+      material.uniforms.time!.value = elapsed / 1000;
       renderer.render(scene, camera);
     }
 
-    let animating = true;
-    function animate() {
+    let animating = false;
+    function animate(now: number) {
+      requestID = undefined;
       if (!animating) {
         return;
       }
-
-      requestID = requestAnimationFrame(animate);
+      if (previousTime != undefined) {
+        elapsed += now - previousTime;
+      }
+      previousTime = now;
       render();
+      requestID = requestAnimationFrame(animate);
     }
 
-    animate();
+    paintRef.current = {
+      setVisibility(value) {
+        const next = value === "visible";
+        if (animating === next) {
+          return;
+        }
+        animating = next;
+        previousTime = undefined;
+        if (!next && requestID != undefined) {
+          cancelAnimationFrame(requestID);
+          requestID = undefined;
+        } else if (next) {
+          render();
+          requestID = requestAnimationFrame(animate);
+        }
+      },
+    };
 
     return () => {
       animating = false;
+      paintRef.current = undefined;
+      if (requestID != undefined) {
+        cancelAnimationFrame(requestID);
+      }
       geometry.dispose();
       material.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
-      cancelAnimationFrame(requestID);
     };
   }, [effect]);
+
+  useLayoutEffect(() => {
+    paintRef.current?.setVisibility(visible ? "visible" : "hidden");
+  }, [visible, effect]);
 
   return <div className={classes.container} ref={containerRef} />;
 }

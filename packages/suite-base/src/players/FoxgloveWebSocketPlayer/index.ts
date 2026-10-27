@@ -1726,6 +1726,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   #resetSessionState(): void {
+    // A new connection/session invalidates renderer history even when the
+    // publisher's clock moves forward and its session id is unchanged.
+    this.#numTimeSeeks++;
     this.#startTime = undefined;
     this.#endTime = undefined;
     this.#clockTime = undefined;

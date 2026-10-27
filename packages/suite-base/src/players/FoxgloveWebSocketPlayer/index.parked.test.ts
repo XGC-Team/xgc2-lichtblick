@@ -12,7 +12,11 @@ import {
   registerEmbeddedCanvasVisibility,
   type EmbeddedCanvasVisibilityReporter,
 } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
-import type { MessageEvent, PlayerState } from "@lichtblick/suite-base/players/types";
+import {
+  PlayerPresence,
+  type MessageEvent,
+  type PlayerState,
+} from "@lichtblick/suite-base/players/types";
 
 import FoxgloveWebSocketPlayer from "./index";
 import { RESUME_SCENE_CLEAR_FALLBACK_MS } from "./parkedParsePause";
@@ -228,6 +232,36 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
       ["/tf", { bytes: [1, 2, 3] }],
       ["/cloud", { bytes: [4, 5] }],
     ]);
+  });
+
+  it("starts a new renderer history after a capacity disconnect even when the publisher session and clock are unchanged", async () => {
+    jest.useFakeTimers();
+    const { client, states, subIdByChannel } = setup();
+    send(client, subIdByChannel.get(MARKERS_CHANNEL)!, [1]);
+    await flush();
+    const previous = states[states.length - 1]!.activeData!;
+    expect(previous.messages).toHaveLength(1);
+    client.emit("close", { code: 4009, reason: "WebSocket worker delivery capacity exceeded" });
+    expect(console.error).toHaveBeenCalledWith(
+      "Player alert",
+      "ws:connection-failed",
+      expect.objectContaining({ message: "Connection failed" }),
+    );
+    (console.error as jest.Mock).mockClear();
+    await flush();
+    expect(states[states.length - 1]!.presence).toBe(PlayerPresence.RECONNECTING);
+    jest.advanceTimersByTime(250);
+    const replacement = FakeClient.instances[FakeClient.instances.length - 1]!;
+    expect(replacement).not.toBe(client);
+    replacement.emit("open");
+    replacement.emit("serverInfo", { capabilities: [], name: "fake", sessionId: "session" });
+    await flush();
+    const restored = states[states.length - 1]!.activeData!;
+    expect(restored.lastSeekTime).toBeGreaterThan(previous.lastSeekTime);
+    expect(restored.messages).toEqual([]);
+    send(client, subIdByChannel.get(MARKERS_CHANNEL)!, [2]);
+    await flush();
+    expect(states[states.length - 1]!.activeData!.messages).toEqual([]);
   });
 
   it("parked: retains latest snapshots and ordered transforms without parsing", async () => {

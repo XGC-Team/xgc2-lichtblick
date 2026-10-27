@@ -7,7 +7,12 @@ import { BasicBuilder } from "@lichtblick/test-builders";
 import WorkerSocketAdapter from "./WorkerSocketAdapter";
 
 describe("WorkerSocketAdapter", () => {
-  let workerMock: any;
+  let workerMock: {
+    postMessage: jest.Mock;
+    terminate: jest.Mock;
+    onmessage?: (event: MessageEvent<FromWorkerMessage>) => void;
+    onerror?: (event: unknown) => void;
+  };
   const wsUrl = "wss://example.com";
 
   beforeEach(() => {
@@ -25,7 +30,7 @@ describe("WorkerSocketAdapter", () => {
   it("WorkerSocketAdapter should close a WebSocket connection", () => {
     workerMock.onmessage?.({
       data: { type: "close", data: {} },
-    } as MessageEvent);
+    } as MessageEvent<FromWorkerMessage>);
 
     expect(workerMock.terminate).toHaveBeenCalled();
   });
@@ -45,7 +50,7 @@ describe("WorkerSocketAdapter", () => {
   it("WorkerSocketAdapter should handle an error", () => {
     workerMock.onmessage?.({
       data: { type: "error", error: "Something went wrong" },
-    } as MessageEvent);
+    } as MessageEvent<FromWorkerMessage>);
 
     expect(workerMock.postMessage).toHaveBeenCalledWith({
       type: "open",
@@ -53,7 +58,7 @@ describe("WorkerSocketAdapter", () => {
     });
   });
 
-  it("delivers consecutive messages across topics without sending ACKs", () => {
+  it("delivers complete large frames and ordered batches with one synchronous consumed ACK per batch", () => {
     const socket = new WorkerSocketAdapter(wsUrl);
     const onmessage = jest.fn();
     socket.onmessage = onmessage;
@@ -64,9 +69,76 @@ describe("WorkerSocketAdapter", () => {
       "control",
       new ArrayBuffer(20 * 1024 * 1024),
     ];
-    messages.forEach((data) => workerMock.onmessage?.({ data: { type: "message", data } }));
+    workerMock.onmessage?.({
+      data: { type: "messages", id: 1, messages: messages.slice(0, 1) },
+    } as MessageEvent<FromWorkerMessage>);
+    workerMock.onmessage?.({
+      data: { type: "messages", id: 2, messages: messages.slice(1, 3) },
+    } as MessageEvent<FromWorkerMessage>);
+    workerMock.onmessage?.({
+      data: { type: "messages", id: 3, messages: messages.slice(3) },
+    } as MessageEvent<FromWorkerMessage>);
     expect(onmessage.mock.calls.map((call) => call[0].data)).toEqual(messages);
-    expect(workerMock.postMessage).not.toHaveBeenCalled();
+    expect(workerMock.postMessage.mock.calls.map((call) => call[0])).toEqual([
+      { type: "consumed", data: { id: 1, count: 1 } },
+      { type: "consumed", data: { id: 2, count: 2 } },
+      { type: "consumed", data: { id: 3, count: 1 } },
+    ]);
+  });
+
+  it("confirms only the callbacks that returned when a consumer throws inside a batch", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    const failure = new Error("Consumer failed");
+    socket.onmessage = jest.fn((event: unknown) => {
+      if ((event as { data: string }).data === "second") {
+        throw failure;
+      }
+    });
+    workerMock.postMessage.mockClear();
+    expect(() =>
+      workerMock.onmessage?.({
+        data: { type: "messages", id: 7, messages: ["first", "second", "third"] },
+      } as MessageEvent<FromWorkerMessage>),
+    ).toThrow(failure);
+    expect(socket.onmessage).toHaveBeenCalledTimes(2);
+    expect(workerMock.postMessage).toHaveBeenCalledWith({
+      type: "consumed",
+      data: { id: 7, count: 1 },
+    });
+  });
+
+  it("sends the ACK after synchronous consumption without waiting for rendering", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    const order: string[] = [];
+    socket.onmessage = (event) => {
+      order.push((event as { data: string }).data);
+    };
+    workerMock.postMessage.mockImplementation(() => order.push("consumed"));
+    workerMock.onmessage?.({
+      data: { type: "messages", id: 4, messages: ["first", "second"] },
+    } as MessageEvent<FromWorkerMessage>);
+    expect(order).toEqual(["first", "second", "consumed"]);
+  });
+
+  it("stops a batch when its consumer closes and ignores late delivery during the close handshake", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    socket.onmessage = jest.fn(() => {
+      socket.close();
+    });
+    workerMock.postMessage.mockClear();
+    workerMock.onmessage?.({
+      data: { type: "messages", id: 1, messages: ["first", "second"] },
+    } as MessageEvent<FromWorkerMessage>);
+    workerMock.onmessage?.({
+      data: { type: "messages", id: 2, messages: ["late"] },
+    } as MessageEvent<FromWorkerMessage>);
+    expect(socket.onmessage).toHaveBeenCalledTimes(1);
+    expect(workerMock.postMessage.mock.calls.map((call) => call[0])).toEqual([
+      { type: "close", data: undefined },
+    ]);
+    expect(() => {
+      socket.send("late outbound");
+    }).toThrow("Can't send message over closed websocket connection");
   });
 
   it("closes through the original worker and rejects outbound data after close", () => {
@@ -75,7 +147,9 @@ describe("WorkerSocketAdapter", () => {
     workerMock.postMessage.mockClear();
     socket.close();
     expect(workerMock.postMessage).toHaveBeenCalledWith({ type: "close", data: undefined });
-    workerMock.onmessage?.({ data: { type: "close", data: { code: 1000 } } });
+    workerMock.onmessage?.({
+      data: { type: "close", data: { code: 1000 } },
+    } as MessageEvent<FromWorkerMessage>);
     expect(workerMock.terminate).toHaveBeenCalled();
     expect(socket.onclose).toHaveBeenCalledTimes(1);
     expect(() => {
@@ -87,8 +161,10 @@ describe("WorkerSocketAdapter", () => {
     const socket = new WorkerSocketAdapter(wsUrl);
     socket.onerror = jest.fn();
     socket.onclose = jest.fn();
-    workerMock.onerror(new Error("worker failed"));
-    workerMock.onmessage?.({ data: { type: "close", data: { code: 1006 } } });
+    workerMock.onerror?.(new Error("worker failed"));
+    workerMock.onmessage?.({
+      data: { type: "close", data: { code: 1006 } },
+    } as MessageEvent<FromWorkerMessage>);
     expect(socket.onerror).toHaveBeenCalledTimes(1);
     expect(socket.onclose).toHaveBeenCalledTimes(1);
     expect(workerMock.terminate).toHaveBeenCalledTimes(1);
@@ -102,7 +178,7 @@ describe("WorkerSocketAdapter", () => {
     ],
     [
       {
-        data: { type: "message", data: BasicBuilder.string() },
+        data: { type: "messages", id: 1, messages: [BasicBuilder.string()] },
       } as MessageEvent<FromWorkerMessage>,
     ],
     [

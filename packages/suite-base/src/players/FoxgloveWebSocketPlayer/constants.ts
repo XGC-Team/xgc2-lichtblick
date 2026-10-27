@@ -21,3 +21,12 @@ export const SUPPORTED_SERVICE_ENCODINGS = ["json", ...ROS_ENCODINGS];
  * 400MB
  */
 export const CURRENT_FRAME_MAXIMUM_SIZE_BYTES = 400 * 1024 * 1024;
+
+// The raw worker bridge has its own admission budget before the parsed frame
+// queue: payload bytes include the single in-flight batch, and frame count
+// independently bounds tiny/control-message work. These are resource budgets,
+// not a heap measurement or a rendering-rate limit.
+export const WORKER_BUFFER_MAXIMUM_SIZE_BYTES = CURRENT_FRAME_MAXIMUM_SIZE_BYTES;
+export const WORKER_BUFFER_MAXIMUM_MESSAGES = 4096;
+export const WORKER_BATCH_MAXIMUM_MESSAGES = 128;
+export const WORKER_BATCH_TARGET_SIZE_BYTES = 64 * 1024;
