@@ -29,6 +29,7 @@ import isDesktopApp from "@lichtblick/suite-base/util/isDesktopApp";
 
 import { compileMessageDispatch, dispatchMessages, MessageDispatchPlan } from "./messageDispatch";
 import { FramePromise } from "./pauseFrameForPromise";
+import { StaticTfSnapshot } from "./staticTfSnapshot";
 import { MessagePipelineContext } from "./types";
 
 export function defaultPlayerState(player?: Player): PlayerState {
@@ -62,6 +63,7 @@ export type MessagePipelineInternalState = {
   /** This holds the last message emitted by the player on each topic. Attempt to use this before falling back to player backfill.
    */
   lastMessageEventByTopic: Map<string, MessageEvent>;
+  staticTfSnapshot: StaticTfSnapshot;
   /** Function to call when react render has completed with the latest state */
   renderDone?: () => void;
 
@@ -101,6 +103,7 @@ export function createMessagePipelineStore({
     messageDispatchPlan: compileMessageDispatch(new Map()),
 
     lastMessageEventByTopic: new Map(),
+    staticTfSnapshot: new StaticTfSnapshot(),
     lastCapabilities: [],
 
     dispatch(action) {
@@ -117,6 +120,7 @@ export function createMessagePipelineStore({
         messageDispatchPlan: compileMessageDispatch(new Map()),
 
         lastMessageEventByTopic: new Map(),
+        staticTfSnapshot: new StaticTfSnapshot(),
         lastCapabilities: [],
         public: {
           ...prev.public,
@@ -273,13 +277,22 @@ function updateSubscriberAction(
     // at the current time frome seek-backfill.
     if (!messageDispatchPlan.groupsByTopic.has(topic)) {
       lastMessageEventByTopic.delete(topic);
+      if (topic === "/tf_static") {
+        prevState.staticTfSnapshot.clear();
+      }
     }
   }
 
   // Inject the last message on new topics for this subscriber
   const messagesForSubscriber = [];
   for (const topic of newTopicsForId) {
-    const msgEvent = lastMessageEventByTopic.get(topic);
+    const latest = lastMessageEventByTopic.get(topic);
+    const msgEvent =
+      topic === "/tf_static" &&
+      (latest?.schemaName === "tf2_msgs/TFMessage" ||
+        latest?.schemaName === "tf2_msgs/msg/TFMessage")
+        ? prevState.staticTfSnapshot.event()
+        : latest;
     if (msgEvent) {
       messagesForSubscriber.push(msgEvent);
     }
@@ -329,6 +342,18 @@ function updatePlayerStateAction(
 ): MessagePipelineInternalState {
   const messages = action.playerState.activeData?.messages;
 
+  // A reconnect or seek starts a new history: stale frames from the old
+  // publisher set or playback position must never leak into the new snapshot.
+  if (
+    action.playerState.presence === PlayerPresence.RECONNECTING ||
+    (prevState.public.playerState.activeData != undefined &&
+      action.playerState.activeData != undefined &&
+      action.playerState.activeData.lastSeekTime !==
+        prevState.public.playerState.activeData.lastSeekTime)
+  ) {
+    prevState.staticTfSnapshot.clear();
+  }
+
   const lastMessageEventByTopic = prevState.lastMessageEventByTopic;
   // A repeated player-state update must not redeliver the same frame. Fresh frames always own
   // fresh arrays, but equivalent subscribers within a frame can safely share those arrays.
@@ -336,6 +361,19 @@ function updatePlayerStateAction(
     messages && messages !== prevState.public.playerState.activeData?.messages
       ? dispatchMessages(messages, prevState.messageDispatchPlan, lastMessageEventByTopic)
       : new Map<string, readonly MessageEvent[]>();
+
+  if (messages && messages !== prevState.public.playerState.activeData?.messages) {
+    for (const message of messages) {
+      if (
+        message.topic === "/tf_static" &&
+        prevState.messageDispatchPlan.groupsByTopic.has(message.topic) &&
+        (message.schemaName === "tf2_msgs/TFMessage" ||
+          message.schemaName === "tf2_msgs/msg/TFMessage")
+      ) {
+        prevState.staticTfSnapshot.add(message);
+      }
+    }
+  }
 
   const newPublicState = {
     ...prevState.public,

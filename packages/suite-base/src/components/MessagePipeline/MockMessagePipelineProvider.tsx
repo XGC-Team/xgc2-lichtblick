@@ -49,6 +49,7 @@ import { RosDatatypes } from "@lichtblick/suite-base/types/RosDatatypes";
 
 import { ContextInternal } from "./index";
 import { compileMessageDispatch } from "./messageDispatch";
+import { StaticTfSnapshot } from "./staticTfSnapshot";
 import { MessagePipelineInternalState, MessagePipelineStateAction, reducer } from "./store";
 
 const NO_DATATYPES = new Map();
@@ -329,6 +330,7 @@ export default function MockMessagePipelineProvider(
         messageDispatchPlan: compileMessageDispatch(new Map()),
 
         lastMessageEventByTopic: new Map(),
+        staticTfSnapshot: new StaticTfSnapshot(),
         lastCapabilities: [...initialPublicState.playerState.capabilities],
         public: {
           ...initialPublicState,
