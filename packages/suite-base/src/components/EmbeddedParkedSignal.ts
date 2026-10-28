@@ -19,10 +19,9 @@ import { XGC2_HOST_VISIBILITY_EVENT } from "@lichtblick/suite-base/components/Em
  *
  * Host visibility is retained here, not in the player or a panel module. The
  * bridge validates parent origin and source, then rebroadcasts one window
- * event. This module listens to that event once per document so a 3D panel
- * that mounts after the ready handshake still sees the current embedded
- * visibility. The retained value does not park the player by itself and is
- * not a standalone message gate.
+ * event. An embedded workspace stays parked until that first host visibility
+ * report, including before any canvas mounts. Standalone workspaces retain
+ * their independent canvas behavior.
  */
 
 // eslint-disable-next-line @lichtblick/no-boolean-parameters
@@ -40,6 +39,7 @@ export type EmbeddedCanvasVisibilityReporter = {
 
 const canvasVisibilityById = new Map<string, boolean>();
 const listeners = new Set<EmbeddedParkedListener>();
+const liveViewPauseListeners = new Set<() => void>();
 let parked = false;
 
 // eslint-disable-next-line @lichtblick/no-boolean-parameters
@@ -56,6 +56,7 @@ function rememberHostVisibility(event: Event): void {
     return;
   }
   embeddedHostVisible = detail.visible;
+  recompute();
   for (const listener of hostVisibilityListeners) {
     listener(detail.visible);
   }
@@ -71,7 +72,7 @@ function installEmbeddedHostVisibilityListener(): void {
 
 installEmbeddedHostVisibilityListener();
 
-/** Latest host visibility rebroadcast by the bridge. Not a parked-state signal. */
+/** Latest host visibility rebroadcast by the bridge. */
 export function lastEmbeddedHostVisibility(): boolean | undefined {
   return embeddedHostVisible;
 }
@@ -93,11 +94,16 @@ export function subscribeEmbeddedHostVisibility(
 /** Test isolation. Does not remove the document listener. */
 export function resetEmbeddedHostVisibilityForTests(): void {
   embeddedHostVisible = undefined;
+  recompute();
 }
 
 function recompute(): void {
-  let next = canvasVisibilityById.size > 0;
-  if (next) {
+  const embedded =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("xgc2Embed") === "1";
+  let next = embedded && embeddedHostVisible !== true;
+  if (!next && canvasVisibilityById.size > 0) {
+    next = true;
     for (const visible of canvasVisibilityById.values()) {
       if (visible) {
         next = false;
@@ -152,9 +158,25 @@ export function registerEmbeddedCanvasVisibility(
  * the current state so a player constructed while already parked starts parked.
  */
 export function subscribeEmbeddedParkedState(listener: EmbeddedParkedListener): () => void {
+  recompute();
   listeners.add(listener);
   listener(parked);
   return () => {
     listeners.delete(listener);
+  };
+}
+
+/** Signal that a live player actually released its observation history. */
+export function noteLiveViewPaused(): void {
+  for (const listener of liveViewPauseListeners) {
+    listener();
+  }
+}
+
+/** A renderer uses this to discard only the history of a paused live player. */
+export function subscribeLiveViewPause(listener: () => void): () => void {
+  liveViewPauseListeners.add(listener);
+  return () => {
+    liveViewPauseListeners.delete(listener);
   };
 }

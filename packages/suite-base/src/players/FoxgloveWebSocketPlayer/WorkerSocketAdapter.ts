@@ -104,6 +104,16 @@ export default class WorkerSocketAdapter implements IWebSocket {
     }
   }
 
+  /** Release a parked view immediately, including queued worker deliveries. */
+  public terminate(): void {
+    if (this.#connectionClosed) {
+      return;
+    }
+    this.#connectionClosed = true;
+    this.#closing = true;
+    this.#worker.terminate();
+  }
+
   public send(data: string | ArrayBuffer | ArrayBufferView): void {
     this.#sendToWorker({ type: "data", data });
   }

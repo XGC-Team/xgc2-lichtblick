@@ -1255,6 +1255,32 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
+  it("clears old live transforms and marker frames before a fresh observation", () => {
+    const renderer = new Renderer({ ...defaultRendererProps, canvas });
+    const marker = (frame: string) => ({
+      topic: "/markers",
+      receiveTime: fromNanoSec(1n),
+      schemaName: "visualization_msgs/MarkerArray",
+      message: { markers: [{ header: { frame_id: frame, stamp: fromNanoSec(1n) } }] },
+      sizeInBytes: 0,
+    });
+    renderer.addMessageEvent(marker("old_marker"));
+    renderer.addMessageEvent(createTFMessageEvent("world", "old_robot", 1n, [1n]));
+    renderer.animationFrame();
+    expect(renderer.transformTree.hasFrame("old_marker")).toBe(true);
+    expect(renderer.transformTree.hasFrame("old_robot")).toBe(true);
+    renderer.clear({ clearTransforms: true, resetAllFramesCursor: true });
+    expect(renderer.transformTree.hasFrame("old_marker")).toBe(false);
+    expect(renderer.transformTree.hasFrame("old_robot")).toBe(false);
+    renderer.addMessageEvent(marker("current_marker"));
+    renderer.addMessageEvent(createTFMessageEvent("world", "current_robot", 2n, [2n]));
+    renderer.animationFrame();
+    expect(renderer.transformTree.hasFrame("current_marker")).toBe(true);
+    expect(renderer.transformTree.hasFrame("current_robot")).toBe(true);
+    expect(renderer.transformTree.hasFrame("old_robot")).toBe(false);
+    renderer.dispose();
+  });
+
   it("adds message event with entities extraction", () => {
     // Given: A renderer instance
     const renderer = new Renderer({ ...defaultRendererProps, canvas });

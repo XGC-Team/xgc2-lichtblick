@@ -10,8 +10,11 @@ import type { EventEmitter } from "events";
 
 import {
   registerEmbeddedCanvasVisibility,
+  resetEmbeddedHostVisibilityForTests,
+  subscribeLiveViewPause,
   type EmbeddedCanvasVisibilityReporter,
 } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
+import { XGC2_HOST_VISIBILITY_EVENT } from "@lichtblick/suite-base/components/EmbeddedWorkspaceProtocol";
 import {
   PlayerPresence,
   type MessageEvent,
@@ -19,12 +22,7 @@ import {
 } from "@lichtblick/suite-base/players/types";
 
 import FoxgloveWebSocketPlayer from "./index";
-import { RESUME_SCENE_CLEAR_FALLBACK_MS } from "./parkedParsePause";
 
-// A shared spy stands in for every channel's deserializer. Parked assertions
-// check it is never called while hidden and exactly once per retained message
-// on resume. Implementations are (re)installed in beforeEach because the repo
-// jest config restores mocks between tests.
 const mockDeserialize = jest.fn((data: ArrayBufferView) => ({
   bytes: Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)),
 }));
@@ -35,17 +33,15 @@ jest.mock("@foxglove/ws-protocol", () => {
     public static SUPPORTED_SUBPROTOCOL = "foxglove.websocket.v1";
     public static instances: FakeFoxgloveClient[] = [];
     public nextSubscriptionId = 100;
-    public subscribe = jest.fn((channelId: number) => {
-      void channelId;
-      return this.nextSubscriptionId++;
-    });
-    public unsubscribe = jest.fn((subscriptionId: number) => {
-      void subscriptionId;
-    });
+    public subscribe = jest.fn((_channelId: number) => this.nextSubscriptionId++);
+    public unsubscribe = jest.fn();
+    public unsubscribeConnectionGraph = jest.fn();
+    public subscribeConnectionGraph = jest.fn();
+    public getParameters = jest.fn();
+    public sendServiceCallRequest = jest.fn();
     public close = jest.fn();
-    public constructor(args: unknown) {
+    public constructor(_args: unknown) {
       super();
-      void args;
       FakeFoxgloveClient.instances.push(this);
     }
   }
@@ -67,29 +63,29 @@ jest.mock("@foxglove/ws-protocol", () => {
   };
 });
 
-jest.mock("@lichtblick/mcap-support", () => {
-  const actual = jest.requireActual("@lichtblick/mcap-support");
-  return {
-    ...actual,
-    parseChannel: jest.fn(),
-  };
-});
+jest.mock("@lichtblick/mcap-support", () => ({
+  ...jest.requireActual("@lichtblick/mcap-support"),
+  parseChannel: jest.fn(),
+}));
 
 type FakeClientInstance = EventEmitter & {
   subscribe: jest.Mock;
   unsubscribe: jest.Mock;
+  getParameters: jest.Mock;
+  subscribeConnectionGraph: jest.Mock;
+  unsubscribeConnectionGraph: jest.Mock;
   close: jest.Mock;
+  sendServiceCallRequest: jest.Mock;
 };
-
 const FakeClient: { instances: FakeClientInstance[] } =
   jest.requireMock("@foxglove/ws-protocol").FoxgloveClient;
-
 const parseChannelMock: jest.Mock = jest.requireMock("@lichtblick/mcap-support").parseChannel;
-
-const CLOUD_CHANNEL = 11;
-const TF_CHANNEL = 12;
-const SCENE_CHANNEL = 13;
-const MARKERS_CHANNEL = 14;
+const channels = [
+  { id: 11, topic: "/cloud", schemaName: "sensor_msgs/PointCloud2" },
+  { id: 12, topic: "/tf", schemaName: "tf2_msgs/TFMessage" },
+  { id: 13, topic: "/scene", schemaName: "foxglove.SceneUpdate" },
+  { id: 14, topic: "/markers", schemaName: "visualization_msgs/MarkerArray" },
+].map((channel) => ({ ...channel, encoding: "json", schema: "{}", schemaEncoding: "jsonschema" }));
 
 class StubWebSocket {
   public close(): void {}
@@ -97,24 +93,34 @@ class StubWebSocket {
 
 type Harness = {
   player: FoxgloveWebSocketPlayer;
-  client: FakeClientInstance;
   states: PlayerState[];
-  subIdByChannel: Map<number, number>;
   reporter: EmbeddedCanvasVisibilityReporter;
 };
 
 function collectMessages(states: PlayerState[]): MessageEvent[] {
   return states.flatMap((state) => state.activeData?.messages ?? []);
 }
-
+function connect(client: FakeClientInstance): void {
+  client.emit("open");
+  client.emit("serverInfo", { capabilities: [], name: "fake", sessionId: "session" });
+  client.emit("advertise", channels);
+}
+function subscription(client: FakeClientInstance, channelId: number): number {
+  const index = client.subscribe.mock.calls.findIndex((call: unknown[]) => call[0] === channelId);
+  return client.subscribe.mock.results[index]!.value as number;
+}
+function send(client: FakeClientInstance, subId: number, bytes: number[]): void {
+  client.emit("message", { subscriptionId: subId, data: new Uint8Array(bytes) });
+}
 async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 6; index++) {
+    await Promise.resolve();
+  }
 }
 
-describe("FoxgloveWebSocketPlayer parked parse pause", () => {
-  let harnesses: Harness[] = [];
-
+describe("FoxgloveWebSocketPlayer view lifetime", () => {
+  let harnesses: Harness[];
+  const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
   function setup({ startParked = false }: { startParked?: boolean } = {}): Harness {
     const reporter = registerEmbeddedCanvasVisibility(`canvas-${harnesses.length}`);
     if (startParked) {
@@ -125,73 +131,22 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
       metricsCollector: { setProperty: jest.fn(), playerConstructed: jest.fn() },
       sourceId: "foxglove-websocket",
     });
-    const client = FakeClient.instances[FakeClient.instances.length - 1]!;
-    client.emit("open");
-    client.emit("serverInfo", { capabilities: [], name: "fake", sessionId: "session" });
-    client.emit("advertise", [
-      {
-        id: CLOUD_CHANNEL,
-        topic: "/cloud",
-        encoding: "json",
-        schemaName: "sensor_msgs/PointCloud2",
-        schema: "{}",
-        schemaEncoding: "jsonschema",
-      },
-      {
-        id: TF_CHANNEL,
-        topic: "/tf",
-        encoding: "json",
-        schemaName: "tf2_msgs/TFMessage",
-        schema: "{}",
-        schemaEncoding: "jsonschema",
-      },
-      {
-        id: SCENE_CHANNEL,
-        topic: "/scene",
-        encoding: "json",
-        schemaName: "foxglove.SceneUpdate",
-        schema: "{}",
-        schemaEncoding: "jsonschema",
-      },
-      {
-        id: MARKERS_CHANNEL,
-        topic: "/markers",
-        encoding: "json",
-        schemaName: "visualization_msgs/MarkerArray",
-        schema: "{}",
-        schemaEncoding: "jsonschema",
-      },
-    ]);
     const states: PlayerState[] = [];
     player.setListener(async (state) => {
       states.push(state);
     });
-    player.setSubscriptions([
-      { topic: "/cloud" },
-      { topic: "/tf" },
-      { topic: "/scene" },
-      { topic: "/markers" },
-    ]);
-    const subIdByChannel = new Map<number, number>();
-    client.subscribe.mock.calls.forEach((call: unknown[], index: number) => {
-      subIdByChannel.set(call[0] as number, client.subscribe.mock.results[index]!.value as number);
-    });
-    const harness = { player, client, states, subIdByChannel, reporter };
+    player.setSubscriptions(channels.map(({ topic }) => ({ topic })));
+    if (!startParked) {
+      connect(FakeClient.instances.at(-1)!);
+    }
+    const harness = { player, states, reporter };
     harnesses.push(harness);
     return harness;
-  }
-
-  function send(client: FakeClientInstance, subId: number, bytes: number[] | Uint8Array): void {
-    client.emit("message", {
-      subscriptionId: subId,
-      data: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
-    });
   }
 
   beforeAll(() => {
     (globalThis as Record<string, unknown>).WebSocket = StubWebSocket;
   });
-
   beforeEach(() => {
     FakeClient.instances.length = 0;
     harnesses = [];
@@ -202,263 +157,192 @@ describe("FoxgloveWebSocketPlayer parked parse pause", () => {
       datatypes: new Map([[args.schema.name, { name: args.schema.name }]]),
       deserialize: mockDeserialize,
     }));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   });
-
   afterEach(() => {
-    jest.useRealTimers();
-    for (const harness of harnesses) {
-      harness.player.close();
-      harness.reporter.dispose();
+    for (const { player, reporter } of harnesses) {
+      player.close();
+      reporter.dispose();
     }
-    // Several messages on one topic land inside a near-zero time window here,
-    // which incidentally trips the high-frequency-topic alert logging.
+    if (visibility) {
+      Object.defineProperty(document, "visibilityState", visibility);
+    } else {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+    jest.useRealTimers();
     (console.warn as jest.Mock).mockClear();
   });
 
-  it("visible hot path: messages are parsed eagerly, the gate changes nothing", async () => {
-    const { client, states, subIdByChannel } = setup();
+  it("releases every view subscription and ignores 100 late messages before one reveal connection", async () => {
+    const { reporter, states } = setup();
+    const first = FakeClient.instances[0]!;
+    send(first, subscription(first, 12), [1]);
+    send(first, subscription(first, 13), [2]);
+    await flush();
+    const previousSeek = states.at(-1)!.activeData!.lastSeekTime;
     states.length = 0;
     mockDeserialize.mockClear();
-
-    send(client, subIdByChannel.get(TF_CHANNEL)!, [1, 2, 3]);
-    // Synchronous parse on arrival: no deferral is added while visible.
-    expect(mockDeserialize).toHaveBeenCalledTimes(1);
-    send(client, subIdByChannel.get(CLOUD_CHANNEL)!, [4, 5]);
-    expect(mockDeserialize).toHaveBeenCalledTimes(2);
+    reporter.setVisible(false);
+    expect(first.unsubscribe.mock.calls.map((call: unknown[]) => call[0]).sort()).toEqual(
+      channels.map(({ id }) => subscription(first, id)).sort(),
+    );
+    expect(first.close).toHaveBeenCalledTimes(1);
+    for (let index = 0; index < 100; index++) {
+      send(first, subscription(first, 11), [index]);
+      first.emit("advertise", channels);
+      first.emit("close");
+      reporter.setVisible(false);
+    }
     await flush();
-
-    const messages = collectMessages(states);
-    expect(messages.map((message) => [message.topic, message.message])).toEqual([
-      ["/tf", { bytes: [1, 2, 3] }],
-      ["/cloud", { bytes: [4, 5] }],
+    expect(mockDeserialize).not.toHaveBeenCalled();
+    expect(states).toHaveLength(0);
+    expect(FakeClient.instances).toHaveLength(1);
+    reporter.setVisible(true);
+    expect(FakeClient.instances).toHaveLength(2);
+    const current = FakeClient.instances[1]!;
+    connect(current);
+    await flush();
+    expect(current.subscribe.mock.calls.map((call: unknown[]) => call[0]).sort()).toEqual(
+      channels.map(({ id }) => id).sort(),
+    );
+    expect(states.at(-1)!.activeData!.lastSeekTime).toBeGreaterThan(previousSeek);
+    states.length = 0;
+    send(current, subscription(current, 12), [4]);
+    send(current, subscription(current, 12), [5]);
+    send(current, subscription(current, 14), [6]);
+    await flush();
+    expect(collectMessages(states).map((message) => [message.topic, message.message])).toEqual([
+      ["/tf", { bytes: [4] }],
+      ["/tf", { bytes: [5] }],
+      ["/markers", { bytes: [6] }],
     ]);
+    expect(mockDeserialize).toHaveBeenCalledTimes(3);
   });
 
-  it("starts a new renderer history after a capacity disconnect even when the publisher session and clock are unchanged", async () => {
+  it("does not open or retry while initially parked and creates one connection on reveal", async () => {
     jest.useFakeTimers();
-    const { client, states, subIdByChannel } = setup();
-    send(client, subIdByChannel.get(MARKERS_CHANNEL)!, [1]);
+    const { reporter } = setup({ startParked: true });
+    expect(FakeClient.instances).toHaveLength(0);
+    jest.advanceTimersByTime(60_000);
+    expect(FakeClient.instances).toHaveLength(0);
+    reporter.setVisible(true);
+    expect(FakeClient.instances).toHaveLength(1);
+    connect(FakeClient.instances[0]!);
     await flush();
-    const previous = states[states.length - 1]!.activeData!;
-    expect(previous.messages).toHaveLength(1);
-    client.emit("close", { code: 4009, reason: "WebSocket worker delivery capacity exceeded" });
+    expect(FakeClient.instances[0]!.subscribe).toHaveBeenCalledTimes(4);
+  });
+
+  it("signals one live scene discontinuity for repeated parked notifications", () => {
+    const { reporter } = setup();
+    const paused = jest.fn();
+    const unsubscribe = subscribeLiveViewPause(paused);
+    try {
+      for (let index = 0; index < 100; index++) {
+        reporter.setVisible(false);
+      }
+      expect(paused).toHaveBeenCalledTimes(1);
+      reporter.setVisible(true);
+      reporter.setVisible(false);
+      expect(paused).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("stops parameter polling and connection-graph demand while parked", () => {
+    jest.useFakeTimers();
+    const { reporter } = setup();
+    const client = FakeClient.instances[0]!;
+    client.emit("serverInfo", {
+      capabilities: ["parameters", "connectionGraph"],
+      name: "fake",
+      sessionId: "session",
+    });
+    expect(client.getParameters).toHaveBeenCalledTimes(1);
+    expect(client.subscribeConnectionGraph).toHaveBeenCalledTimes(1);
+    reporter.setVisible(false);
+    expect(client.unsubscribeConnectionGraph).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(60_000);
+    expect(client.getParameters).toHaveBeenCalledTimes(1);
+    expect(FakeClient.instances).toHaveLength(1);
+  });
+
+  it("waits for host visibility before opening an embedded player with no canvas", async () => {
+    const previous = window.location.href;
+    window.history.replaceState({}, "", "/?xgc2Embed=1");
+    const player = new FoxgloveWebSocketPlayer({
+      url: "ws://127.0.0.1:1",
+      metricsCollector: { setProperty: jest.fn(), playerConstructed: jest.fn() },
+      sourceId: "foxglove-websocket",
+    });
+    try {
+      expect(FakeClient.instances).toHaveLength(0);
+      for (let index = 0; index < 100; index++) {
+        window.dispatchEvent(
+          new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+        );
+      }
+      await flush();
+      expect(FakeClient.instances).toHaveLength(0);
+      window.dispatchEvent(
+        new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: true } }),
+      );
+      expect(FakeClient.instances).toHaveLength(1);
+    } finally {
+      player.close();
+      window.history.replaceState({}, "", previous);
+      resetEmbeddedHostVisibilityForTests();
+    }
+  });
+
+  it("cancels an already scheduled reconnect until the document is visible", async () => {
+    jest.useFakeTimers();
+    jest.spyOn(Math, "random").mockReturnValue(1);
+    setup();
+    const first = FakeClient.instances[0]!;
+    first.emit("close");
     expect(console.error).toHaveBeenCalledWith(
       "Player alert",
       "ws:connection-failed",
-      expect.objectContaining({ message: "Connection failed" }),
+      expect.anything(),
     );
     (console.error as jest.Mock).mockClear();
     await flush();
-    expect(states[states.length - 1]!.presence).toBe(PlayerPresence.RECONNECTING);
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    jest.advanceTimersByTime(60_000);
+    await flush();
+    expect(FakeClient.instances).toHaveLength(1);
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(FakeClient.instances).toHaveLength(2);
+    connect(FakeClient.instances[1]!);
+    await flush();
+    expect(FakeClient.instances[1]!.subscribe).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps renderer history across an ordinary disconnect only until the current reconnect", async () => {
+    jest.useFakeTimers();
+    jest.spyOn(Math, "random").mockReturnValue(1);
+    const { states } = setup();
+    const first = FakeClient.instances[0]!;
+    send(first, subscription(first, 14), [1]);
+    await flush();
+    const previous = states.at(-1)!.activeData!;
+    first.emit("close");
+    expect(console.error).toHaveBeenCalledWith(
+      "Player alert",
+      "ws:connection-failed",
+      expect.anything(),
+    );
+    (console.error as jest.Mock).mockClear();
+    await flush();
+    expect(states.at(-1)!.presence).toBe(PlayerPresence.RECONNECTING);
     jest.advanceTimersByTime(250);
-    const replacement = FakeClient.instances[FakeClient.instances.length - 1]!;
-    expect(replacement).not.toBe(client);
-    replacement.emit("open");
-    replacement.emit("serverInfo", { capabilities: [], name: "fake", sessionId: "session" });
+    const replacement = FakeClient.instances[1]!;
+    connect(replacement);
     await flush();
-    const restored = states[states.length - 1]!.activeData!;
-    expect(restored.lastSeekTime).toBeGreaterThan(previous.lastSeekTime);
-    expect(restored.messages).toEqual([]);
-    send(client, subIdByChannel.get(MARKERS_CHANNEL)!, [2]);
-    await flush();
-    expect(states[states.length - 1]!.activeData!.messages).toEqual([]);
-  });
-
-  it("parked: retains latest snapshots and ordered transforms without parsing", async () => {
-    const { client, states, subIdByChannel, reporter } = setup();
-    states.length = 0;
-    mockDeserialize.mockClear();
-
-    reporter.setVisible(false);
-    send(client, subIdByChannel.get(CLOUD_CHANNEL)!, [1]);
-    send(client, subIdByChannel.get(TF_CHANNEL)!, [10]);
-    send(client, subIdByChannel.get(CLOUD_CHANNEL)!, [2]);
-    send(client, subIdByChannel.get(TF_CHANNEL)!, [11]);
-    send(client, subIdByChannel.get(CLOUD_CHANNEL)!, [3]);
-
-    // Zero parses and zero pipeline wakes while parked: no deserialization, no
-    // scene application downstream.
-    expect(mockDeserialize).not.toHaveBeenCalled();
-    expect(states).toHaveLength(0);
-
-    reporter.setVisible(true);
-    await flush();
-
-    // Each retained entry is parsed exactly once. TF messages can contain
-    // different frames, so both remain while the cloud keeps only its latest.
-    expect(mockDeserialize).toHaveBeenCalledTimes(3);
-    const parsedPayloads = mockDeserialize.mock.calls.map((call) =>
-      Array.from(call[0] as Uint8Array),
-    );
-    expect(parsedPayloads).toEqual([[10], [11], [3]]);
-
-    const byTopic = new Map<string, MessageEvent[]>();
-    for (const message of collectMessages(states)) {
-      byTopic.set(message.topic, [...(byTopic.get(message.topic) ?? []), message]);
-    }
-    expect(byTopic.get("/cloud")?.map((message) => message.message)).toEqual([{ bytes: [3] }]);
-    expect(byTopic.get("/tf")?.map((message) => message.message)).toEqual([
-      { bytes: [10] },
-      { bytes: [11] },
-    ]);
-  });
-
-  it("parked: deletion-semantic channels are unsubscribed; resume clears layers before resubscribing", async () => {
-    const { client, states, subIdByChannel, reporter } = setup();
-    const sceneSubId = subIdByChannel.get(SCENE_CHANNEL)!;
-    const markersSubId = subIdByChannel.get(MARKERS_CHANNEL)!;
-    const cloudSubId = subIdByChannel.get(CLOUD_CHANNEL)!;
-    const tfSubId = subIdByChannel.get(TF_CHANNEL)!;
-    mockDeserialize.mockClear();
-
-    // Visible: entities including one that will be deleted while parked.
-    send(client, sceneSubId, [7, 7]);
-    await flush();
-    states.length = 0;
-
-    reporter.setVisible(false);
-    expect(client.unsubscribe.mock.calls.map((call: unknown[]) => call[0]).sort()).toEqual(
-      [sceneSubId, markersSubId].sort(),
-    );
-    expect(client.unsubscribe.mock.calls).not.toContainEqual([cloudSubId]);
-    expect(client.unsubscribe.mock.calls).not.toContainEqual([tfSubId]);
-
-    // A deletion happens server-side while parked; nothing is delivered. An
-    // in-flight message on the canceled subscription is dropped silently.
-    const stateCount = states.length;
-    send(client, sceneSubId, [9, 9, 9]);
-    expect(states).toHaveLength(stateCount);
-    await flush();
-    expect(states).toHaveLength(stateCount);
-    expect(collectMessages(states)).toHaveLength(0);
-
-    const subscribeCallsBeforeResume = client.subscribe.mock.calls.length;
-    jest.useFakeTimers();
-    reporter.setVisible(true);
-    await flush();
-
-    // Resubscribed both paused channels with fresh subscription ids.
-    const resumeCalls = client.subscribe.mock.calls.slice(
-      subscribeCallsBeforeResume,
-    ) as unknown[][];
-    expect(resumeCalls.map((call) => call[0]).sort()).toEqual(
-      [SCENE_CHANNEL, MARKERS_CHANNEL].sort(),
-    );
-    const resumedSceneSubId = client.subscribe.mock.results[subscribeCallsBeforeResume]!
-      .value as number;
-
-    // No layer is cleared before fresh truth arrives: each clear is deferred
-    // so it can drain atomically with the topic's first post-resubscribe
-    // message instead of painting an empty layer in between.
-    expect(collectMessages(states).filter((message) => message.sizeInBytes === 0)).toHaveLength(0);
-
-    // The producer's next full publish repopulates without the deleted entity.
-    states.length = 0;
-    send(client, resumedSceneSubId, [8]);
-    await flush();
-
-    // Clear-ALL lands first IN THE SAME EMIT, so a missed deletion cannot
-    // survive as a ghost and no empty layer is ever painted; only then does
-    // fresh truth arrive.
-    expect(states.at(-1)?.activeData?.messages.map((message) => message.message)).toEqual([
-      { deletions: [{ type: 1 }], entities: [] },
-      { bytes: [8] },
-    ]);
-    // A silent producer's layer is not cleared yet...
-    expect(collectMessages(states).filter((message) => message.topic === "/markers")).toHaveLength(
-      0,
-    );
-    // ...but its missed deletions cannot linger either: the fallback timer
-    // clears the layer without waiting for a publish.
-    jest.advanceTimersByTime(RESUME_SCENE_CLEAR_FALLBACK_MS);
-    await flush();
-    const markersMessages = collectMessages(states).filter(
-      (message) => message.topic === "/markers",
-    );
-    expect(markersMessages.map((message) => message.message)).toEqual([
-      { markers: [{ action: 3, ns: "", id: 0 }] },
-    ]);
-  });
-
-  it("a player constructed while already parked never subscribes deletion-semantic channels", async () => {
-    const { client, states, reporter } = setup({ startParked: true });
-    expect(client.subscribe.mock.calls.map((call: unknown[]) => call[0]).sort()).toEqual(
-      [CLOUD_CHANNEL, TF_CHANNEL].sort(),
-    );
-
-    jest.useFakeTimers();
-    reporter.setVisible(true);
-    await flush();
-
-    expect(client.subscribe.mock.calls.map((call: unknown[]) => call[0]).sort()).toEqual(
-      [CLOUD_CHANNEL, TF_CHANNEL, SCENE_CHANNEL, MARKERS_CHANNEL].sort(),
-    );
-    // Clears stay deferred while producers are silent...
-    expect(collectMessages(states).filter((message) => message.sizeInBytes === 0)).toHaveLength(0);
-    // ...and the fallback timer still resets both layers so deletions missed
-    // while parked cannot survive as ghosts.
-    jest.advanceTimersByTime(RESUME_SCENE_CLEAR_FALLBACK_MS);
-    await flush();
-    const clearedTopics = collectMessages(states)
-      .filter((message) => message.sizeInBytes === 0)
-      .map((message) => message.topic);
-    expect(clearedTopics.sort()).toEqual(["/markers", "/scene"]);
-  });
-
-  it("bounds parked memory at the 32MB cap regardless of park duration", async () => {
-    const { client, states, subIdByChannel, reporter } = setup();
-    states.length = 0;
-
-    reporter.setVisible(false);
-    // Individually larger than PARKED_FRAME_MAXIMUM_SIZE_BYTES: rejected
-    // without disturbing the other retained latest-per-topic entries.
-    send(client, subIdByChannel.get(CLOUD_CHANNEL)!, new Uint8Array(40 * 1024 * 1024));
-    send(client, subIdByChannel.get(TF_CHANNEL)!, [42]);
-
-    reporter.setVisible(true);
-    await flush();
-
-    const messages = collectMessages(states);
-    expect(messages.some((message) => message.topic === "/cloud")).toBe(false);
-    expect(
-      messages.filter((message) => message.topic === "/tf").map((message) => message.message),
-    ).toEqual([{ bytes: [42] }]);
-  });
-
-  it.each([
-    { mode: "visible", parked: false, aggregate: false },
-    { mode: "parked aggregated", parked: true, aggregate: true },
-    { mode: "parked separate", parked: true, aggregate: false },
-  ])("$mode retains both robot transforms", async ({ parked, aggregate }) => {
-    const { client, states, subIdByChannel, reporter } = setup();
-    states.length = 0;
-    mockDeserialize.mockImplementation((data: ArrayBufferView) =>
-      JSON.parse(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8")),
-    );
-    if (parked) {
-      reporter.setVisible(false);
-    }
-    const transforms = ["uav1/base_link", "uav2/base_link"].map((child_frame_id) => ({
-      header: { frame_id: "world", stamp: { sec: 10, nsec: 0 } },
-      child_frame_id,
-      transform: { translation: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
-    }));
-    const batches = aggregate ? [transforms] : transforms.map((transform) => [transform]);
-    for (const batch of batches) {
-      send(
-        client,
-        subIdByChannel.get(TF_CHANNEL)!,
-        new Uint8Array(Buffer.from(JSON.stringify({ transforms: batch })!)),
-      );
-    }
-    reporter.setVisible(true);
-    await flush();
-    const frames = collectMessages(states)
-      .filter((event) => event.topic === "/tf")
-      .flatMap(
-        (event) => (event.message as { transforms: { child_frame_id: string }[] }).transforms,
-      )
-      .map((transform) => transform.child_frame_id);
-    expect(frames.sort()).toEqual(["uav1/base_link", "uav2/base_link"]);
+    expect(states.at(-1)!.activeData!.lastSeekTime).toBeGreaterThan(previous.lastSeekTime);
+    expect(states.at(-1)!.activeData!.messages).toEqual([]);
   });
 });

@@ -141,6 +141,33 @@ describe("EmbeddedParkedSignal", () => {
     expect(host).toHaveBeenCalledTimes(1);
   });
 
+  it("holds an embedded player before any canvas or host visibility report", () => {
+    const previous = window.location.href;
+    window.history.replaceState({}, "", "/?xgc2Embed=1");
+    const listener = jest.fn();
+    try {
+      unsubscribers.push(subscribeEmbeddedParkedState(listener));
+      expect(listener).toHaveBeenLastCalledWith(true);
+      window.dispatchEvent(
+        new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+      );
+      expect(listener).toHaveBeenCalledTimes(1);
+      window.dispatchEvent(
+        new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: true } }),
+      );
+      expect(listener).toHaveBeenLastCalledWith(false);
+      window.dispatchEvent(
+        new CustomEvent(XGC2_HOST_VISIBILITY_EVENT, { detail: { visible: false } }),
+      );
+      expect(listener).toHaveBeenLastCalledWith(true);
+      const canvas = register("visible-but-host-hidden");
+      canvas.setVisible(true);
+      expect(listener).toHaveBeenCalledTimes(3);
+    } finally {
+      window.history.replaceState({}, "", previous);
+    }
+  });
+
   it("registers a second hidden canvas without unparking or flushing deferred bytes", () => {
     const listener = jest.fn();
     const first = register("first");

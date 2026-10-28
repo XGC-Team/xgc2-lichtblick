@@ -39,7 +39,10 @@ import {
   Time,
 } from "@lichtblick/rostime";
 import { ParameterValue } from "@lichtblick/suite";
-import { subscribeEmbeddedParkedState } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
+import {
+  noteLiveViewPaused,
+  subscribeEmbeddedParkedState,
+} from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import { Asset } from "@lichtblick/suite-base/components/PanelExtensionAdapter";
 import PlayerAlertManager from "@lichtblick/suite-base/players/PlayerAlertManager";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
@@ -82,12 +85,6 @@ import {
   LiveMessageQueue,
   LiveMessageRetention,
 } from "./liveMessageQueue";
-import {
-  isDeletionSemanticSchema,
-  makeSceneLayerClearEvent,
-  PARKED_FRAME_MAXIMUM_SIZE_BYTES,
-  RESUME_SCENE_CLEAR_FALLBACK_MS,
-} from "./parkedParsePause";
 import { reconnectDelay } from "./reconnect";
 import {
   isDeferredSnapshotEvent,
@@ -116,6 +113,8 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #url: string; // WebSocket URL.
   #name: string;
   #client?: FoxgloveClient; // The client when we're connected.
+  #socket?: IWebSocket;
+  #operationSockets = new Map<FoxgloveClient, IWebSocket>();
   #id: string = uuidv4(); // Unique ID for this player session.
   #serverCapabilities: string[] = [];
   #playerCapabilities: (typeof PLAYER_CAPABILITIES)[keyof typeof PLAYER_CAPABILITIES][] = [];
@@ -130,27 +129,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #datatypes: MessageDefinitionMap = new Map(); // Datatypes as published by the WebSocket.
   #parsedMessages = new LiveMessageQueue<LiveQueueMessage>(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
   #snapshotCoalescingTopics = new Set<string>();
-  /**
-   * True while every registered 3D canvas reports hidden (parked embed). The
-   * gate is a single boolean check on the message hot path; see
-   * parkedParsePause.ts for the per-schema-class mechanism.
-   */
+  /** View demand is parked while the embed or document is hidden. */
   #parked = false;
-  /** Deletion-semantic topics whose server subscription is paused while parked (topic → schemaName). */
-  #parkedSceneTopics = new Map<string, string>();
-  /**
-   * Resume-time layer clears held until the topic's first post-resubscribe
-   * message, so clear and repopulation drain in the same emitted frame and
-   * scene entities do not blink through an empty layer. A fallback timer
-   * clears layers whose producer stays silent, so deletions missed while
-   * parked cannot linger as ghosts.
-   */
-  #pendingSceneClears = new Map<
-    string,
-    { schemaName: string; timer: ReturnType<typeof setTimeout> }
-  >();
-  /** Subscription ids canceled by the park pause; suppresses unknown-subscription alerts for in-flight messages. */
-  #parkedUnsubscribedIds = new Set<SubscriptionId>();
+  #embeddedParked = false;
   #unsubscribeParkedSignal?: () => void;
   #receivedBytes: number = 0;
   #metricsCollector: PlayerMetricsCollectorInterface;
@@ -195,7 +176,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #servicesByName = new Map<string, ResolvedService>();
   #serviceResponseCbs = new Map<
     ServiceCallRequest["callId"],
-    (response: ServiceCallResponse) => void
+    {
+      client: FoxgloveClient;
+      response: (response: ServiceCallResponse) => void;
+      reject: (error: Error) => void;
+    }
   >();
   #publishedTopics?: Map<string, Set<string>>;
   #subscribedTopics?: Map<string, Set<string>>;
@@ -229,14 +214,19 @@ export default class FoxgloveWebSocketPlayer implements Player {
     // Invoked immediately with the current state, so a player constructed
     // while the embed is already parked starts parked.
     this.#unsubscribeParkedSignal = subscribeEmbeddedParkedState((parked) => {
-      this.#setParked(parked);
+      this.#embeddedParked = parked;
+      this.#updateParked();
     });
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.#updateParked);
+    }
+    this.#updateParked();
     this.#open();
   }
 
   #open = (): void => {
     this.#openTimeout = undefined;
-    if (this.#closed || this.#client != undefined) {
+    if (this.#closed || this.#parked || this.#client != undefined) {
       return;
     }
 
@@ -244,13 +234,19 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
     let client: FoxgloveClient;
     try {
-      client = new FoxgloveClient({
-        ws:
-          typeof Worker !== "undefined"
-            ? new WorkerSocketAdapter(this.#url, subprotocols)
-            : (new WebSocket(this.#url, subprotocols) as IWebSocket),
-      });
+      const socket =
+        typeof Worker !== "undefined"
+          ? new WorkerSocketAdapter(this.#url, subprotocols)
+          : (new WebSocket(this.#url, subprotocols) as IWebSocket);
+      this.#socket = socket;
+      client = new FoxgloveClient({ ws: socket });
     } catch {
+      const socket = this.#socket;
+      this.#socket = undefined;
+      socket?.close();
+      if (socket instanceof WorkerSocketAdapter) {
+        socket.terminate();
+      }
       this.#reconnect();
       return;
     }
@@ -278,7 +274,6 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#channelsById.clear();
       this.#channelsByTopic.clear();
       this.#servicesByName.clear();
-      this.#serviceResponseCbs.clear();
       this.#publicationsByTopic.clear();
       this.#appliedPublisherRevision = undefined;
       this.#appliedSubscriptionRevision = undefined;
@@ -330,10 +325,15 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#client.on("close", () => {
       if (this.#client === client) {
         this.#reconnect();
+      } else if (this.#operationSockets.delete(client)) {
+        this.#rejectPendingServiceCalls(client);
       }
     });
 
     this.#client.on("serverInfo", (event) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       if (!Array.isArray(event.capabilities)) {
         this.#alerts.addAlert("ws:invalid-capabilities", {
           severity: "warn",
@@ -411,16 +411,11 @@ export default class FoxgloveWebSocketPlayer implements Player {
           PLAYER_CAPABILITIES.setParameters,
         );
 
-        // Periodically request all available parameters.
-        this.#getParameterInterval = setInterval(() => {
-          this.#client?.getParameters([], GET_ALL_PARAMS_REQUEST_ID);
-        }, GET_ALL_PARAMS_PERIOD_MS);
-
-        this.#client?.getParameters([], GET_ALL_PARAMS_REQUEST_ID);
+        this.#startParameterObservation();
       }
 
       if (event.capabilities.includes(ServerCapability.connectionGraph)) {
-        this.#client?.subscribeConnectionGraph();
+        client.subscribeConnectionGraph();
       }
 
       if (event.capabilities.includes(ServerCapability.assets)) {
@@ -431,6 +426,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("status", (event) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       const msg = `FoxgloveWebSocket: ${event.message}`;
       if (event.level === StatusLevel.INFO) {
         log.info(msg);
@@ -455,6 +453,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("advertise", (newChannels) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       for (const channel of newChannels) {
         let parsedChannel;
         try {
@@ -536,6 +537,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("unadvertise", (removedChannels) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       for (const id of removedChannels) {
         const chanInfo = this.#channelsById.get(id);
         if (!chanInfo) {
@@ -552,7 +556,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
           if (channel.id === id) {
             this.#resolvedSubscriptionsById.delete(subId);
             this.#resolvedSubscriptionsByTopic.delete(channel.topic);
-            this.#client?.unsubscribe(subId);
+            client.unsubscribe(subId);
             this.#unresolvedSubscriptions.add(channel.topic);
           }
         }
@@ -564,11 +568,12 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("message", ({ subscriptionId, data }) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       const chanInfo = this.#resolvedSubscriptionsById.get(subscriptionId);
       if (!chanInfo) {
-        const wasRecentlyCanceled =
-          this.#recentlyCanceledSubscriptions.has(subscriptionId) ||
-          this.#parkedUnsubscribedIds.has(subscriptionId);
+        const wasRecentlyCanceled = this.#recentlyCanceledSubscriptions.has(subscriptionId);
         if (!wasRecentlyCanceled) {
           this.#alerts.addAlert(`message-missing-subscription:${subscriptionId}`, {
             severity: "warn",
@@ -583,45 +588,6 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#receivedBytes += data.byteLength;
         const receiveTime = this.#getCurrentTime();
         const topic = chanInfo.channel.topic;
-
-        // Parked embed: keep raw bytes so nothing is deserialized while hidden.
-        // Transforms stay ordered: one topic can carry different robot frames.
-        // Other retained messages collapse to the latest per topic. The drain
-        // stays closed until resume (see #emitState), so no scene application
-        // happens either. Deletion-semantic channels cannot arrive here: they
-        // are unsubscribed while parked, and their layers are reset on resume
-        // before resubscribing, so missed deletions leave no ghosts.
-        if (this.#parked) {
-          const isTransform =
-            topic === "/tf" ||
-            topic === "/tf_static" ||
-            isTransformSchemaName(chanInfo.channel.schemaName);
-          this.#parsedMessages.enqueue(
-            {
-              value: makeDeferredSnapshotEvent({
-                topic,
-                schemaName: chanInfo.channel.schemaName,
-                receiveTime,
-                data,
-                deserialize: chanInfo.parsedChannel.deserialize,
-              }),
-              sizeInBytes: data.byteLength,
-              key: topic,
-              retention: isTransform ? "protected" : "replaceable",
-              protectedPriority: topic === "/tf_static" ? "high" : "normal",
-            },
-            { supersedeReplaceable: true },
-          );
-          this.#bumpTopicStats(topic);
-          // No #emitState: emitting would wake the pipeline for a frame that
-          // must not be applied while hidden. Counts are emitted on resume.
-          return;
-        }
-
-        // A layer clear deferred at resume lands immediately before the
-        // topic's first post-resubscribe message, so both drain in the same
-        // emitted frame instead of showing an empty layer in between.
-        this.#flushPendingSceneClear(topic, receiveTime);
 
         // Snapshot-semantics topics: defer deserialization to drain time and
         // keep only the latest when every subscriber permits sampling. A stalled
@@ -729,6 +695,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("time", ({ timestamp }) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       if (!this.#serverPublishesTime) {
         return;
       }
@@ -751,6 +720,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("parameterValues", ({ parameters, id }) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       const mappedParameters = parameters.map((param) => {
         return param.type === "byte_array"
           ? {
@@ -785,11 +757,14 @@ export default class FoxgloveWebSocketPlayer implements Player {
         this.#serverCapabilities.includes(ServerCapability.parametersSubscribe)
       ) {
         // Subscribe to value updates of new parameters
-        this.#client?.subscribeParameterUpdates(newParameters.map((p) => p.name));
+        client.subscribeParameterUpdates(newParameters.map((p) => p.name));
       }
     });
 
     this.#client.on("advertiseServices", (services) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       if (!this.#serviceCallEncoding) {
         return;
       }
@@ -915,6 +890,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("unadvertiseServices", (serviceIds) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       let needsStateUpdate = false;
       for (const serviceId of serviceIds) {
         const service: ResolvedService | undefined = Object.values(this.#servicesByName).find(
@@ -933,18 +911,35 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
     this.#client.on("serviceCallResponse", (response) => {
       const responseCallback = this.#serviceResponseCbs.get(response.callId);
-      if (!responseCallback) {
+      if (responseCallback?.client !== client) {
+        if (this.#client !== client || this.#parked) {
+          return;
+        }
         this.#alerts.addAlert(`callService:${response.callId}`, {
           severity: "error",
           message: `Received a response for a service for which no callback was registered`,
         });
         return;
       }
-      responseCallback(response);
       this.#serviceResponseCbs.delete(response.callId);
+      responseCallback.response(response);
+      this.#finishServiceCalls(client);
+    });
+
+    this.#client.on("serviceCallFailure", (failure) => {
+      const pending = this.#serviceResponseCbs.get(failure.callId);
+      if (pending?.client !== client) {
+        return;
+      }
+      this.#serviceResponseCbs.delete(failure.callId);
+      pending.reject(new Error(failure.message));
+      this.#finishServiceCalls(client);
     });
 
     this.#client.on("connectionGraphUpdate", (event) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       if (event.publishedTopics.length > 0 || event.removedTopics.length > 0) {
         const newMap = new Map<string, Set<string>>(this.#publishedTopics ?? new Map());
         for (const { name, publisherIds } of event.publishedTopics) {
@@ -974,6 +969,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
     });
 
     this.#client.on("fetchAssetResponse", (response) => {
+      if (this.#client !== client || this.#parked) {
+        return;
+      }
       const responseCallback = this.#fetchAssetRequests.get(response.requestId);
       if (!responseCallback) {
         throw Error(
@@ -981,7 +979,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
         );
       }
       responseCallback(response);
-      this.#serviceResponseCbs.delete(response.requestId);
+      this.#fetchAssetRequests.delete(response.requestId);
     });
   };
 
@@ -1018,6 +1016,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     }
     const client = this.#client;
     this.#client = undefined;
+    this.#socket = undefined;
     client?.close();
     if (this.#connectionAttemptTimeout != undefined) {
       clearTimeout(this.#connectionAttemptTimeout);
@@ -1032,6 +1031,12 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#resolvedSubscriptionsById.clear();
     this.#resolvedSubscriptionsByTopic.clear();
     this.#parsedMessages.clear();
+    if (client) {
+      this.#rejectPendingServiceCalls(client);
+    }
+    if (this.#parked) {
+      return;
+    }
     this.#presence = PlayerPresence.RECONNECTING;
     // The alert stays up for the whole outage. Adding it logs, so it is added once per outage.
     if (!this.#connectionFailedShown) {
@@ -1077,7 +1082,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
   // Potentially performance-sensitive; await can be expensive
   // eslint-disable-next-line @typescript-eslint/promise-function-async
   #emitState = debouncePromise(() => {
-    if (!this.#listener || this.#closed) {
+    if (!this.#listener || this.#closed || this.#parked) {
       return Promise.resolve();
     }
 
@@ -1110,9 +1115,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#topicsStatsChanged = false;
     }
 
-    // While parked the queue holds deferred bytes for resume; draining here
-    // would parse and deliver messages into a hidden pipeline.
-    const drained = this.#parked ? [] : this.#parsedMessages.drain();
+    const drained = this.#parsedMessages.drain();
     const messages: MessageEvent[] = [];
     for (const entry of drained) {
       if (!isDeferredSnapshotEvent(entry)) {
@@ -1168,9 +1171,20 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#closed = true;
     this.#unsubscribeParkedSignal?.();
     this.#unsubscribeParkedSignal = undefined;
-    this.#cancelAllPendingSceneClears();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.#updateParked);
+    }
     this.#client?.close();
     this.#client = undefined;
+    this.#socket = undefined;
+    this.#rejectPendingServiceCalls();
+    for (const [client, socket] of this.#operationSockets) {
+      client.close();
+      if (socket instanceof WorkerSocketAdapter) {
+        socket.terminate();
+      }
+    }
+    this.#operationSockets.clear();
     if (this.#connectionAttemptTimeout != undefined) {
       clearTimeout(this.#connectionAttemptTimeout);
       this.#connectionAttemptTimeout = undefined;
@@ -1200,11 +1214,6 @@ export default class FoxgloveWebSocketPlayer implements Player {
       // Remember requested subscriptions so we can retry subscribing when
       // the client is available.
       this.#unresolvedSubscriptions = newTopics;
-      for (const topic of [...this.#parkedSceneTopics.keys()]) {
-        if (!newTopics.has(topic)) {
-          this.#parkedSceneTopics.delete(topic);
-        }
-      }
       return;
     }
     if (this.#appliedSubscriptionRevision === this.#subscriptionRevision) {
@@ -1234,18 +1243,6 @@ export default class FoxgloveWebSocketPlayer implements Player {
         );
       }
     }
-    for (const topic of [...this.#parkedSceneTopics.keys()]) {
-      if (!newTopics.has(topic)) {
-        // Already unsubscribed by the park pause; just forget the intent to resume.
-        this.#parkedSceneTopics.delete(topic);
-        topicStats.delete(topic);
-      }
-    }
-    for (const topic of [...this.#pendingSceneClears.keys()]) {
-      if (!newTopics.has(topic)) {
-        this.#cancelPendingSceneClear(topic);
-      }
-    }
     this.#topicsStats = topicStats;
 
     for (const topic of this.#unresolvedSubscriptions) {
@@ -1258,21 +1255,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
   }
 
   #processUnresolvedSubscriptions() {
-    if (!this.#client || this.#presence !== PlayerPresence.PRESENT) {
+    if (!this.#client || this.#parked || this.#presence !== PlayerPresence.PRESENT) {
       return;
     }
 
     for (const topic of this.#unresolvedSubscriptions) {
       const chanInfo = this.#channelsByTopic.get(topic);
       if (chanInfo) {
-        if (this.#parked && isDeletionSemanticSchema(chanInfo.channel.schemaName)) {
-          // Channels advertised (or re-advertised after a reconnect) while
-          // parked stay paused; they resume with the same clear-then-subscribe
-          // path as channels parked while subscribed.
-          this.#unresolvedSubscriptions.delete(topic);
-          this.#parkedSceneTopics.set(topic, chanInfo.channel.schemaName);
-          continue;
-        }
         const subId = this.#client.subscribe(chanInfo.channel.id);
         this.#unresolvedSubscriptions.delete(topic);
         this.#resolvedSubscriptionsByTopic.set(topic, subId);
@@ -1284,6 +1273,13 @@ export default class FoxgloveWebSocketPlayer implements Player {
     }
   }
 
+  #updateParked = (): void => {
+    this.#setParked(
+      this.#embeddedParked ||
+        (typeof document !== "undefined" && document.visibilityState === "hidden"),
+    );
+  };
+
   // eslint-disable-next-line @lichtblick/no-boolean-parameters
   #setParked(parked: boolean): void {
     if (this.#closed || parked === this.#parked) {
@@ -1291,139 +1287,124 @@ export default class FoxgloveWebSocketPlayer implements Player {
     }
     this.#parked = parked;
     if (parked) {
-      // Discard anything enqueued but not yet drained: it could only be
-      // applied after resume, where it would be older than the parked
-      // latest-per-topic entries. Deletion-semantic layers are reset on
-      // resume regardless, so dropping their backlog cannot lose a deletion.
+      noteLiveViewPaused();
       this.#parsedMessages.clear();
-      this.#parsedMessages.setMaximumSize(PARKED_FRAME_MAXIMUM_SIZE_BYTES);
-      this.#pauseDeletionSemanticSubscriptions();
+      this.#pauseViewSubscriptions();
+      if (this.#getParameterInterval != undefined) {
+        clearInterval(this.#getParameterInterval);
+        this.#getParameterInterval = undefined;
+      }
+      if (
+        this.#presence === PlayerPresence.PRESENT &&
+        this.#serverCapabilities.includes(ServerCapability.connectionGraph)
+      ) {
+        this.#client?.unsubscribeConnectionGraph();
+      }
+      this.#cancelPendingAssets();
+      if (!this.#client || !this.#hasPendingServiceCalls(this.#client)) {
+        this.#closeParkedSocket();
+      }
       return;
     }
-    this.#parsedMessages.setMaximumSize(CURRENT_FRAME_MAXIMUM_SIZE_BYTES);
-    this.#resumeDeletionSemanticSubscriptions();
-    // Drains the parked latest-per-topic entries and the scene-layer clears.
-    this.#emitState();
+    if (this.#client && this.#socket) {
+      // A service response owns the old socket; a new view needs a fresh
+      // channel advertisement instead of the stale pre-park inventory.
+      this.#operationSockets.set(this.#client, this.#socket);
+      this.#client = undefined;
+      this.#socket = undefined;
+    }
+    this.#presence = PlayerPresence.RECONNECTING;
+    this.#open();
   }
 
-  /**
-   * Deletion-semantic channels (SceneUpdate, Marker, MarkerArray) are
-   * unsubscribed while parked: latest-wins retention would drop deletions and
-   * leave ghost entities. The websocket connection and all other
-   * subscriptions stay up; the server simply stops sending these channels.
-   */
-  #pauseDeletionSemanticSubscriptions(): void {
+  /** Release every view subscription, including transform and snapshot topics. */
+  #pauseViewSubscriptions(): void {
     if (!this.#client) {
       return;
     }
     for (const [topic, subId] of this.#resolvedSubscriptionsByTopic) {
-      const chanInfo = this.#resolvedSubscriptionsById.get(subId);
-      if (chanInfo == undefined || !isDeletionSemanticSchema(chanInfo.channel.schemaName)) {
-        continue;
-      }
       this.#client.unsubscribe(subId);
       this.#resolvedSubscriptionsById.delete(subId);
       this.#resolvedSubscriptionsByTopic.delete(topic);
-      this.#parkedUnsubscribedIds.add(subId);
-      this.#recentlyCanceledSubscriptions.add(subId);
-      setTimeout(
-        () => this.#recentlyCanceledSubscriptions.delete(subId),
-        SUBSCRIPTION_WARNING_SUPPRESSION_MS,
-      );
-      this.#parkedSceneTopics.set(topic, chanInfo.channel.schemaName);
+      this.#unresolvedSubscriptions.add(topic);
     }
+    this.#appliedSubscriptionRevision = undefined;
   }
 
-  /**
-   * Resubscribe each paused scene layer with a DEFERRED clear: the layer
-   * reset is held until the topic's first post-resubscribe message and
-   * drains immediately before it in the same emitted frame, so the layer
-   * never paints empty between clear and repopulation. Deletions missed
-   * while parked still cannot survive: the clear always lands before fresh
-   * truth, and a fallback timer clears layers whose producer stays silent.
-   */
-  #resumeDeletionSemanticSubscriptions(): void {
-    for (const [topic, schemaName] of this.#parkedSceneTopics) {
-      this.#deferSceneLayerClear(topic, schemaName);
-      const chanInfo = this.#channelsByTopic.get(topic);
-      if (this.#client && chanInfo) {
-        const subId = this.#client.subscribe(chanInfo.channel.id);
-        this.#resolvedSubscriptionsByTopic.set(topic, subId);
-        this.#resolvedSubscriptionsById.set(subId, chanInfo);
-      } else {
-        // Channel unknown (unadvertised while parked) or no connection:
-        // resolve through the normal advertise/open path.
-        this.#unresolvedSubscriptions.add(topic);
-      }
+  #startParameterObservation(): void {
+    if (!this.#client || this.#parked || this.#getParameterInterval != undefined) {
+      return;
     }
-    this.#parkedSceneTopics.clear();
-    // Late stragglers on the canceled ids stay suppressed briefly past resume.
-    for (const subId of this.#parkedUnsubscribedIds) {
-      this.#recentlyCanceledSubscriptions.add(subId);
-      setTimeout(
-        () => this.#recentlyCanceledSubscriptions.delete(subId),
-        SUBSCRIPTION_WARNING_SUPPRESSION_MS,
-      );
-    }
-    this.#parkedUnsubscribedIds.clear();
+    this.#client.getParameters([], GET_ALL_PARAMS_REQUEST_ID);
+    this.#getParameterInterval = setInterval(() => {
+      this.#client?.getParameters([], GET_ALL_PARAMS_REQUEST_ID);
+    }, GET_ALL_PARAMS_PERIOD_MS);
   }
 
-  /**
-   * Hold a resume-time layer clear until the topic's first post-resubscribe
-   * message (see #flushPendingSceneClear). The fallback timer covers silent
-   * producers; on a re-park the clear is re-deferred through
-   * #parkedSceneTopics, and a closed player has no layers left to protect.
-   */
-  #deferSceneLayerClear(topic: string, schemaName: string): void {
-    this.#cancelPendingSceneClear(topic);
-    const timer = setTimeout(() => {
-      this.#pendingSceneClears.delete(topic);
-      if (this.#closed || this.#parked) {
-        return;
-      }
-      this.#parsedMessages.enqueue({
-        value: makeSceneLayerClearEvent({
-          topic,
-          schemaName,
-          receiveTime: this.#getCurrentTime(),
-        }),
-        sizeInBytes: 0,
-        retention: "replaceable",
+  #cancelPendingAssets(): void {
+    for (const [requestId, callback] of this.#fetchAssetRequests) {
+      callback({
+        op: BinaryOpcode.FETCH_ASSET_RESPONSE,
+        status: FetchAssetStatus.ERROR,
+        requestId,
+        error: "View parked",
       });
-      this.#emitState();
-    }, RESUME_SCENE_CLEAR_FALLBACK_MS);
-    this.#pendingSceneClears.set(topic, { schemaName, timer });
+    }
+    this.#fetchAssetRequests.clear();
+    this.#fetchedAssets.clear();
   }
 
-  /** Flush a deferred clear so it drains immediately before the message that triggered it. */
-  #flushPendingSceneClear(topic: string, receiveTime: Time): void {
-    const pending = this.#pendingSceneClears.get(topic);
-    if (pending == undefined) {
+  #rejectPendingServiceCalls(client?: FoxgloveClient): void {
+    for (const [id, pending] of this.#serviceResponseCbs) {
+      if (client && pending.client !== client) {
+        continue;
+      }
+      this.#serviceResponseCbs.delete(id);
+      pending.reject(new Error("WebSocket connection closed before the service response"));
+    }
+  }
+
+  #hasPendingServiceCalls(client: FoxgloveClient): boolean {
+    return [...this.#serviceResponseCbs.values()].some((pending) => pending.client === client);
+  }
+
+  #finishServiceCalls(client: FoxgloveClient): void {
+    if (this.#hasPendingServiceCalls(client)) {
       return;
     }
-    this.#pendingSceneClears.delete(topic);
-    clearTimeout(pending.timer);
-    this.#parsedMessages.enqueue({
-      value: makeSceneLayerClearEvent({ topic, schemaName: pending.schemaName, receiveTime }),
-      sizeInBytes: 0,
-      retention: "replaceable",
-    });
+    const socket = this.#operationSockets.get(client);
+    if (socket) {
+      this.#operationSockets.delete(client);
+      client.close();
+      if (socket instanceof WorkerSocketAdapter) {
+        socket.terminate();
+      }
+    } else if (this.#parked && this.#client === client) {
+      this.#closeParkedSocket();
+    }
   }
 
-  #cancelPendingSceneClear(topic: string): void {
-    const pending = this.#pendingSceneClears.get(topic);
-    if (pending == undefined) {
-      return;
+  #closeParkedSocket(): void {
+    if (this.#openTimeout != undefined) {
+      clearTimeout(this.#openTimeout);
+      this.#openTimeout = undefined;
     }
-    clearTimeout(pending.timer);
-    this.#pendingSceneClears.delete(topic);
-  }
-
-  #cancelAllPendingSceneClears(): void {
-    for (const pending of this.#pendingSceneClears.values()) {
-      clearTimeout(pending.timer);
+    if (this.#connectionAttemptTimeout != undefined) {
+      clearTimeout(this.#connectionAttemptTimeout);
+      this.#connectionAttemptTimeout = undefined;
     }
-    this.#pendingSceneClears.clear();
+    const client = this.#client;
+    const socket = this.#socket;
+    this.#client = undefined;
+    this.#socket = undefined;
+    client?.close();
+    if (socket instanceof WorkerSocketAdapter) {
+      socket.terminate();
+    }
+    this.#resolvedSubscriptionsById.clear();
+    this.#resolvedSubscriptionsByTopic.clear();
+    this.#unresolvedSubscriptions = new Set(this.#subscriptionTopics);
+    this.#appliedSubscriptionRevision = undefined;
   }
 
   public setPublishers(publishers: AdvertiseOptions[]): void {
@@ -1438,6 +1419,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     if (
       !this.#client ||
       this.#closed ||
+      this.#parked ||
       this.#presence !== PlayerPresence.PRESENT ||
       !this.#playerCapabilities.includes(PLAYER_CAPABILITIES.advertise)
     ) {
@@ -1560,23 +1542,31 @@ export default class FoxgloveWebSocketPlayer implements Player {
       data: new DataView(new Uint8Array().buffer),
     };
 
+    const client = this.#client;
     const message = requestMessageWriter.writeMessage(request);
     serviceCallRequest.data = new DataView(message.buffer);
-    this.#client.sendServiceCallRequest(serviceCallRequest);
+    client.sendServiceCallRequest(serviceCallRequest);
 
     return await new Promise<Record<string, unknown>>((resolve, reject) => {
-      this.#serviceResponseCbs.set(serviceCallRequest.callId, (response: ServiceCallResponse) => {
-        try {
-          const data = parsedResponse.deserialize(response.data);
-          resolve(data as Record<string, unknown>);
-        } catch (error: unknown) {
-          reject(error instanceof Error ? error : new Error(String(error)));
-        }
+      this.#serviceResponseCbs.set(serviceCallRequest.callId, {
+        client,
+        reject,
+        response: (response: ServiceCallResponse) => {
+          try {
+            const data = parsedResponse.deserialize(response.data);
+            resolve(data as Record<string, unknown>);
+          } catch (error: unknown) {
+            reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        },
       });
     });
   }
 
   public async fetchAsset(uri: string): Promise<Asset> {
+    if (this.#parked) {
+      throw new Error(`Attempted to fetch asset ${uri} while the view is parked.`);
+    }
     if (!this.#client) {
       throw new Error(
         `Attempted to fetch assset ${uri} without a valid Foxglove WebSocket connection.`,
@@ -1734,9 +1724,6 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#clockTime = undefined;
     this.#topicsStats = new Map();
     this.#parsedMessages.clear();
-    // A reconnect rebuilds every layer from server replay; a stale deferred
-    // clear must not fire into the fresh session.
-    this.#cancelAllPendingSceneClears();
     this.#receivedBytes = 0;
     this.#alerts.clear();
     this.#parameters = new Map();

@@ -10,6 +10,7 @@ import "@testing-library/jest-dom";
 import { act, render } from "@testing-library/react";
 
 import {
+  noteLiveViewPaused,
   resetEmbeddedHostVisibilityForTests,
   subscribeEmbeddedParkedState,
 } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
@@ -52,6 +53,7 @@ const createMockRenderer = () => {
     updateConfig: jest.fn(),
     getCameraState: jest.fn().mockReturnValue(undefined),
     setCanvasVisibility: jest.fn(),
+    clear: jest.fn(),
     animationFrame: jest.fn(),
     queueThrottledAnimationFrame: jest.fn(),
     setMaxFrameRate: jest.fn(),
@@ -210,6 +212,9 @@ describe("ThreeDeeRender parked signal gating", () => {
     });
     expect(renderer.setCanvasVisibility).toHaveBeenCalledWith("hidden");
     expect(parkedStates).toEqual([false, true]);
+    act(() => {
+      noteLiveViewPaused();
+    });
 
     act(() => {
       window.dispatchEvent(
@@ -217,6 +222,11 @@ describe("ThreeDeeRender parked signal gating", () => {
       );
     });
     expect(renderer.setCanvasVisibility).toHaveBeenCalledWith("visible");
+    expect(renderer.clear).toHaveBeenCalledTimes(1);
+    expect(renderer.clear).toHaveBeenCalledWith({
+      clearTransforms: true,
+      resetAllFramesCursor: true,
+    });
     expect(parkedStates).toEqual([false, true, false]);
 
     view.unmount();
@@ -301,5 +311,67 @@ describe("ThreeDeeRender parked signal gating", () => {
     view.unmount();
     unsubscribe();
     expect(parkedStates).toEqual([false, true, false]);
+  });
+
+  it("resets the scene once after repeated document-hidden notifications", () => {
+    const original = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    const view = render(
+      <EmbeddedWorkspaceControlsProvider embedded>
+        <ThreeDeeRender {...setup()} />
+      </EmbeddedWorkspaceControlsProvider>,
+    );
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    try {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      act(() => {
+        for (let index = 0; index < 100; index++) {
+          document.dispatchEvent(new Event("visibilitychange"));
+        }
+        noteLiveViewPaused();
+      });
+      expect(renderer.setCanvasVisibility).toHaveBeenLastCalledWith("hidden");
+      expect(renderer.clear).not.toHaveBeenCalled();
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(renderer.clear).toHaveBeenCalledTimes(1);
+      expect(renderer.clear).toHaveBeenCalledWith({
+        clearTransforms: true,
+        resetAllFramesCursor: true,
+      });
+      expect(renderer.setCanvasVisibility).toHaveBeenLastCalledWith("visible");
+    } finally {
+      view.unmount();
+      if (original) {
+        Object.defineProperty(document, "visibilityState", original);
+      } else {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+    }
+  });
+
+  it("retains a non-live renderer's history across document visibility changes", () => {
+    const original = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    const view = render(<ThreeDeeRender {...setup()} />);
+    const renderer = mockedRenderer.mock.results[0]!.value;
+    try {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(renderer.clear).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      if (original) {
+        Object.defineProperty(document, "visibilityState", original);
+      } else {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+    }
   });
 });

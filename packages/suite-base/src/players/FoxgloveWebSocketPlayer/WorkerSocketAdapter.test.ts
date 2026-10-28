@@ -157,6 +157,22 @@ describe("WorkerSocketAdapter", () => {
     }).toThrow("Can't send message over closed websocket connection");
   });
 
+  it("terminates parked worker delivery immediately and ignores late batches", () => {
+    const socket = new WorkerSocketAdapter(wsUrl);
+    socket.onmessage = jest.fn();
+    socket.close();
+    socket.terminate();
+    socket.terminate();
+    expect(workerMock.terminate).toHaveBeenCalledTimes(1);
+    workerMock.onmessage?.({
+      data: { type: "messages", id: 9, messages: ["late"] },
+    } as MessageEvent<FromWorkerMessage>);
+    expect(socket.onmessage).not.toHaveBeenCalled();
+    expect(workerMock.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "consumed" }),
+    );
+  });
+
   it("terminates a failed worker and reports one close so the player can reconnect", () => {
     const socket = new WorkerSocketAdapter(wsUrl);
     socket.onerror = jest.fn();

@@ -3565,6 +3565,7 @@ __metadata:
     "@types/tinycolor2": "npm:1.4.4"
     "@types/uuid": "npm:9.0.7"
     "@types/wicg-file-system-access": "npm:2023.10.7"
+    "@types/ws": "npm:^8.5.10"
     "@uiw/react-textarea-code-editor": "npm:3.1.0"
     async-mutex: "npm:0.5.0"
     babel-jest: "npm:30.4.1"
@@ -3657,6 +3658,7 @@ __metadata:
     uuid: "npm:14.0.0"
     vm-browserify: "npm:1.1.2"
     webpack: "npm:5.108.3"
+    ws: "npm:8.21.0"
     zustand: "npm:4.5.7"
   languageName: unknown
   linkType: soft

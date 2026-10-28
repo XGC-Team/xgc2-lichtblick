@@ -37,6 +37,7 @@ import {
   lastEmbeddedHostVisibility,
   registerEmbeddedCanvasVisibility,
   subscribeEmbeddedHostVisibility,
+  subscribeLiveViewPause,
 } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import {
   EMBEDDED_3D_PANEL_ATTRIBUTE,
@@ -376,27 +377,35 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     [config.followMode, config.scene.syncCamera, context, renderer],
   );
 
-  // Frames are only worth drawing and decoding while the canvas is on screen. Two inputs gate
-  // that: this observer (panel collapsed or scrolled away inside the viewer document) and the
-  // host's visibility message. A parked XGC2 embed hides the iframe element in the HOST document;
-  // inside the viewer the canvas still intersects, so only the host message reports it.
+  // Drawing and decoding require the canvas, host, and document to be visible.
+  // A parked XGC2 embed hides the iframe in the host document; inside the
+  // viewer the canvas still intersects, so the host message reports that park.
   // In an embedded host the same converged result also drives the parked-embed signal: while
-  // every 3D canvas is hidden, the player pauses message processing, not just drawing.
+  // every 3D canvas is hidden, the live player releases view subscriptions.
   // Standalone sessions never register: a scrolled-away 3D panel must not starve Plot and
   // other history consumers, so there drawing stops but messages keep flowing.
   //
   // The parked registration outlives renderer identity. Recreating the renderer (scene
   // settings, interface mode) must not dispose the canvas id: an empty registry is "not
-  // parked", which would resume subscriptions and drop the deferred latest-wins queue.
+  // parked", which would resume view subscriptions prematurely.
   const ioVisibleRef = useRef(true);
   const hostVisibleRef = useRef(true);
   const parkedReporterRef = useRef<ReturnType<typeof registerEmbeddedCanvasVisibility> | undefined>(
     undefined,
   );
   const parkedCanvasId = useId();
+  const needsLiveSceneReset = useRef(false);
   const applyVisibility = useCallback(() => {
-    const visible = ioVisibleRef.current && hostVisibleRef.current;
-    rendererRef.current?.setCanvasVisibility(visible ? "visible" : "hidden");
+    const visible =
+      ioVisibleRef.current && hostVisibleRef.current && document.visibilityState !== "hidden";
+    const current = rendererRef.current;
+    if (visible && current && needsLiveSceneReset.current) {
+      // The live player released its subscriptions. A new cut must not reuse
+      // old transforms or renderables for entities deleted during the park.
+      current.clear({ clearTransforms: true, resetAllFramesCursor: true });
+      needsLiveSceneReset.current = false;
+    }
+    current?.setCanvasVisibility(visible ? "visible" : "hidden");
     parkedReporterRef.current?.setVisible(visible);
   }, []);
   useEffect(() => {
@@ -413,7 +422,15 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
         hostVisibleRef.current = latched;
       }
     }
-    const convergedVisible = ioVisibleRef.current && hostVisibleRef.current;
+    const convergedVisible =
+      ioVisibleRef.current && hostVisibleRef.current && document.visibilityState !== "hidden";
+    const unsubscribeLivePause = subscribeLiveViewPause(() => {
+      needsLiveSceneReset.current = true;
+    });
+    const onDocumentVisibility = () => {
+      applyVisibility();
+    };
+    document.addEventListener("visibilitychange", onDocumentVisibility);
     const parkedReporter = embedded
       ? registerEmbeddedCanvasVisibility(parkedCanvasId, convergedVisible ? "visible" : "hidden")
       : undefined;
@@ -421,6 +438,8 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     applyVisibility();
     return () => {
       unsubscribeHost();
+      unsubscribeLivePause();
+      document.removeEventListener("visibilitychange", onDocumentVisibility);
       parkedReporter?.dispose();
       if (parkedReporterRef.current === parkedReporter) {
         parkedReporterRef.current = undefined;
