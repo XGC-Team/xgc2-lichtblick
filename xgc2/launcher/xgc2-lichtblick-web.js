@@ -584,6 +584,10 @@ function serveStatic(req, res, prefix, transformedIndex, responseSecurityHeaders
       ...cacheHeaders,
       ...responseSecurityHeaders,
     });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
     fs.createReadStream(target).pipe(res);
   });
 }
@@ -634,7 +638,7 @@ function buildRequestListener(
     if (requestUrl.pathname === `${base}/layout.json`) {
       writeJson(
         res,
-        initialLayout && req.method === "GET" ? 200 : 404,
+        initialLayout && (req.method === "GET" || req.method === "HEAD") ? 200 : 404,
         initialLayout ?? {},
         responseSecurityHeaders,
       );
