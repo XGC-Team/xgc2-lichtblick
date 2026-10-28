@@ -60,7 +60,7 @@ import {
   Topic,
   TopicStats,
 } from "@lichtblick/suite-base/players/types";
-import { HIGH_FREQUENCY_ALERT } from "@lichtblick/suite-base/players/utils/constants";
+import { HIGH_FREQUENCY_ALERT, LOG_SCHEMAS } from "@lichtblick/suite-base/players/utils/constants";
 import { isTopicHighFrequency } from "@lichtblick/suite-base/players/utils/isTopicHighFrequency";
 import { COMPRESSED_VIDEO_DATATYPES } from "@lichtblick/suite-base/util/foxgloveSchemas";
 import rosDatatypesToMessageDefinition from "@lichtblick/suite-base/util/rosDatatypesToMessageDefinition";
@@ -123,6 +123,9 @@ export default class FoxgloveWebSocketPlayer implements Player {
   #closed: boolean = false; // Whether the player has been completely closed using close().
   #topics?: Topic[]; // Topics as published by the WebSocket.
   #topicsStats = new Map<string, TopicStats>(); // Topic names to topic statistics.
+  // Server message timestamps used only for the live frequency alert. Live
+  // topic stats exposed to panels do not describe a fixed first/last boundary.
+  #frequencyObservations = new Map<string, TopicStats>();
   // Set when #topicsStats was mutated in place since the last emitted state;
   // the next #emitState mints a fresh Map identity for consumers.
   #topicsStatsChanged = false;
@@ -567,7 +570,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
       this.#emitState();
     });
 
-    this.#client.on("message", ({ subscriptionId, data }) => {
+    this.#client.on("message", ({ subscriptionId, data, timestamp }) => {
       if (this.#client !== client || this.#parked) {
         return;
       }
@@ -668,15 +671,33 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
         this.#bumpTopicStats(topic);
 
-        if (!this.#ishighFrequencyMessage) {
-          const duration =
-            this.#startTime && this.#endTime ? subtract(this.#endTime, this.#startTime) : undefined;
+        if (
+          !this.#ishighFrequencyMessage &&
+          chanInfo.channel.schemaName &&
+          !LOG_SCHEMAS.has(chanInfo.channel.schemaName)
+        ) {
+          const observedTime = fromNanoSec(timestamp);
+          let observation = this.#frequencyObservations.get(topic);
+          if (
+            !observation ||
+            (observation.lastMessageTime != undefined &&
+              isLessThan(observedTime, observation.lastMessageTime))
+          ) {
+            // A rewind begins a fresh observation; the public message count
+            // remains cumulative for this live session.
+            observation = { numMessages: 0, firstMessageTime: observedTime };
+            this.#frequencyObservations.set(topic, observation);
+          }
+          observation.numMessages++;
+          observation.lastMessageTime = observedTime;
+          const duration = subtract(observedTime, observation.firstMessageTime!);
           this.#ishighFrequencyMessage = isTopicHighFrequency({
-            topicStats: this.#topicsStats,
+            topicStats: this.#frequencyObservations,
             topic: { name: topic, schemaName: chanInfo.channel.schemaName },
             duration,
           });
           if (this.#ishighFrequencyMessage) {
+            this.#frequencyObservations.clear();
             this.#alerts.addAlert(HIGH_FREQUENCY_ALERT.id, {
               severity: HIGH_FREQUENCY_ALERT.severity,
               message: HIGH_FREQUENCY_ALERT.message,
@@ -996,6 +1017,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     for (const topic of topicStats.keys()) {
       if (!topicsSet.has(topic)) {
         topicStats.delete(topic);
+        this.#frequencyObservations.delete(topic);
       }
     }
 
@@ -1236,6 +1258,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
 
         // Reset the message count for this topic
         topicStats.delete(topic);
+        this.#frequencyObservations.delete(topic);
 
         setTimeout(
           () => this.#recentlyCanceledSubscriptions.delete(subId),
@@ -1723,6 +1746,7 @@ export default class FoxgloveWebSocketPlayer implements Player {
     this.#endTime = undefined;
     this.#clockTime = undefined;
     this.#topicsStats = new Map();
+    this.#frequencyObservations.clear();
     this.#parsedMessages.clear();
     this.#receivedBytes = 0;
     this.#alerts.clear();

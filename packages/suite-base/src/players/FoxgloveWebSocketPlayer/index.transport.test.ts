@@ -18,10 +18,11 @@ import { buildSync } from "esbuild";
 import { createRequire } from "module";
 import path from "path";
 import { Worker as Thread } from "worker_threads";
-import { WebSocket, WebSocketServer, type AddressInfo } from "ws";
+import { WebSocket, WebSocketServer, type AddressInfo, type RawData } from "ws";
 
 import { registerEmbeddedCanvasVisibility } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
 import type { PlayerState } from "@lichtblick/suite-base/players/types";
+import { HIGH_FREQUENCY_ALERT } from "@lichtblick/suite-base/players/utils/constants";
 
 import FoxgloveWebSocketPlayer from "./index";
 import type { FromWorkerMessage } from "./types";
@@ -89,9 +90,9 @@ class VisibilityDocument extends EventTarget {
 }
 
 async function until(predicate: () => boolean, message: string): Promise<void> {
-  const deadline = Date.now() + 4000;
+  const deadline = performance.now() + 4000;
   while (!predicate()) {
-    if (Date.now() > deadline) {
+    if (performance.now() > deadline) {
       throw new Error(
         `${message}: ${JSON.stringify(counters)}; errors=${JSON.stringify((console.error as jest.Mock).mock.calls)}`,
       );
@@ -101,6 +102,13 @@ async function until(predicate: () => boolean, message: string): Promise<void> {
 }
 async function pause(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseTextFrame(data: RawData): { op?: string } {
+  if (!Buffer.isBuffer(data)) {
+    throw new Error("Expected a WebSocket text frame buffer");
+  }
+  return JSON.parse(data.toString("utf8")) as { op?: string };
 }
 
 describe("real Foxglove server and worker view lifetime", () => {
@@ -221,12 +229,227 @@ describe("real Foxglove server and worker view lifetime", () => {
   });
 
   function publish(index: number, value: unknown): void {
+    publishAt(index, value, Date.now());
+  }
+
+  function publishAt(index: number, value: unknown, timestampMs: number): void {
     server.sendMessage(
       ids[index]!,
-      BigInt(Date.now()) * 1_000_000n,
+      BigInt(timestampMs) * 1_000_000n,
       new TextEncoder().encode(JSON.stringify(value)),
     );
   }
+
+  async function startWithClock(now: () => number): Promise<jest.SpyInstance> {
+    player.close();
+    await until(() => active.size === 0 && wss.clients.size === 0, "previous view did not close");
+    const clock = jest.spyOn(Date, "now").mockImplementation(now);
+    states = [];
+    player = new FoxgloveWebSocketPlayer({
+      url: `ws://127.0.0.1:${(wss.address() as AddressInfo).port}`,
+      metricsCollector: { setProperty: jest.fn(), playerConstructed: jest.fn() },
+      sourceId: "foxglove-websocket",
+    });
+    player.setListener(async (state) => {
+      states.push(state);
+    });
+    player.setSubscriptions([
+      { topic: "/cloud" },
+      { topic: "/tf" },
+      { topic: "/scene" },
+      { topic: "/markers" },
+    ]);
+    await until(
+      () => active.size === 4 && states.at(-1)?.activeData?.endTime != undefined,
+      "clocked view did not start",
+    );
+    return clock;
+  }
+
+  async function advanceStartupState(nowMs: number): Promise<void> {
+    server.addChannel({
+      topic: "/startup-announcement",
+      schemaName: "Startup",
+      encoding: "json",
+      schemaEncoding: "jsonschema",
+      schema: '{"type":"object"}',
+    });
+    await until(() => {
+      const end = states.at(-1)?.activeData?.endTime;
+      return end != undefined && end.sec * 1000 + end.nsec / 1_000_000 === nowMs;
+    }, "startup time was not observed");
+  }
+
+  async function waitForCloudCount(count: number): Promise<void> {
+    await until(
+      () => (states.at(-1)?.activeData?.topicStats.get("/cloud")?.numMessages ?? 0) === count,
+      `cloud count ${count} was not observed`,
+    );
+  }
+
+  it("keeps a 10 Hz live topic quiet through the initial time window and clock rewind", async () => {
+    let now = 1_000_000;
+    const clock = await startWithClock(() => now);
+    try {
+      // A normal startup announcement makes the connection duration 1 ms;
+      // the first topic message alone cannot establish a publish rate.
+      now++;
+      await advanceStartupState(now);
+      publish(0, { sequence: 0 });
+      await waitForCloudCount(1);
+      expect(
+        states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message),
+      ).toBe(false);
+      for (let index = 1; index < 10; index++) {
+        now += 100;
+        publish(0, { sequence: index });
+        await waitForCloudCount(index + 1);
+      }
+      // A source clock rewind starts a new frequency observation. The public
+      // live topic count remains cumulative and its static boundaries unset.
+      now -= 1000;
+      publish(0, { sequence: 10 });
+      await waitForCloudCount(11);
+      now += 100;
+      publish(0, { sequence: 11 });
+      await waitForCloudCount(12);
+      now += 100;
+      publish(0, { sequence: 12 });
+      await waitForCloudCount(13);
+      const stats = states.at(-1)?.activeData?.topicStats.get("/cloud");
+      expect(stats).toEqual({ numMessages: 13 });
+      expect(
+        states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message),
+      ).toBe(false);
+      expect((console.warn as jest.Mock).mock.calls).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("warns on a genuinely high-rate live topic after two observed timestamps", async () => {
+    let now = 2_000_000;
+    const clock = await startWithClock(() => now);
+    try {
+      now++;
+      await advanceStartupState(now);
+      publish(0, { sequence: 0 });
+      await waitForCloudCount(1);
+      expect(
+        states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message),
+      ).toBe(false);
+      now += 5;
+      publish(0, { sequence: 1 });
+      await until(
+        () =>
+          states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message) ===
+          true,
+        "200 Hz topic did not raise the real alert",
+      );
+      expect((console.warn as jest.Mock).mock.calls).toEqual([
+        [
+          "Player alert",
+          HIGH_FREQUENCY_ALERT.id,
+          expect.objectContaining({ message: HIGH_FREQUENCY_ALERT.message }),
+        ],
+      ]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("keeps equal source timestamps unknown until an interval is observed", async () => {
+    let now = 3_000_000;
+    const clock = await startWithClock(() => now);
+    try {
+      now++;
+      await advanceStartupState(now);
+      publish(0, { sequence: 0 });
+      await waitForCloudCount(1);
+      publish(0, { sequence: 1 });
+      await waitForCloudCount(2);
+      expect(
+        states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message),
+      ).toBe(false);
+      now += 100;
+      publish(0, { sequence: 2 });
+      await waitForCloudCount(3);
+      expect(
+        states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message),
+      ).toBe(false);
+      expect((console.warn as jest.Mock).mock.calls).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("uses source timestamps when delivery occurs in the same client clock tick", async () => {
+    let now = 3_500_000;
+    const clock = await startWithClock(() => now);
+    try {
+      now++;
+      await advanceStartupState(now);
+      publishAt(0, { sequence: 0 }, now);
+      await waitForCloudCount(1);
+      publishAt(0, { sequence: 1 }, now + 100);
+      await waitForCloudCount(2);
+      expect(
+        states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message),
+      ).toBe(false);
+      publishAt(0, { sequence: 2 }, now + 50);
+      await waitForCloudCount(3);
+      publishAt(0, { sequence: 3 }, now + 55);
+      await until(
+        () =>
+          states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message) ===
+          true,
+        "high-rate source timestamps did not raise the real alert",
+      );
+      expect((console.warn as jest.Mock).mock.calls).toHaveLength(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("starts a fresh rate observation when a topic is unsubscribed and selected again", async () => {
+    let now = 4_000_000;
+    const clock = await startWithClock(() => now);
+    try {
+      now++;
+      await advanceStartupState(now);
+      publish(0, { sequence: 0 });
+      await waitForCloudCount(1);
+      now += 100;
+      publish(0, { sequence: 1 });
+      await waitForCloudCount(2);
+      player.setSubscriptions([{ topic: "/tf" }, { topic: "/scene" }, { topic: "/markers" }]);
+      await until(() => active.size === 3, "topic unsubscribe did not arrive");
+      now += 10_000;
+      player.setSubscriptions([
+        { topic: "/cloud" },
+        { topic: "/tf" },
+        { topic: "/scene" },
+        { topic: "/markers" },
+      ]);
+      await until(() => active.size === 4, "selected topic did not resubscribe");
+      publish(0, { sequence: 2 });
+      await waitForCloudCount(1);
+      expect(
+        states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message),
+      ).toBe(false);
+      now += 5;
+      publish(0, { sequence: 3 });
+      await until(
+        () =>
+          states.at(-1)?.alerts?.some((alert) => alert.message === HIGH_FREQUENCY_ALERT.message) ===
+          true,
+        "high-rate topic was hidden by its previous observation",
+      );
+      expect((console.warn as jest.Mock).mock.calls).toHaveLength(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
 
   async function beginService() {
     let request: ServiceCallRequest | undefined;
@@ -496,5 +719,153 @@ describe("real Foxglove server and worker view lifetime", () => {
     });
     completeService(request, connection);
     await expect(result).resolves.toEqual({ ok: true });
+  });
+
+  it("keeps two views' equal operation IDs independent when one view parks", async () => {
+    const firstSocket = [...wss.clients][0]!;
+    const firstUnsubscriptions: unknown[] = [];
+    firstSocket.on("message", (data, isBinary) => {
+      if (!isBinary) {
+        const message = parseTextFrame(data);
+        if (message.op === "unsubscribe") {
+          firstUnsubscriptions.push(message);
+        }
+      }
+    });
+    const siblingSubscriptions: unknown[] = [];
+    wss.on("connection", (socket: WebSocket) => {
+      socket.on("message", (data, isBinary) => {
+        if (!isBinary) {
+          const message = parseTextFrame(data);
+          if (message.op === "subscribe") {
+            siblingSubscriptions.push(message);
+          }
+        }
+      });
+    });
+    const siblingDocument = new VisibilityDocument();
+    Object.defineProperty(globalThis, "document", { configurable: true, value: siblingDocument });
+    const sibling = new FoxgloveWebSocketPlayer({
+      url: `ws://127.0.0.1:${(wss.address() as AddressInfo).port}`,
+      metricsCollector: { setProperty: jest.fn(), playerConstructed: jest.fn() },
+      sourceId: "foxglove-websocket",
+    });
+    const siblingStates: PlayerState[] = [];
+    sibling.setListener(async (state) => {
+      siblingStates.push(state);
+    });
+    sibling.setSubscriptions([
+      { topic: "/cloud" },
+      { topic: "/tf" },
+      { topic: "/scene" },
+      { topic: "/markers" },
+    ]);
+    try {
+      await until(() => siblingSubscriptions.length === 4, "sibling subscriptions did not arrive");
+      const calls: { request: ServiceCallRequest; connection: IWebSocket }[] = [];
+      const assets: { request: FetchAsset; connection: IWebSocket }[] = [];
+      server.on("serviceCallRequest", (request, connection) => calls.push({ request, connection }));
+      server.on("fetchAsset", (request, connection) => assets.push({ request, connection }));
+      const schema = {
+        encoding: "json",
+        schemaEncoding: "jsonschema",
+        schema: '{"type":"object"}',
+        schemaName: "Command",
+      };
+      const beforeAdvertisement = counters.deliveries;
+      server.addService({ name: "/command", type: "Command", request: schema, response: schema });
+      await until(
+        () => counters.deliveries >= beforeAdvertisement + 2,
+        "service advertisement did not reach both views",
+      );
+      const settle = async (operation: Promise<unknown>) => {
+        try {
+          return { value: await operation };
+        } catch (error: unknown) {
+          return { error };
+        }
+      };
+      const firstService = settle(player.callService("/command", { run: "first" }));
+      const siblingService = settle(sibling.callService("/command", { run: "sibling" }));
+      const firstAsset = player.fetchAsset("package://robot/first");
+      const firstAssetResult = firstAsset.catch((error: unknown) => error);
+      const siblingAsset = settle(sibling.fetchAsset("package://robot/sibling"));
+      await until(() => calls.length === 2 && assets.length === 2, "operations did not arrive");
+      const callFor = (name: string) =>
+        calls.find(
+          ({ request }) => JSON.parse(new TextDecoder().decode(request.data)).run === name,
+        )!;
+      const assetFor = (name: string) => assets.find(({ request }) => request.uri.endsWith(name))!;
+      expect(callFor("first").request.callId).toBe(callFor("sibling").request.callId);
+      expect(callFor("first").connection).not.toBe(callFor("sibling").connection);
+      expect(assetFor("first").request.requestId).toBe(assetFor("sibling").request.requestId);
+
+      Object.defineProperty(globalThis, "document", { configurable: true, value: document });
+      document.visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+      await expect(firstAssetResult).resolves.toMatchObject({
+        message: expect.stringContaining("View parked"),
+      });
+      await until(() => firstUnsubscriptions.length === 4, "first view did not unsubscribe");
+      expect(active.size).toBe(4);
+      const firstRenderCount = states.length;
+      publish(0, { marker: "sibling-only" });
+      await until(
+        () =>
+          siblingStates.some(
+            (state) =>
+              state.activeData?.messages.some(
+                (message) => (message.message as { marker?: string }).marker === "sibling-only",
+              ) ?? false,
+          ),
+        "visible sibling lost its topic",
+      );
+      expect(states).toHaveLength(firstRenderCount);
+
+      for (const [name, value] of [
+        ["first", 1],
+        ["sibling", 9],
+      ] as const) {
+        const asset = assetFor(name);
+        server.sendFetchAssetResponse(
+          {
+            op: BinaryOpcode.FETCH_ASSET_RESPONSE,
+            requestId: asset.request.requestId,
+            status: FetchAssetStatus.SUCCESS,
+            data: new Uint8Array([value]),
+          },
+          asset.connection,
+        );
+      }
+      await expect(siblingAsset).resolves.toMatchObject({
+        value: { uri: "package://robot/sibling", data: new Uint8Array([9]) },
+      });
+      for (const [name, result] of [
+        ["sibling", siblingService],
+        ["first", firstService],
+      ] as const) {
+        const call = callFor(name);
+        server.sendServiceCallResponse(
+          {
+            serviceId: call.request.serviceId,
+            callId: call.request.callId,
+            encoding: "json",
+            data: new TextEncoder().encode(JSON.stringify({ result: name })),
+          },
+          call.connection,
+        );
+        await expect(result).resolves.toEqual({ value: { result: name } });
+      }
+      await until(() => wss.clients.size === 1, "parked service socket did not close");
+      Object.defineProperty(globalThis, "document", { configurable: true, value: siblingDocument });
+      siblingDocument.visibilityState = "hidden";
+      siblingDocument.dispatchEvent(new Event("visibilitychange"));
+      await until(() => active.size === 0 && wss.clients.size === 0, "last view did not park");
+      expect((console.warn as jest.Mock).mock.calls).toHaveLength(0);
+    } finally {
+      Object.defineProperty(globalThis, "document", { configurable: true, value: siblingDocument });
+      sibling.close();
+      Object.defineProperty(globalThis, "document", { configurable: true, value: document });
+    }
   });
 });
