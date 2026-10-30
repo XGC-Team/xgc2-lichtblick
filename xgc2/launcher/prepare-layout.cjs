@@ -353,11 +353,6 @@ function prepareLayout(input) {
         "authoredSimulationSensors required",
       );
       r.simpleLidar = raw.authoredSimulationSensors.simpleLidar?.enabled === true;
-      if (r.kind === "scout_mini" && raw.scout) {
-        const mocap = (raw.scout.mocapRigidBodyName || "").trim();
-        r.visualization.sceneModel =
-          mocap && mocap !== r.name && !r.name.startsWith("ugv") ? mocap : "";
-      }
       for (const key of ["odometryTopic", "jointStateTopic", "pathTopic"]) {
         if (r.visualization[key]) {
           assert(topic(namespaced(r, r.visualization[key])), "invalid robot topic");
@@ -904,7 +899,21 @@ function readJSONInput() {
   }
   return JSON.parse(Buffer.concat(chunks, total).toString("utf8"));
 }
-module.exports = { VIEWER_DEFAULTS, mapRobotFact, mapViewInput, prepareLayout, readJSONInput };
+function robotViewpoint(robot) {
+  return {
+    id: `xgc/robots/${model(robot)}/base_link`,
+    label: robot.name,
+  };
+}
+
+module.exports = {
+  VIEWER_DEFAULTS,
+  mapRobotFact,
+  mapViewInput,
+  prepareLayout,
+  readJSONInput,
+  robotViewpoint,
+};
 if (require.main === module) {
   process.stdout.write(JSON.stringify(prepareLayout(mapViewInput(readJSONInput()))));
 }

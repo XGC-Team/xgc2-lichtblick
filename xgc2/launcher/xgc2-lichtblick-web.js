@@ -24,7 +24,12 @@ const path = require("node:path");
 const url = require("node:url");
 
 const { MAX_BODY_BYTES, SHUTDOWN_MS, createControlService } = require("./control-service.cjs");
-const { mapViewInput, prepareLayout, readJSONInput } = require("./prepare-layout.cjs");
+const {
+  mapViewInput,
+  prepareLayout,
+  readJSONInput,
+  robotViewpoint,
+} = require("./prepare-layout.cjs");
 const { createViewGateway } = require("./view-gateway.cjs");
 const { ViewError, ViewStore } = require("./view-state.cjs");
 
@@ -792,13 +797,7 @@ async function main() {
     {
       const input = mapViewInput(readJSONInput());
       initialLayout = prepareLayout(input).layout;
-      viewpoints = [
-        { id: "world", label: "World" },
-        ...input.robots.map((robot) => ({
-          id: `xgc/robots/${robot.name}/base_link`,
-          label: robot.name,
-        })),
-      ];
+      viewpoints = [{ id: "world", label: "World" }, ...input.robots.map(robotViewpoint)];
       const sourceIndex = loadIndex;
       const json = JSON.stringify(initialLayout).replace(
         /[<>&\u2028\u2029]/g,

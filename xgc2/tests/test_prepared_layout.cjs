@@ -14,6 +14,7 @@ const {
   mapRobotFact,
   mapViewInput,
   prepareLayout,
+  robotViewpoint,
 } = require("../launcher/prepare-layout.cjs");
 const fixtures = require("../launcher/testdata/frozen-layouts.json");
 
@@ -170,6 +171,23 @@ test("RobotFact maps binding and asset fields and derives the slot name from its
     visualization: fact.derived.visualization,
   });
   assert.notEqual(fact.name, "uav1", "asset display name is not the ROS identity");
+});
+
+test("the authored visualization.sceneModel wins over the legacy scout binding", () => {
+  const input = structuredClone(
+    fixtures.find((fixture) => fixture.name === "physical-usb-camera").input,
+  );
+  const scout = input.robots.find((robot) => robot.kind === "scout_mini");
+  scout.derived.visualization.sceneModel = "authored_scout";
+  scout.binding.scout = { mocapRigidBodyName: "legacy_tracker" };
+  const prepared = prepareLayout(mapViewInput(input));
+  const layer = prepared.layout.configById["3D!xgc2"].layers["xgc2-urdf-ugv1"];
+  assert.equal(layer.framePrefix, "xgc/robots/authored_scout/");
+  assert.equal(prepared.layout.configById["3D!xgc2"].layers["xgc2-urdf-ugv1"].label, "ugv1");
+  assert.deepEqual(robotViewpoint(mapRobotFact(scout)), {
+    id: "xgc/robots/authored_scout/base_link",
+    label: "ugv1",
+  });
 });
 
 test("viewer defaults apply once and parameters override them without replacing Run facts", () => {
