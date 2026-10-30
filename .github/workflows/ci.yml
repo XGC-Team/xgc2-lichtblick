@@ -180,7 +180,7 @@ jobs:
       - run: yarn install --immutable
 
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+        run: corepack yarn exec playwright install --with-deps chromium
 
       - name: Run E2E Web smoke tests
         run: yarn test:e2e:web:smoke:ci
@@ -243,10 +243,10 @@ jobs:
           ls -la all-blob-reports-desktop/ || echo "No desktop blob reports found"
 
           # Merge blob reports into JSON format
-          npx playwright merge-reports --reporter json ./all-blob-reports-desktop > e2e/reports/desktop/results.json
+          corepack yarn exec playwright merge-reports --reporter json ./all-blob-reports-desktop > e2e/reports/desktop/results.json
 
           # Also generate HTML report
-          npx playwright merge-reports --reporter html ./all-blob-reports-desktop
+          corepack yarn exec playwright merge-reports --reporter html ./all-blob-reports-desktop
 
           echo "Merged desktop report size:"
           ls -lh e2e/reports/desktop/results.json
