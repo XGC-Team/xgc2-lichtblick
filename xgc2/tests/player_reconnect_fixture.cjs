@@ -27,7 +27,15 @@ function playerHarness({ url, workers = true, jitter = () => 0.5, logger = conso
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
     },
   ).outputText;
-  // An eval worker resolves modules from the working directory, not from this file: hand it the absolute path.
+  const compiledConstants = ts.transpileModule(
+    fs.readFileSync(path.join(PLAYER, "constants.ts"), "utf8"),
+    {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+    },
+  ).outputText;
+  // An eval worker resolves modules from the working directory, not from this file:
+  // load the compiled constants with the worker's own require, then run the actual
+  // compiled worker with a local require for its one relative import.
   const workerCode = `const { parentPort } = require("node:worker_threads");
     const NativeWebSocket = require(${JSON.stringify(require.resolve("ws"))});
     class WebSocket extends NativeWebSocket {
@@ -35,7 +43,10 @@ function playerHarness({ url, workers = true, jitter = () => 0.5, logger = conso
     }
     const self = { postMessage: (message, transfers) => parentPort.postMessage(message, transfers) };
     parentPort.on("message", (data) => self.onmessage({ data }));
-    ${compiledWorker}`;
+    const constantsModule = { exports: {} };
+    (function(require, module, exports) { ${compiledConstants} })(require, constantsModule, constantsModule.exports);
+    const workerModule = { exports: {} };
+    (function(require, module, exports) { ${compiledWorker} })((name) => name === "./constants" ? constantsModule.exports : require(name), workerModule, workerModule.exports);`;
   class BrowserWorker {
     constructor() {
       stats.attempts++;

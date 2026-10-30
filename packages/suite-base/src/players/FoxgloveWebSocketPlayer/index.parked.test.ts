@@ -110,7 +110,11 @@ function subscription(client: FakeClientInstance, channelId: number): number {
   return client.subscribe.mock.results[index]!.value as number;
 }
 function send(client: FakeClientInstance, subId: number, bytes: number[]): void {
-  client.emit("message", { subscriptionId: subId, data: new Uint8Array(bytes) });
+  client.emit("message", {
+    subscriptionId: subId,
+    data: new Uint8Array(bytes),
+    timestamp: BigInt(1_000_000_000 + (bytes[0] ?? 0)),
+  });
 }
 async function flush(): Promise<void> {
   for (let index = 0; index < 6; index++) {
