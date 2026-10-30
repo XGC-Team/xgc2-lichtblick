@@ -75,9 +75,10 @@ jobs:
           retention-days: 1
 
   e2e-web-regression:
-    runs-on: ubuntu-latest
+    # Playwright 1.60 supports Ubuntu 24.04; ubuntu-latest now resolves to 26.04.
+    runs-on: ubuntu-24.04
 
-    name: e2e-web-regression (ubuntu-latest)
+    name: e2e-web-regression (ubuntu-24.04)
 
     env:
       TZ: Europe/Lisbon

@@ -12,7 +12,6 @@ import { createRequire } from "module";
 import path from "path";
 import { TextEncoder as NodeTextEncoder } from "util";
 import { Worker as Thread } from "worker_threads";
-import type { AddressInfo } from "ws";
 import type * as WsModule from "ws";
 
 import { registerEmbeddedCanvasVisibility } from "@lichtblick/suite-base/components/EmbeddedParkedSignal";
@@ -207,7 +206,7 @@ describe("real server to renderer parking", () => {
     await new Promise<void>((resolve) => wss.once("listening", resolve));
     const reporter = registerEmbeddedCanvasVisibility("render-server-canvas");
     const player = new FoxgloveWebSocketPlayer({
-      url: `ws://127.0.0.1:${(wss.address() as AddressInfo).port}`,
+      url: `ws://127.0.0.1:${(wss.address() as WsModule.AddressInfo).port}`,
       metricsCollector: { setProperty: jest.fn(), playerConstructed: jest.fn() },
       sourceId: "foxglove-websocket",
     });

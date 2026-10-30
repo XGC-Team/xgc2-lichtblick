@@ -20,7 +20,13 @@ function request(base, resource, method, headers = {}) {
     const call = http.request(new URL(resource, base), { method, headers }, (response) => {
       const body = [];
       response.on("data", (chunk) => body.push(chunk));
-      response.once("end", () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(body) }));
+      response.once("end", () =>
+        resolve({
+          status: response.statusCode,
+          headers: response.headers,
+          body: Buffer.concat(body),
+        }),
+      );
       response.once("error", reject);
     });
     call.once("error", reject);
@@ -36,7 +42,10 @@ test("HEAD returns real static metadata without opening a payload stream", async
     runtimeDirectory: root,
     prepare({ web }) {
       fs.writeFileSync(streamLog, "");
-      fs.writeFileSync(preload, `const fs=require('node:fs');const open=fs.createReadStream;fs.createReadStream=function(file,...args){fs.appendFileSync(${JSON.stringify(streamLog)},String(file)+'\\n');return open.call(this,file,...args);};`);
+      fs.writeFileSync(
+        preload,
+        `const fs=require('node:fs');const open=fs.createReadStream;fs.createReadStream=function(file,...args){fs.appendFileSync(${JSON.stringify(streamLog)},String(file)+'\\n');return open.call(this,file,...args);};`,
+      );
       const descriptor = fs.openSync(path.join(web, "bundle.1234567890abcdef.js"), "w");
       fs.ftruncateSync(descriptor, 8 << 20);
       fs.closeSync(descriptor);
@@ -46,7 +55,11 @@ test("HEAD returns real static metadata without opening a payload stream", async
     // proves that the probe records actual payload stream opens.
     environment: { NODE_OPTIONS: `--require ${preload}` },
   });
-  t.after(async () => { launcher.child.kill("SIGTERM"); await launcher.exited; fs.rmSync(root, { recursive: true, force: true }); });
+  t.after(async () => {
+    launcher.child.kill("SIGTERM");
+    await launcher.exited;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   await launcher.waitForPort();
   const head = await request(launcher.base, "/bundle.1234567890abcdef.js", "HEAD");
   assert.equal(head.status, 200);
@@ -54,7 +67,9 @@ test("HEAD returns real static metadata without opening a payload stream", async
   assert.equal(head.headers["cache-control"], "public, max-age=31536000, immutable");
   assert.equal(head.body.length, 0);
   assert.equal(fs.readFileSync(streamLog, "utf8"), "");
-  const unchanged = await request(launcher.base, "/bundle.1234567890abcdef.js", "HEAD", { "If-Modified-Since": head.headers["last-modified"] });
+  const unchanged = await request(launcher.base, "/bundle.1234567890abcdef.js", "HEAD", {
+    "If-Modified-Since": head.headers["last-modified"],
+  });
   assert.equal(unchanged.status, 304);
   assert.equal(unchanged.body.length, 0);
   const layout = await request(launcher.base, "/layout.json", "HEAD");
