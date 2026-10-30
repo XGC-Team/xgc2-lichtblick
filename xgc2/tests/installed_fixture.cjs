@@ -348,8 +348,20 @@ function createFixture({ sdkPath = INSTALLED_SDK, storageBinary = INSTALLED_STOR
           JSON.stringify(ui),
         );
         if (ui.canvas) {
-          write(path.join(root, "renderer-proof.json"), ui);
-          return;
+          // Opening the 3D panel queues a debounced managed save. Wait for its
+          // durable working record before the launcher is stopped; otherwise
+          // the save can land after verifyClosed freezes the restart oracle.
+          const state = load(root);
+          const saveDeadline = Date.now() + 5000;
+          while (Date.now() < saveDeadline) {
+            const saved = snapshotValues(await storageSnapshot(state));
+            if (saved[documentKeys[0]]?.working) {
+              write(path.join(root, "renderer-proof.json"), ui);
+              return;
+            }
+            await delay(50);
+          }
+          throw Error("installed renderer did not durably save its working layout before shutdown");
         }
         await delay(100);
       }
