@@ -18,6 +18,14 @@ const {
 } = require("../launcher/prepare-layout.cjs");
 const fixtures = require("../launcher/testdata/frozen-layouts.json");
 
+test("current frozen robot source selects a mixed fleet without legacy binding fields", () => {
+  const input = structuredClone(fixtures.find((f) => f.name === "hybrid-mixed").input);
+  for (const robot of input.robots) {
+    assert.equal(Object.hasOwn(robot.binding, "hybridSource"), false);
+  }
+  assert.doesNotThrow(() => prepareLayout(mapViewInput(input)));
+});
+
 test("obstacle geometry visibility is independent of scene binding and cloud topics", () => {
   const input = structuredClone(fixtures.find((f) => f.input.parameters.sceneNamespace)?.input);
   assert.ok(input);
@@ -136,12 +144,12 @@ test("camera AR renders the simulated roster independently of camera topic names
   input.parameters.mecanumModelScale = 1.5;
   for (const runMode of ["simulation", "hybrid", "physical"]) {
     input.runMode = runMode;
+    for (const robot of input.robots) {
+      robot.source =
+        runMode === "hybrid" ? (robot.slotId === "uav2" ? "physical" : "simulation") : runMode;
+    }
     const ar = prepareLayout(mapViewInput(input)).layout.configById["Image!xgc2-camera-ar"];
-    const expected = input.robots.filter(
-      (r) =>
-        runMode === "simulation" ||
-        (runMode === "hybrid" && r.binding.hybridSource === "simulation"),
-    );
+    const expected = input.robots.filter((r) => r.source === "simulation");
     const layers = Object.values(ar.layers ?? {});
     assert.equal(layers.length, expected.length, runMode);
     for (const robot of expected) {
@@ -165,7 +173,7 @@ test("RobotFact maps binding and asset fields and derives the slot name from its
     kind: fact.kind,
     name: "uav1",
     initialPose: fact.binding.initialPose,
-    hybridSource: fact.binding.hybridSource,
+    source: fact.source,
     authoredSimulationSensors: fact.binding.simulationSensors,
     scout: fact.binding.scout,
     visualization: fact.derived.visualization,
@@ -273,7 +281,7 @@ test("missing or invalid robot layout facts name the offending slot", () => {
     (r) => delete r.binding,
     (r) => delete r.binding.initialPose,
     (r) => (r.binding.initialPose.x = "bad"),
-    (r) => delete r.binding.hybridSource,
+    (r) => delete r.source,
     (r) => (r.binding.simulationSensors = 3),
     (r) => delete r.derived.visualization,
     (r) => delete r.derived.visualization.visuals,

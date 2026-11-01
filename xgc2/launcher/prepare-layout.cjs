@@ -144,7 +144,7 @@ function mapRobotFact(fact) {
     // The layout uses the slot namespace, not the asset's human-readable name.
     name: typeof fact.namespace === "string" ? fact.namespace.slice(1) : undefined,
     initialPose: fact.binding.initialPose,
-    hybridSource: fact.binding.hybridSource,
+    source: fact.source,
     authoredSimulationSensors: fact.binding.simulationSensors ?? {},
     scout: fact.binding.scout,
     visualization: fact.derived.visualization,
@@ -347,7 +347,7 @@ function prepareLayout(input) {
         r.initialPose && ["x", "y", "z", "yaw"].every((k) => Number.isFinite(r.initialPose[k])),
         "finite initial pose required",
       );
-      assert(["simulation", "physical"].includes(r.hybridSource), "frozen hybridSource required");
+      assert(["simulation", "physical"].includes(r.source), "frozen robot source required");
       assert(
         raw.authoredSimulationSensors && typeof raw.authoredSimulationSensors === "object",
         "authoredSimulationSensors required",
@@ -377,7 +377,7 @@ function prepareLayout(input) {
     }
   });
   assert(new Set(robots.map((r) => r.name)).size === robots.length, "duplicate robot identity");
-  const source = (r) => (p.runMode === "hybrid" ? r.hybridSource : p.runMode);
+  const source = (r) => r.source;
   const lidar = robots
     .filter((r) => r.simpleLidar && source(r) === "simulation")
     .map((r) => namespaced(r, "simple_lidar/points"));

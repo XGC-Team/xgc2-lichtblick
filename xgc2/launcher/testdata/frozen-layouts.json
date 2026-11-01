@@ -11,6 +11,7 @@
       "robots": [
         {
           "slotId": "uav1",
+          "source": "simulation",
           "assetId": "fixture-uav1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav1",
@@ -32,7 +33,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -362,6 +362,7 @@
       "robots": [
         {
           "slotId": "uav1",
+          "source": "simulation",
           "assetId": "fixture-uav1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav1",
@@ -383,7 +384,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -726,6 +726,7 @@
       "robots": [
         {
           "slotId": "uav1",
+          "source": "physical",
           "assetId": "fixture-uav1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav1",
@@ -747,7 +748,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -772,6 +772,7 @@
         },
         {
           "slotId": "uav2",
+          "source": "physical",
           "assetId": "fixture-uav2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav2",
@@ -793,7 +794,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "physical",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -818,6 +818,7 @@
         },
         {
           "slotId": "ugv1",
+          "source": "physical",
           "assetId": "fixture-ugv1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv1",
@@ -839,7 +840,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -865,6 +865,7 @@
         },
         {
           "slotId": "ugv2",
+          "source": "physical",
           "assetId": "fixture-ugv2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv2",
@@ -886,7 +887,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -1236,6 +1236,7 @@
       "robots": [
         {
           "slotId": "uav1",
+          "source": "simulation",
           "assetId": "fixture-uav1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav1",
@@ -1257,7 +1258,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -1282,6 +1282,7 @@
         },
         {
           "slotId": "uav2",
+          "source": "simulation",
           "assetId": "fixture-uav2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav2",
@@ -1303,7 +1304,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "physical",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -1328,6 +1328,7 @@
         },
         {
           "slotId": "ugv1",
+          "source": "simulation",
           "assetId": "fixture-ugv1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv1",
@@ -1349,7 +1350,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -1375,6 +1375,7 @@
         },
         {
           "slotId": "ugv2",
+          "source": "simulation",
           "assetId": "fixture-ugv2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv2",
@@ -1396,7 +1397,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -1840,6 +1840,7 @@
       "robots": [
         {
           "slotId": "uav1",
+          "source": "simulation",
           "assetId": "fixture-uav1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav1",
@@ -1861,7 +1862,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -1886,6 +1886,7 @@
         },
         {
           "slotId": "uav2",
+          "source": "simulation",
           "assetId": "fixture-uav2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav2",
@@ -1907,7 +1908,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "physical",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -1932,6 +1932,7 @@
         },
         {
           "slotId": "ugv1",
+          "source": "simulation",
           "assetId": "fixture-ugv1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv1",
@@ -1953,7 +1954,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -1979,6 +1979,7 @@
         },
         {
           "slotId": "ugv2",
+          "source": "simulation",
           "assetId": "fixture-ugv2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv2",
@@ -2000,7 +2001,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -2434,6 +2434,7 @@
       "robots": [
         {
           "slotId": "uav1",
+          "source": "simulation",
           "assetId": "fixture-uav1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav1",
@@ -2455,7 +2456,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -2480,6 +2480,7 @@
         },
         {
           "slotId": "uav2",
+          "source": "physical",
           "assetId": "fixture-uav2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav2",
@@ -2501,7 +2502,6 @@
               "yaw": 0,
               "z": 1
             },
-            "hybridSource": "physical",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -2526,6 +2526,7 @@
         },
         {
           "slotId": "ugv1",
+          "source": "simulation",
           "assetId": "fixture-ugv1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv1",
@@ -2547,7 +2548,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -2573,6 +2573,7 @@
         },
         {
           "slotId": "ugv2",
+          "source": "simulation",
           "assetId": "fixture-ugv2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture ugv2",
@@ -2594,7 +2595,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": false
@@ -3081,6 +3081,7 @@
       "robots": [
         {
           "slotId": "uav1",
+          "source": "simulation",
           "assetId": "fixture-uav1",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav1",
@@ -3102,7 +3103,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3127,6 +3127,7 @@
         },
         {
           "slotId": "uav2",
+          "source": "simulation",
           "assetId": "fixture-uav2",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav2",
@@ -3148,7 +3149,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3173,6 +3173,7 @@
         },
         {
           "slotId": "uav3",
+          "source": "simulation",
           "assetId": "fixture-uav3",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav3",
@@ -3194,7 +3195,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3219,6 +3219,7 @@
         },
         {
           "slotId": "uav4",
+          "source": "simulation",
           "assetId": "fixture-uav4",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav4",
@@ -3240,7 +3241,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3265,6 +3265,7 @@
         },
         {
           "slotId": "uav5",
+          "source": "simulation",
           "assetId": "fixture-uav5",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav5",
@@ -3286,7 +3287,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3311,6 +3311,7 @@
         },
         {
           "slotId": "uav6",
+          "source": "simulation",
           "assetId": "fixture-uav6",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav6",
@@ -3332,7 +3333,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3357,6 +3357,7 @@
         },
         {
           "slotId": "uav7",
+          "source": "simulation",
           "assetId": "fixture-uav7",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav7",
@@ -3378,7 +3379,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3403,6 +3403,7 @@
         },
         {
           "slotId": "uav8",
+          "source": "simulation",
           "assetId": "fixture-uav8",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav8",
@@ -3424,7 +3425,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3449,6 +3449,7 @@
         },
         {
           "slotId": "uav9",
+          "source": "simulation",
           "assetId": "fixture-uav9",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav9",
@@ -3470,7 +3471,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
@@ -3495,6 +3495,7 @@
         },
         {
           "slotId": "uav10",
+          "source": "simulation",
           "assetId": "fixture-uav10",
           "assetCommitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "name": "Fixture uav10",
@@ -3516,7 +3517,6 @@
               "yaw": 0,
               "z": 0
             },
-            "hybridSource": "simulation",
             "simulationSensors": {
               "simpleLidar": {
                 "enabled": true
