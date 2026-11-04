@@ -304,6 +304,12 @@ export function RendererOverlay(props: Props): React.JSX.Element {
       setShowResetViewButton(renderer?.canResetView() ?? false);
     }, [renderer]),
   );
+  // Renderer is created after the overlay's first render. If the image view
+  // was already modified before the event listener was attached, the initial
+  // useState value would remain false; sync once the renderer is available.
+  useEffect(() => {
+    setShowResetViewButton(renderer?.canResetView() ?? false);
+  }, [renderer]);
   const onResetView = useCallback(() => {
     renderer?.resetView();
   }, [renderer]);

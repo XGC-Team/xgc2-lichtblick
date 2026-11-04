@@ -71,10 +71,12 @@ jest.mock("./Stats", () => {
 });
 
 const mockRendererEventCallbacks = new Map<string, (...args: any[]) => void>();
+let mockRendererAvailable = true;
 const mockRenderer = {
   setPickingEnabled: jest.fn(),
   setSelectedRenderable: jest.fn(),
   canResetView: jest.fn(() => false),
+  resetView: jest.fn(),
   getContextMenuItems: jest.fn(() => []),
   fixedFrameId: undefined as string | undefined,
   sceneExtensions: new Map<string, unknown>(),
@@ -83,7 +85,7 @@ const mockRenderer = {
 jest.mock("./RendererContext", () => {
   return {
     __esModule: true,
-    useRenderer: () => mockRenderer,
+    useRenderer: () => (mockRendererAvailable ? mockRenderer : undefined),
     useRendererEvent: (eventName: string, cb: (...args: any[]) => void) => {
       mockRendererEventCallbacks.set(eventName, cb);
     },
@@ -97,6 +99,8 @@ describe("<RendererOverlay /> hover wiring", () => {
     mockRenderer.fixedFrameId = undefined;
     mockRenderer.sceneExtensions.clear();
     jest.clearAllMocks();
+    mockRenderer.canResetView.mockReturnValue(false);
+    mockRendererAvailable = true;
   });
 
   it("keeps the host-authorized live scene editor independent of ROS publishing", () => {
@@ -116,11 +120,11 @@ describe("<RendererOverlay /> hover wiring", () => {
     );
   }
 
-  function renderOverlay(
+  function overlayElement(
     canvas: HTMLCanvasElement | ReactNull,
     overrides: Partial<React.ComponentProps<typeof RendererOverlay>> = {},
   ) {
-    return render(
+    return (
       <ThemeProvider isDark={false}>
         <EmbeddedWorkspaceControlsProvider>
           <HostToolsVisibilityToggle />
@@ -148,8 +152,15 @@ describe("<RendererOverlay /> hover wiring", () => {
             {...overrides}
           />
         </EmbeddedWorkspaceControlsProvider>
-      </ThemeProvider>,
+      </ThemeProvider>
     );
+  }
+
+  function renderOverlay(
+    canvas: HTMLCanvasElement | ReactNull,
+    overrides: Partial<React.ComponentProps<typeof RendererOverlay>> = {},
+  ) {
+    return render(overlayElement(canvas, overrides));
   }
 
   it("hides overlay tools from host Tools without a viewer collapse tab", () => {
@@ -261,6 +272,39 @@ describe("<RendererOverlay /> hover wiring", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(onClickPublish).not.toHaveBeenCalled();
     expect(onChangePublishClickType).not.toHaveBeenCalled();
+  });
+
+  it("shows the existing reset-view button when the image view starts modified", () => {
+    mockRenderer.canResetView.mockReturnValue(true);
+    renderOverlay(document.createElement("canvas"), { interfaceMode: "image" });
+    const button = screen.getByTestId("reset-view");
+    expect(button).toBeVisible();
+    fireEvent.click(button);
+    expect(mockRenderer.resetView).toHaveBeenCalledTimes(1);
+  });
+
+  it("syncs the reset-view button when the renderer becomes available", () => {
+    mockRendererAvailable = false;
+    mockRenderer.canResetView.mockReturnValue(true);
+    const canvas = document.createElement("canvas");
+    const view = renderOverlay(canvas, { interfaceMode: "image" });
+    expect(screen.queryByTestId("reset-view")).not.toBeInTheDocument();
+    mockRendererAvailable = true;
+    view.rerender(overlayElement(canvas, { interfaceMode: "image" }));
+    expect(screen.getByTestId("reset-view")).toBeVisible();
+  });
+
+  it("shows the existing reset-view button after the image view changes", () => {
+    renderOverlay(document.createElement("canvas"), { interfaceMode: "image" });
+    expect(screen.queryByTestId("reset-view")).not.toBeInTheDocument();
+    mockRenderer.canResetView.mockReturnValue(true);
+    act(() => {
+      mockRendererEventCallbacks.get("resetViewChanged")?.();
+    });
+    const button = screen.getByTestId("reset-view");
+    expect(button).toBeVisible();
+    fireEvent.click(button);
+    expect(mockRenderer.resetView).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose a 3D collapse control in image mode", () => {

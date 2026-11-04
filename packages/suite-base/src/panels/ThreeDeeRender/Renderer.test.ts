@@ -291,6 +291,50 @@ describe("3D Renderer", () => {
     renderer.dispose();
   });
 
+  it("reports reset view after an image-mode pointer drag", () => {
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      interfaceMode: "image",
+    });
+    expect(renderer.canResetView()).toBe(false);
+    canvas.dispatchEvent(
+      new MouseEvent("mousedown", {
+        clientX: 10,
+        clientY: 10,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    window.dispatchEvent(
+      new MouseEvent("mousemove", {
+        clientX: 20,
+        clientY: 15,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(renderer.canResetView()).toBe(true);
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    renderer.dispose();
+  });
+
+  it("reports reset view after an image-mode wheel zoom", () => {
+    const renderer = new Renderer({
+      ...defaultRendererProps,
+      canvas,
+      interfaceMode: "image",
+    });
+    expect(renderer.canResetView()).toBe(false);
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: -100, bubbles: true, cancelable: true }),
+    );
+    expect(renderer.canResetView()).toBe(true);
+    renderer.resetView();
+    expect(renderer.canResetView()).toBe(false);
+    renderer.dispose();
+  });
+
   it("disposes all resources correctly", () => {
     // Given: A renderer instance
     const renderer = new Renderer({ ...defaultRendererProps, canvas });
