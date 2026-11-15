@@ -3,6 +3,11 @@
 
 import { CoreUiDocumentAssets } from "./CoreUiDocumentAssets";
 import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
+import {
+  EphemeralAssetTransport,
+  EphemeralDocumentStore,
+  isEphemeralGuestViewerLocation,
+} from "./EphemeralDocumentStore";
 import type { ManagedAssetTransport } from "./ManagedAsset";
 import type { ManagedDocumentStore, ManagedTransport } from "./ManagedDocumentStore";
 import type { ManagedDocumentStorage } from "./ManagedDocumentStore.types";
@@ -13,7 +18,9 @@ export type { ManagedAssetReference, ManagedAssetTransport } from "./ManagedAsse
 let documentStore: ManagedDocumentStorage | undefined;
 let assetTransport: ManagedAssetTransport | undefined;
 
-export function initializeManagedPersistence(): Promise<CoreUiDocumentStore>;
+export function initializeManagedPersistence(): Promise<
+  CoreUiDocumentStore | EphemeralDocumentStore
+>;
 /** Desktop keeps its existing IPC transport, document protocol and asset grants. */
 export function initializeManagedPersistence(
   transport: ManagedTransport,
@@ -22,11 +29,15 @@ export function initializeManagedPersistence(
 export async function initializeManagedPersistence(
   transport?: ManagedTransport,
   assets?: ManagedAssetTransport,
-): Promise<CoreUiDocumentStore | ManagedDocumentStore> {
-  // Only the desktop's explicit transport loads the snapshot/receipt store.
+): Promise<CoreUiDocumentStore | EphemeralDocumentStore | ManagedDocumentStore> {
+  const ephemeralGuest = !transport && isEphemeralGuestViewerLocation();
+  // Only the desktop's explicit transport loads the snapshot/receipt store;
+  // Share Guest viewers stay purely in-memory without touching main-station APIs.
   const store = transport
     ? new (await import("./ManagedDocumentStore")).ManagedDocumentStore(transport)
-    : new CoreUiDocumentStore();
+    : ephemeralGuest
+      ? new EphemeralDocumentStore()
+      : new CoreUiDocumentStore();
   await store.bootstrap();
   const profile = store.get<UserProfile>("profile", "user") ?? {};
   if (!profile.firstSeenTime) {
@@ -43,7 +54,8 @@ export async function initializeManagedPersistence(
     ]);
   }
   documentStore = store;
-  assetTransport = assets ?? new CoreUiDocumentAssets();
+  assetTransport =
+    assets ?? (ephemeralGuest ? new EphemeralAssetTransport() : new CoreUiDocumentAssets());
   return store;
 }
 

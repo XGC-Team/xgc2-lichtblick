@@ -12,6 +12,7 @@ import { useLayoutManager } from "@lichtblick/suite-base/context/LayoutManagerCo
 import type { Layout } from "@lichtblick/suite-base/services/ILayoutStorage";
 import { isLayoutEqual } from "@lichtblick/suite-base/services/LayoutManager/utils/isLayoutEqual";
 import { CoreUiDocumentStore } from "@lichtblick/suite-base/services/persistence/CoreUiDocumentStore";
+import { EphemeralDocumentStore } from "@lichtblick/suite-base/services/persistence/EphemeralDocumentStore";
 import { ManagedRequestError } from "@lichtblick/suite-base/services/persistence/ManagedDocumentStore.types";
 import { getManagedDocumentStore } from "@lichtblick/suite-base/services/persistence/ManagedPersistence";
 
@@ -92,6 +93,9 @@ export function CurrentLayoutManagedSyncAdapter(): null {
     current?.data != undefined &&
     (!saved || !isLayoutEqual(saved.working?.data ?? saved.baseline.data, current.data));
   useEffect(() => {
+    if (store instanceof EphemeralDocumentStore) {
+      return;
+    }
     if (!dirty && !unsubmitted && state.pending === 0 && !state.error) {
       return;
     }
