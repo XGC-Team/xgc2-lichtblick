@@ -4,6 +4,7 @@
 import { CoreUiDocumentAssets } from "./CoreUiDocumentAssets";
 import { CoreUiDocumentClient } from "./CoreUiDocumentClient";
 import { CoreUiDocumentStore } from "./CoreUiDocumentStore";
+import { EphemeralAssetTransport, EphemeralDocumentStore } from "./EphemeralDocumentStore";
 import type { ManagedAssetTransport } from "./ManagedAsset";
 import { ManagedDocumentStore } from "./ManagedDocumentStore";
 import {
@@ -90,5 +91,35 @@ it("keeps the desktop initializer's explicit IPC transport and asset interface",
   expect(bootstrap).toHaveBeenCalledTimes(1);
   expect(getManagedDocumentStore()).toBe(store);
   expect(getManagedAssetTransport()).toBe(assets);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("uses ephemeral in-memory persistence under /api/access/entry/viewer/ without contacting /api/ui-documents", async () => {
+  Object.defineProperty(globalThis, "window", {
+    value: { location: { pathname: "/api/access/entry/viewer/", reload: mockReload } },
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, "document", {
+    value: { baseURI: "http://192.168.51.4:38000/api/access/entry/viewer/" },
+    configurable: true,
+  });
+  const fetcher = jest.spyOn(globalThis, "fetch");
+  const store = await initializeManagedPersistence();
+  expect(store).toBeInstanceOf(EphemeralDocumentStore);
+  expect(getManagedDocumentStore()).toBe(store);
+  const assetStore = getManagedAssetTransport();
+  expect(assetStore).toBeInstanceOf(EphemeralAssetTransport);
+  expect(store.get("profile", "user")).toEqual({
+    firstSeenTime: expect.any(String),
+    firstSeenTimeIsFirstLoad: true,
+  });
+  await store.commit([{ family: "workspace", key: "ui", value: { leftSidebarOpen: false } }]);
+  expect(store.get("workspace", "ui")).toEqual({ leftSidebarOpen: false });
+  await expect(
+    assetStore.publish(new Uint8Array([1, 2, 3]), { id: "ext.test", version: "1.0.0" }),
+  ).rejects.toThrow("Extension assets are unavailable in read-only guest viewer");
+  await expect(
+    assetStore.load({ owner: "lichtblick", asset_id: "k-ext", sha256: "0".repeat(64), bytes: 3 }),
+  ).rejects.toThrow("Extension assets are unavailable in read-only guest viewer");
   expect(fetcher).not.toHaveBeenCalled();
 });
