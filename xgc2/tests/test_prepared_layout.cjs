@@ -336,6 +336,37 @@ test("accepts Marker and MarkerArray display copies without inventing pose axes"
   }
 });
 
+test("keeps the Fig. 11 display relay's native marker style", () => {
+  const input = structuredClone(fixtures[1].input);
+  const prediction = input.visualizationTopics[0];
+  Object.assign(prediction, {
+    messageType: "nav_msgs/Path",
+    role: "prediction",
+    displayStyle: "tro-fig11",
+    showPoseAxes: true,
+    color: "#ff00ffff",
+    lineWidth: 0.9,
+  });
+  const topics = prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"]
+    .topics;
+  assert.deepEqual(topics[`/xgc/display${prediction.topic}`], {
+    visible: true,
+  });
+  delete prediction.displayStyle;
+  assert.equal(
+    prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"].topics[
+      `/xgc/display${prediction.topic}`
+    ].lineWidth,
+    0.9,
+  );
+  prediction.displayStyle = "tro-fig11";
+  prediction.role = "obstacle";
+  assert.throws(
+    () => prepareLayout(mapViewInput(input)),
+    /tro-fig11 requires a prediction Path/,
+  );
+});
+
 test("history parameters keep the author path style and record the send ceiling", () => {
   const input = structuredClone(fixtures[0].input);
   const base = prepareLayout(mapViewInput(input));

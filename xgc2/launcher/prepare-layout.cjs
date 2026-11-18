@@ -469,6 +469,9 @@ function prepareLayout(input) {
   }
   const declaredSettings = (t) => {
     const s = visible();
+    if (t.displayStyle === "tro-fig11") {
+      return s;
+    }
     const owner = t.robotNamespace
       ? robots.find((r) => r.namespace === t.robotNamespace)
       : undefined;
@@ -614,6 +617,12 @@ function prepareLayout(input) {
       messageTypes.has(t.messageType) && ["prediction", "obstacle", "semantic"].includes(t.role),
       "unsupported visualization declaration",
     );
+    if (t.displayStyle != undefined) {
+      assert(
+        t.displayStyle === "tro-fig11" && t.messageType === "nav_msgs/Path" && t.role === "prediction",
+        "tro-fig11 requires a prediction Path",
+      );
+    }
     assert(
       typeof t.visible3d === "boolean" &&
         typeof t.visibleAr === "boolean" &&
