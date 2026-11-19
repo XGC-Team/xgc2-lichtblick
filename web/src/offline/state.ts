@@ -26,6 +26,7 @@ export type FramePlan = {
   cameraTimeNs: string;
   width: number;
   height: number;
+  cameraState?: Record<string, unknown>;
 };
 export type Time = { sec: number; nsec: number };
 export type CameraFrame = {
@@ -50,7 +51,8 @@ export type Snapshot = {
   version: number;
   bagStartNs: string;
   recipe: {
-    source: { cameraTopic: string; messageType?: string };
+    mode?: "image" | "3d";
+    source?: { cameraTopic?: string; messageType?: string };
     interval: { startNs: string; endNs: string };
     output: { width: number; height: number; fps: number };
   };
@@ -151,15 +153,28 @@ export function parseSnapshot(value: unknown): Snapshot {
   nanos(s.bagStartNs);
   nanos(s.recipe.interval.startNs);
   nanos(s.recipe.interval.endNs);
+  const mode = s.recipe.mode ?? "image";
+  requireValue(mode === "image" || mode === "3d", "Unsupported recipe mode");
+  const { width: outWidth, height: outHeight, fps } = s.recipe.output;
   requireValue(
-    s.recipe.output.width === 3840 &&
-      s.recipe.output.height === 2160 &&
-      [24, 25, 30, 50, 60].includes(s.recipe.output.fps),
+    mode === "image"
+      ? outWidth === 3840 && outHeight === 2160 && [24, 25, 30, 50, 60].includes(fps)
+      : Number.isSafeInteger(outWidth) &&
+          Number.isSafeInteger(outHeight) &&
+          outWidth >= 64 &&
+          outWidth <= 7680 &&
+          outHeight >= 64 &&
+          outHeight <= 4320 &&
+          outWidth % 2 === 0 &&
+          outHeight % 2 === 0 &&
+          Number.isSafeInteger(fps) &&
+          fps >= 1 &&
+          fps <= 60,
     "Unsupported output",
   );
   requireValue(nanos(s.recipe.interval.endNs) > nanos(s.recipe.interval.startNs), "Empty clip");
   requireValue(
-    nanos(s.policy.maxFrameAgeNs) > 0n &&
+    (mode === "3d" ? nanos(s.policy.maxFrameAgeNs) >= 0n : nanos(s.policy.maxFrameAgeNs) > 0n) &&
       nanos(s.policy.maxFrameAgeNs) <= 1_000_000_000n &&
       nanos(s.policy.tfLookaheadNs) <= 1_000_000_000n,
     "Invalid source time policy",
@@ -168,10 +183,18 @@ export function parseSnapshot(value: unknown): Snapshot {
     Array.isArray(s.topics) &&
       s.topics.length <= 256 &&
       Array.isArray(s.cameraFrames) &&
-      s.cameraFrames.length > 0 &&
+      (mode === "3d" ? s.cameraFrames.length === 0 : s.cameraFrames.length > 0) &&
       s.cameraFrames.length <= 100000,
     "Invalid source index",
   );
+  if (mode === "image") {
+    requireValue(
+      record(s.recipe.source) &&
+        typeof s.recipe.source.cameraTopic === "string" &&
+        s.recipe.source.cameraTopic.length > 0,
+      "Invalid offline camera config",
+    );
+  }
   let log = -1n,
     sample = -1n,
     rendered = -1n;
@@ -199,15 +222,15 @@ export function parseSnapshot(value: unknown): Snapshot {
     log = nanos(f.logTimeNs);
     sample = nanos(f.cameraTimeNs);
     requireValue(
-      f.width === 3840 &&
-        f.height === 2160 &&
+      f.width === outWidth &&
+        f.height === outHeight &&
         ["jpeg", "png"].includes(f.format) &&
         rosNanos(f.header.stamp) === sample &&
         Boolean(f.header.frame_id),
       "Invalid camera frame",
     );
     const encoding: unknown = f.sourceEncoding;
-    if (s.recipe.source.messageType === "foxglove_msgs/CompressedVideo") {
+    if (s.recipe.source?.messageType === "foxglove_msgs/CompressedVideo") {
       requireValue(
         record(encoding) &&
           Object.keys(encoding).every((key) =>
@@ -280,12 +303,13 @@ export function selectFrame(snapshot: Snapshot, plan: FramePlan, sha256: string)
   const r = snapshot.recipe,
     count = (nanos(r.interval.endNs) - nanos(r.interval.startNs)) * BigInt(r.output.fps);
   requireValue(
-    plan.snapshotSha256 === sha256 &&
+    (r.mode ?? "image") === "image" &&
+      plan.snapshotSha256 === sha256 &&
       Number.isSafeInteger(plan.frameIndex) &&
       plan.frameIndex >= 0 &&
       BigInt(plan.frameIndex) < (count + 999999999n) / 1000000000n &&
-      plan.width === 3840 &&
-      plan.height === 2160,
+      plan.width === r.output.width &&
+      plan.height === r.output.height,
     "Invalid frame request",
   );
   const target =
@@ -318,6 +342,24 @@ export function selectFrame(snapshot: Snapshot, plan: FramePlan, sha256: string)
     "Source frame mapping mismatch",
   );
   return frame;
+}
+export function selectFrame3d(snapshot: Snapshot, plan: FramePlan, sha256: string): bigint {
+  const r = snapshot.recipe,
+    count = (nanos(r.interval.endNs) - nanos(r.interval.startNs)) * BigInt(r.output.fps);
+  requireValue(
+    (r.mode ?? "image") === "3d" &&
+      plan.snapshotSha256 === sha256 &&
+      Number.isSafeInteger(plan.frameIndex) &&
+      plan.frameIndex >= 0 &&
+      BigInt(plan.frameIndex) < (count + 999999999n) / 1000000000n &&
+      plan.width === r.output.width &&
+      plan.height === r.output.height,
+    "Invalid frame request",
+  );
+  const target =
+    nanos(r.interval.startNs) + (BigInt(plan.frameIndex) * 1000000000n) / BigInt(r.output.fps);
+  requireValue(nanos(plan.targetTimeNs) === target, "Output time/index mismatch");
+  return nanos(snapshot.bagStartNs) + target;
 }
 export function parseEvents(value: unknown, topics: Snapshot["topics"]): SnapshotEvent[] {
   requireValue(Array.isArray(value) && value.length <= 500000, "Invalid event history");

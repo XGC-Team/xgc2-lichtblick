@@ -17,6 +17,7 @@ import { Markers } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderable
 import { MeasurementTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/MeasurementTool";
 import { PoseArrays } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PoseArrays";
 import { PublishClickTool } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/PublishClickTool";
+import { SceneSettings } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/SceneSettings";
 import {
   Urdfs,
   type LayerSettingsCustomUrdf,
@@ -40,6 +41,7 @@ import {
   requireValue,
   rosNanos,
   selectFrame,
+  selectFrame3d,
   verifiedFetch,
   type CameraFrame,
   type FramePlan,
@@ -91,7 +93,8 @@ function errors(node: NodeError): string[] {
 /** Native ROS scene semantics, with a persistent read-back surface for capture. */
 export class OfflineRenderer {
   readonly #renderer: Renderer;
-  readonly #imageMode: OfflineImageMode;
+  readonly #imageMode: OfflineImageMode | undefined;
+  readonly #mode: "image" | "3d";
   readonly #interactive: boolean;
   readonly #output: CanvasRenderingContext2D | undefined;
   readonly #scratch: HTMLDivElement | undefined;
@@ -130,19 +133,32 @@ export class OfflineRenderer {
     requireCapturePixelRatio(window.devicePixelRatio, { interactive });
     requireValue(record(snapshot.rendererConfig), "Missing renderer config");
     const config = snapshot.rendererConfig as unknown as RendererConfig;
-    requireValue(
-      config.imageMode.imageTopic === snapshot.recipe.source.cameraTopic &&
-        typeof config.imageMode.calibrationTopic === "string" &&
-        config.imageMode.synchronize === false,
-      "Invalid offline camera config",
-    );
-    requireValue(
-      Object.keys(config.layers).length === 0 &&
-        config.imageMode.rotation === 0 &&
-        config.imageMode.flipHorizontal !== true &&
-        config.imageMode.flipVertical !== true,
-      "Unsupported layout transformation",
-    );
+    const mode = snapshot.recipe.mode ?? "image";
+    this.#mode = mode;
+    if (mode === "image") {
+      requireValue(
+        record(config.imageMode) &&
+          config.imageMode.imageTopic === snapshot.recipe.source?.cameraTopic &&
+          typeof config.imageMode.calibrationTopic === "string" &&
+          config.imageMode.synchronize === false,
+        "Invalid offline camera config",
+      );
+      requireValue(
+        Object.keys(config.layers).length === 0 &&
+          config.imageMode.rotation === 0 &&
+          config.imageMode.flipHorizontal !== true &&
+          config.imageMode.flipVertical !== true,
+        "Unsupported layout transformation",
+      );
+    } else {
+      requireValue(
+        typeof config.followTf === "string" &&
+          config.followTf.length > 0 &&
+          record(config.cameraState) &&
+          Object.keys(config.layers).length === 0,
+        "Invalid offline 3d camera config",
+      );
+    }
     this.#snapshot = snapshot;
     this.#sha256 = sha256;
     this.#base = base;
@@ -154,9 +170,11 @@ export class OfflineRenderer {
     this.#tfTimes = this.#tf.map((row) => nanos(row.timeNs));
     this.#staticTimes = this.#static.map((row) => nanos(row.timeNs));
 
+    const outWidth = snapshot.recipe.output.width;
+    const outHeight = snapshot.recipe.output.height;
     const canvas = document.createElement("canvas");
-    canvas.width = 3840;
-    canvas.height = 2160;
+    canvas.width = outWidth;
+    canvas.height = outHeight;
     this.#canvas = canvas;
     if (interactive) {
       // Interactive preview renders straight to the visible WebGL canvas. The
@@ -170,17 +188,21 @@ export class OfflineRenderer {
         position: "absolute",
         left: "-10000px",
         top: "0",
-        width: "3840px",
-        height: "2160px",
+        width: `${outWidth}px`,
+        height: `${outHeight}px`,
       });
       scratch.append(canvas);
       document.body.append(scratch);
       this.#scratch = scratch;
       const display = document.createElement("canvas");
       display.id = "offline-output";
-      display.width = 3840;
-      display.height = 2160;
-      Object.assign(display.style, { display: "block", width: "3840px", height: "2160px" });
+      display.width = outWidth;
+      display.height = outHeight;
+      Object.assign(display.style, {
+        display: "block",
+        width: `${outWidth}px`,
+        height: `${outHeight}px`,
+      });
       document.body.append(display);
       const output = display.getContext("2d");
       requireValue(output != undefined, "Missing capture canvas context");
@@ -210,7 +232,7 @@ export class OfflineRenderer {
     this.#renderer = new Renderer({
       canvas,
       config,
-      interfaceMode: "image",
+      interfaceMode: mode,
       customCameraModels: new Map(),
       testOptions: {},
       fetchAsset: async (url) => await fetchFrozenModelAsset(snapshot.models ?? [], base, url),
@@ -226,6 +248,11 @@ export class OfflineRenderer {
           },
         },
         extensionsById: {
+          ...(mode === "3d" && {
+            [SceneSettings.extensionId]: {
+              init: (renderer: IRenderer) => new SceneSettings(renderer),
+            },
+          }),
           [Markers.extensionId]: {
             init: (renderer: IRenderer) => (this.#native.markers = new Markers(renderer)),
           },
@@ -242,7 +269,9 @@ export class OfflineRenderer {
         },
       },
     });
-    requireValue(imageMode != undefined, "Native ImageMode was not initialized");
+    if (mode === "image") {
+      requireValue(imageMode != undefined, "Native ImageMode was not initialized");
+    }
     this.#imageMode = imageMode;
     this.#renderer.ros = true;
     if (!interactive) {
@@ -251,7 +280,10 @@ export class OfflineRenderer {
     }
     this.#renderer.setTopics(snapshot.topics);
     this.#renderer.setPickingEnabled(false);
-    this.#renderer.setColorScheme("light", undefined);
+    this.#renderer.setColorScheme(
+      "light",
+      mode === "3d" ? config.scene?.backgroundColor : undefined,
+    );
   }
 
   #dispatch(row: SnapshotEvent, timeNs: bigint): void {
@@ -278,11 +310,21 @@ export class OfflineRenderer {
   public async frame(plan: FramePlan): Promise<FramePlan> {
     requireValue(!this.#tainted, "Recreate failed offline renderer before retry");
     try {
-      const image = selectFrame(this.#snapshot, plan, this.#sha256);
-      const time = nanos(image.renderTimeNs ?? image.cameraTimeNs);
+      const image =
+        this.#mode === "image" ? selectFrame(this.#snapshot, plan, this.#sha256) : undefined;
+      const time =
+        image != undefined
+          ? nanos(image.renderTimeNs ?? image.cameraTimeNs)
+          : selectFrame3d(this.#snapshot, plan, this.#sha256);
       const editTime = nanos(plan.targetTimeNs);
       if (this.#edits != undefined) {
         this.#edits.time = editTime;
+      }
+      if (this.#mode === "3d" && record(plan.cameraState)) {
+        this.#renderer.setCameraState({
+          ...this.#renderer.config.cameraState,
+          ...plan.cameraState,
+        });
       }
       if (time < this.#previousTime) {
         this.#renderer.clear({ clearTransforms: true, resetAllFramesCursor: true });
@@ -294,7 +336,7 @@ export class OfflineRenderer {
       }
       // Static messages are indexed by their availability; dynamic TF permits an
       // explicit bounded lookahead for interpolation, never for algorithm data.
-      const logTime = nanos(image.logTimeNs);
+      const logTime = image != undefined ? nanos(image.logTimeNs) : time;
       while (this.#staticCursor < this.#static.length) {
         const rowTime = this.#staticTimes[this.#staticCursor]!;
         if (rowTime > logTime) {
@@ -355,7 +397,7 @@ export class OfflineRenderer {
         this.#dispatch(row, rowTime);
       }
       this.#renderer.setCurrentTime(time);
-      if (this.#lastImageId !== image.sourceFrameId) {
+      if (image != undefined && this.#lastImageId !== image.sourceFrameId) {
         const bytes = await verifiedFetch(
           new URL(assetPath(image.asset), this.#base),
           image.asset.sha256,
@@ -367,7 +409,7 @@ export class OfflineRenderer {
             timeNs: String(time),
             role: "data",
             event: {
-              topic: this.#snapshot.recipe.source.cameraTopic,
+              topic: this.#snapshot.recipe.source!.cameraTopic!,
               schemaName: "sensor_msgs/CompressedImage",
               receiveTime: {
                 sec: Number(time / 1_000_000_000n),
@@ -389,7 +431,7 @@ export class OfflineRenderer {
           },
           time,
         );
-        await this.#imageMode.decodeOriginal(image);
+        await this.#imageMode!.decodeOriginal(image);
       }
       await this.#renderer.settleVideoDecodes();
       await document.fonts.ready;
@@ -413,20 +455,22 @@ export class OfflineRenderer {
       this.#renderer.animationFrame();
       const found = errors(this.#renderer.settings.errors.errors);
       requireValue(found.length === 0, found.slice(0, 8).join("; "));
-      let width = image.width;
-      let height = image.height;
+      const targetWidth = image != undefined ? image.width : this.#snapshot.recipe.output.width;
+      const targetHeight = image != undefined ? image.height : this.#snapshot.recipe.output.height;
+      let width = targetWidth;
+      let height = targetHeight;
       if (this.#output != undefined) {
         // Strict capture only: interactive frames stay on the GPU canvas and
         // never pay the 4K readback/2D copy.
         const gl = this.#renderer.gl.getContext();
         requireValue(gl instanceof WebGL2RenderingContext, "WebGL2 required");
-        if (this.#capture?.width !== image.width || this.#capture.height !== image.height) {
-          this.#capture = new ImageData(image.width, image.height);
-          this.#readback = new Uint8Array(image.width * image.height * 4);
+        if (this.#capture?.width !== targetWidth || this.#capture.height !== targetHeight) {
+          this.#capture = new ImageData(targetWidth, targetHeight);
+          this.#readback = new Uint8Array(targetWidth * targetHeight * 4);
         }
         const capture = this.#capture;
         // putImageData copies synchronously, so both buffers are free again for the next frame.
-        readFramePixels(gl, image.width, image.height, {
+        readFramePixels(gl, targetWidth, targetHeight, {
           readback: this.#readback!,
           output: capture.data,
         });
@@ -435,11 +479,11 @@ export class OfflineRenderer {
         height = this.#output.canvas.height;
       }
       this.#previousTime = time;
-      this.#lastImageId = image.sourceFrameId;
+      this.#lastImageId = image != undefined ? image.sourceFrameId : `3d-${plan.frameIndex}`;
       return {
         ...plan,
-        sourceFrameId: image.sourceFrameId,
-        cameraTimeNs: image.cameraTimeNs,
+        sourceFrameId: image != undefined ? image.sourceFrameId : `3d-${plan.frameIndex}`,
+        cameraTimeNs: image != undefined ? image.cameraTimeNs : String(time),
         width,
         height,
       };
