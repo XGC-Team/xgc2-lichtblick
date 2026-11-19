@@ -664,6 +664,37 @@ test("the frozen world boundary participates in camera framing when requested", 
   );
 });
 
+test("explicit initial world view frames content independently of the scientific fence", () => {
+  const input = {
+    layoutMode: "3d",
+    runMode: "simulation",
+    robots: [],
+    visualizationTopics: [],
+    worldBoundary: {
+      controlBounds: { xMin: -240, xMax: 240, yMin: -240, yMax: 240, zMin: 0.2, zMax: 96 },
+      groundZ: 0,
+    },
+    parameters: { frameWorldBoundary: true },
+  };
+  const make = () => prepareLayout(mapViewInput(input)).layout.configById["3D!xgc2"];
+  const wide = make();
+  const bounds = { xMin: -50, xMax: 90, yMin: -65, yMax: 60, zMin: 8, zMax: 83 };
+  input.parameters.initialViewBounds = bounds;
+  const focused = make();
+  assert.deepEqual(focused.cameraState.targetOffset, [20, -2.5, 45.5]);
+  assert.ok(focused.cameraState.distance < wide.cameraState.distance / 2);
+  assert.deepEqual(focused.layers, wide.layers);
+  for (const invalid of [
+    { ...bounds, xMax: -50 },
+    { ...bounds, zMin: Infinity },
+    { ...bounds, extra: 0 },
+    [1, 2, 3],
+  ]) {
+    input.parameters.initialViewBounds = invalid;
+    assert.throws(make, /initialViewBounds/);
+  }
+});
+
 test("stdin is one JSON object of at most 8 MiB", () => {
   const program = path.resolve(__dirname, "../launcher/prepare-layout.cjs");
   const json = JSON.stringify(fixtures[0].input);

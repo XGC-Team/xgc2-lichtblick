@@ -134,7 +134,10 @@ marker and label options, `sceneNamespace`, `plotPaths`, `transformTopics`,
 `historyVisible` (true), `historyShowPoseAxes` (false), `historyMaxRateHz` (10),
 `predictionShowPoseAxes` (true) and `predictionMaxRateHz` (5). Run mode, layout
 mode, boundary, camera topics and visualization declarations belong to the
-top-level fields and cannot be overridden through parameters. Label options other
+top-level fields and cannot be overridden through parameters. `initialViewBounds`
+optionally sets the initial camera framing with `xMin`, `xMax`, `yMin`, `yMax`,
+`zMin` and `zMax` in world metres. It leaves the world boundary and grid placement
+intact. Label options other
 than marker background are carried through as before; robot label rendering
 belongs to the visualizer. A declaration with `maxRateHz` greater than zero, and
 every `role` of `prediction` even without `maxRateHz`, is subscribed at

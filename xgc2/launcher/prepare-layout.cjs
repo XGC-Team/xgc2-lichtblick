@@ -78,6 +78,7 @@ const VIEWER_DEFAULTS = Object.freeze({
   simpleLidarMaxRateHz: 0,
   simpleLidarMaxMessageBytes: 0,
   frameWorldBoundary: false,
+  initialViewBounds: null,
   historyMaxRateHz: 2,
   historyLineWidth: 0.04,
   historyVisible: true,
@@ -295,6 +296,19 @@ function prepareLayout(input) {
     "predictionShowPoseAxes",
   ]) {
     assert(typeof p[key] === "boolean", `invalid ${key}`);
+  }
+  const initialView = p.initialViewBounds;
+  if (initialView !== null) {
+    assert(
+      object(initialView) &&
+        Object.keys(initialView).length === 6 &&
+        ["x", "y", "z"].every((axis) => {
+          const min = initialView[`${axis}Min`];
+          const max = initialView[`${axis}Max`];
+          return Number.isFinite(min) && Number.isFinite(max) && min < max;
+        }),
+      "initialViewBounds requires finite, increasing x, y and z bounds in world metres",
+    );
   }
   assert(within(p.historyMaxRateHz, 0.1, 100), "invalid historyMaxRateHz");
   assert(within(p.predictionMaxRateHz, 0.1, 100), "invalid predictionMaxRateHz");
@@ -709,15 +723,28 @@ function prepareLayout(input) {
     points.push([b.xMin, b.yMin, b.zMin], [b.xMax, b.yMax, b.zMax]);
     gridPosition = [(b.xMin + b.xMax) / 2, (b.yMin + b.yMax) / 2, p.worldBoundary.groundZ ?? 0];
   }
-  const low = [0, 1, 2].map((i) => (points.length ? Math.min(...points.map((a) => a[i])) : 0));
-  const high = [0, 1, 2].map((i) => (points.length ? Math.max(...points.map((a) => a[i])) : 0));
+  const viewPoints = initialView
+    ? [
+        [initialView.xMin, initialView.yMin, initialView.zMin],
+        [initialView.xMax, initialView.yMax, initialView.zMax],
+      ]
+    : points;
+  const low = [0, 1, 2].map((i) =>
+    viewPoints.length ? Math.min(...viewPoints.map((a) => a[i])) : 0,
+  );
+  const high = [0, 1, 2].map((i) =>
+    viewPoints.length ? Math.max(...viewPoints.map((a) => a[i])) : 0,
+  );
   const targetOffset = low.map((v, i) => (v + high[i]) / 2);
   const half = low.map((v, i) => (high[i] - v) / 2);
   const radius = Math.sqrt(half[0] * half[0] + half[1] * half[1] + half[2] * half[2]);
-  const hint =
-    robots.length === 1 && !p.frameWorldBoundary
-      ? robots[0].visualization.initialCameraDistanceMeters || 12
-      : Math.max(12, ...robots.map((r) => r.visualization.initialCameraDistanceMeters || 0));
+  let hint = 12;
+  if (!initialView) {
+    hint =
+      robots.length === 1 && !p.frameWorldBoundary
+        ? robots[0].visualization.initialCameraDistanceMeters || 12
+        : Math.max(12, ...robots.map((r) => r.visualization.initialCameraDistanceMeters || 0));
+  }
   const distance = Math.max(hint, (radius * 1.15) / Math.sin(Math.PI / 8));
   assert(within(distance, 0.0000001, 1000000), "scene exceeds camera framing bounds");
   const cameraState = {
