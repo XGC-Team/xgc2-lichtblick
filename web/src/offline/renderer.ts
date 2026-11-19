@@ -10,6 +10,8 @@ import type {
   RendererConfig,
 } from "@lichtblick/suite-base/panels/ThreeDeeRender/IRenderer";
 import type { NodeError } from "@lichtblick/suite-base/panels/ThreeDeeRender/LayerErrors";
+import { ObstacleSceneExtension } from "@lichtblick/suite-base/panels/ThreeDeeRender/ObstacleScene/ObstacleSceneExtension";
+import { parseSceneEnvelope } from "@lichtblick/suite-base/panels/ThreeDeeRender/ObstacleScene/types";
 import { Renderer } from "@lichtblick/suite-base/panels/ThreeDeeRender/Renderer";
 import { ImageMode } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/ImageMode/ImageMode";
 import { presentableImageSize } from "@lichtblick/suite-base/panels/ThreeDeeRender/renderables/Images/VideoFrameTexture";
@@ -135,6 +137,24 @@ export class OfflineRenderer {
     const config = snapshot.rendererConfig as unknown as RendererConfig;
     const mode = snapshot.recipe.mode ?? "image";
     this.#mode = mode;
+    const obstacleScene = config.scene?.obstacleScene;
+    if (obstacleScene != undefined) {
+      const topic = `${obstacleScene.namespace}/document`;
+      const documents = history.filter((row) => row.role === "data" && row.event.topic === topic);
+      const message = documents[0]?.event.message;
+      requireValue(
+        obstacleScene.namespace === "/xgc_media_scene" &&
+          documents.length === 1 &&
+          documents[0]?.event.schemaName === "std_msgs/String" &&
+          record(message) && typeof message.data === "string",
+        "Offline obstacle scene requires one frozen compiled document",
+      );
+      const envelope = parseSceneEnvelope(JSON.parse(message.data));
+      requireValue(
+        envelope.compiled != undefined && !envelope.playing && !envelope.dirty,
+        "Offline obstacle scene must be frozen and compiled",
+      );
+    }
     if (mode === "image") {
       requireValue(
         record(config.imageMode) &&
@@ -251,6 +271,11 @@ export class OfflineRenderer {
           ...(mode === "3d" && {
             [SceneSettings.extensionId]: {
               init: (renderer: IRenderer) => new SceneSettings(renderer),
+            },
+          }),
+          ...(obstacleScene != undefined && {
+            [ObstacleSceneExtension.extensionId]: {
+              init: (renderer: IRenderer) => new ObstacleSceneExtension(renderer),
             },
           }),
           [Markers.extensionId]: {
