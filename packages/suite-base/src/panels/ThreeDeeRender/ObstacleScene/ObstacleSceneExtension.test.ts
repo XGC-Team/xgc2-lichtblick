@@ -567,9 +567,9 @@ describe("3D obstacle authoring", () => {
   });
 });
 
-describe("AR overlay color override", () => {
+describe("AR overlay appearance", () => {
   async function setupOverlay(
-    obstacleScene: { namespace: string; color?: unknown },
+    obstacleScene: { namespace: string; color?: unknown; opacity?: unknown },
     mutate?: (doc: SceneEnvelope) => void,
   ) {
     const canvas = document.createElement("canvas");
@@ -675,6 +675,39 @@ describe("AR overlay color override", () => {
     expect(material.color.toArray()).toEqual([1, 0.5, 0.1]);
     expect(material.opacity).toBe(0.4);
     expect(material.transparent).toBe(true);
+    dispose();
+  });
+
+  it("keeps the compiled RGB when the pane supplies only its opacity", async () => {
+    const { material, dispose } = await setupOverlay(
+      { namespace: "/xgc/scene", opacity: 0.4 },
+      (doc) => {
+        const obstacle = createObstacle("Box", "sample");
+        obstacle.parts[0]!.color = [0.3, 0.6, 0.9, 1];
+        doc.document.obstacles = [obstacle];
+      },
+    );
+    expect(material.color.toArray()).toEqual([0.3, 0.6, 0.9]);
+    expect(material.opacity).toBe(0.4);
+    expect(material.transparent).toBe(true);
+    dispose();
+  });
+
+  it("preserves a saved RGBA override in preference to the pane opacity", async () => {
+    const { material, dispose } = await setupOverlay({
+      namespace: "/xgc/scene",
+      color: [0.1, 0.2, 0.3, 0.2],
+      opacity: 0.4,
+    });
+    expect(material.color.toArray()).toEqual([0.1, 0.2, 0.3]);
+    expect(material.opacity).toBe(0.2);
+    dispose();
+  });
+
+  it.each([-1, 2, Number.NaN, "0.4"])("falls back for invalid opacity %s", async (opacity) => {
+    const { material, dispose } = await setupOverlay({ namespace: "/xgc/scene", opacity });
+    expect(material.opacity).toBe(1);
+    expect(material.transparent).toBe(false);
     dispose();
   });
 

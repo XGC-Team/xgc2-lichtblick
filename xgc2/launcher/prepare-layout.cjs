@@ -851,7 +851,7 @@ function prepareLayout(input) {
     if (obstacleProjection && p.obstacleSceneVisible) {
       image.scene.obstacleScene = {
         namespace: p.sceneNamespace,
-        color: [1, 0.5, 0.1, 0.4],
+        opacity: 0.4,
       };
     }
     const imageLayers = urdf(

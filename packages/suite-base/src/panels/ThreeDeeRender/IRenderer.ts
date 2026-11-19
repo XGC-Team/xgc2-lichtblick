@@ -135,7 +135,9 @@ export type RendererConfig = {
     /** Explicit independent scene binding; it confers no write permission. */
     obstacleScene?: {
       namespace?: string;
-      /** Optional RGBA override for the projected obstacles. Panes that omit it render the product opaque amber. */
+      /** Per-pane opacity over the same compiled scene colors. */
+      opacity?: number;
+      /** Explicit RGBA in an existing saved layout takes precedence over opacity. */
       color?: [number, number, number, number];
     };
     /** Show rendering metrics in a DOM overlay */

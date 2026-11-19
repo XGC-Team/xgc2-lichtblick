@@ -159,6 +159,7 @@ export class ObstacleSceneExtension extends SceneExtension {
   #geometryTable: SceneGeometryTable | undefined;
   #modelPlanes = new Map<string, THREE.Plane[][]>();
   #colorOverride: [number, number, number, number] | undefined;
+  #opacityOverride: number | undefined;
   /** Image panes render the glass overlay; every other pane renders the lit solid. */
   #imagePane: boolean;
 
@@ -167,7 +168,11 @@ export class ObstacleSceneExtension extends SceneExtension {
     this.#canvas = renderer.gl.domElement;
     this.#frame.userData.pose = makePose();
     this.#imagePane = renderer.interfaceMode === "image";
-    this.#colorOverride = sceneColorOverride(renderer.config.scene.obstacleScene?.color);
+    const sceneStyle = renderer.config.scene.obstacleScene;
+    this.#colorOverride = sceneColorOverride(sceneStyle?.color);
+    const opacity = sceneStyle?.opacity;
+    this.#opacityOverride =
+      typeof opacity === "number" && opacity >= 0 && opacity <= 1 ? opacity : undefined;
     this.add(this.#frame);
     this.#controls = new TransformControls(renderer.cameraHandler.getActiveCamera(), this.#canvas);
     const gizmo = this.#controls.children.find(
@@ -1041,7 +1046,8 @@ export class ObstacleSceneExtension extends SceneExtension {
     const geometry = this.#imagePane
       ? table.imagePart(key, part.geometryIndex, blockers)
       : table.shared(part.geometryIndex);
-    const rgba = this.#colorOverride ?? (definition.resource ? OBSTACLE_VISUAL_COLOR : part.color);
+    const [r, g, b, a] = definition.resource ? OBSTACLE_VISUAL_COLOR : part.color;
+    const rgba: [...Rgb, number] = this.#colorOverride ?? [r, g, b, this.#opacityOverride ?? a];
     const mesh: SceneMesh = new THREE.Mesh(
       geometry,
       this.#imagePane ? createObstacleFill(rgba) : createObstacleSolid(rgba),

@@ -170,7 +170,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
   const backgroundColor =
     config.scene.backgroundColor ?? (embedded ? hostTheme?.backgroundColor : undefined);
   // Primitive rebuild key: the ObstacleScene extension reads the optional
-  // overlay color once at renderer construction.
+  // overlay style once at renderer construction.
   const obstacleSceneColor = config.scene.obstacleScene?.color?.join(",");
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | ReactNull>(ReactNull);
@@ -246,6 +246,7 @@ export function ThreeDeeRender(props: Readonly<ThreeDeeRenderProps>): React.JSX.
     config.scene.transforms?.enablePreloading,
     config.scene.obstacleScene?.namespace,
     obstacleSceneColor,
+    config.scene.obstacleScene?.opacity,
     customSceneExtensions,
     customCameraModels,
     interfaceMode,

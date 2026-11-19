@@ -1671,7 +1671,7 @@
             },
             "obstacleScene": {
               "namespace": "/xgc/scene",
-              "color": [1, 0.5, 0.1, 0.4]
+              "opacity": 0.4
             }
           },
           "topics": {
@@ -1826,7 +1826,7 @@
       "userNodes": {}
     },
     "name": "scene-plot-palette",
-    "layoutSha256": "63ddb79a158005ae1fff29f57d2b94ab9afa1e63f5cb50ad9269e4eb10769cf4"
+    "layoutSha256": "5a3cd573d0b0ed254c8005feacd7dcfe38bf59ff5bfa7d2d9c6731e3307ba8e0"
   },
   {
     "input": {
@@ -2309,7 +2309,7 @@
             "labelScaleFactor": 1.25,
             "meshUpAxis": "z_up",
             "obstacleScene": {
-              "color": [1, 0.5, 0.1, 0.4],
+              "opacity": 0.4,
               "namespace": "/xgc/scene"
             },
             "transforms": {
@@ -2391,7 +2391,7 @@
       "userNodes": {}
     },
     "name": "replay-pixels",
-    "layoutSha256": "389ebbd45982aad4b09f274a0840adf00f8e596b8c8218096dfb5119599e58a3"
+    "layoutSha256": "f57e656007a9a958e5ef65ca1fc0fe5bad0b47febb791f27c4ae50ce5067bc8d"
   },
   {
     "input": {
@@ -4453,7 +4453,7 @@
             },
             "obstacleScene": {
               "namespace": "/xgc/scene",
-              "color": [1, 0.5, 0.1, 0.4]
+              "opacity": 0.4
             }
           },
           "topics": {
@@ -4532,6 +4532,6 @@
       "userNodes": {}
     },
     "name": "obstacle-only",
-    "layoutSha256": "547627e1bf64ba05d2b98c981395f1329d43a6235418dc1a53d90a45f966141d"
+    "layoutSha256": "b32c6df7933244b7ef9387d946c71d54011921b86d38479a48dd113f9c8fbeef"
   }
 ]
