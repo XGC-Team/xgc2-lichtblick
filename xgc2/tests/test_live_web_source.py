@@ -71,9 +71,9 @@ esac
     def git(self, *args):
         return subprocess.check_output(["git", *args], cwd=self.root, text=True)
 
-    def key(self):
+    def key(self, **env):
         return subprocess.check_output([sys.executable, str(self.scripts / "live-web-source.py")],
-                                       cwd=self.root, text=True).strip()
+                                       cwd=self.root, env={**self.env, **env}, text=True).strip()
 
     def build(self, **env):
         return subprocess.run(["bash", str(self.scripts / "build-web.sh")], cwd=self.root,
@@ -104,6 +104,62 @@ esac
         self.assertEqual(self.key(), edited)
         self.live.unlink()
         self.assertNotEqual(self.key(), edited)
+
+    def test_launcher_and_offline_commits_keep_the_key(self):
+        original = self.key()
+        launcher = self.root / "xgc2/launcher/prepare-layout.cjs"
+        launcher.parent.mkdir()
+        launcher.write_text("runtime layout")
+        self.offline.write_text("offline B")
+        (self.root / "xgc2/README.md").write_text("launcher documentation")
+        self.assertEqual(self.key(), original)
+        self.git("add", ".")
+        self.git("commit", "-qm", "runtime layout and offline renderer")
+        self.assertEqual(self.key(), original)
+
+        self.live.write_text("live B")
+        edited = self.key()
+        self.assertNotEqual(edited, original)
+        self.git("add", ".")
+        self.git("commit", "-qm", "live renderer")
+        self.assertEqual(self.key(), edited)
+        self.git("commit", "--allow-empty", "-qm", "unrelated revision")
+        self.assertEqual(self.key(), edited)
+
+    def test_unstaged_mode_and_assume_unchanged_bytes_affect_key(self):
+        original = self.key()
+        self.git("config", "core.filemode", "false")
+        self.live.chmod(0o755)
+        self.assertNotEqual(self.key(), original)
+        self.live.chmod(0o644)
+        self.git("update-index", "--assume-unchanged", "web/src/entrypoint.tsx")
+        self.assertEqual(self.key(), original)
+        self.live.write_text("different content behind the same index entry")
+        self.assertNotEqual(self.key(), original)
+
+    def test_staging_does_not_hide_worktree_line_endings(self):
+        (self.root / ".gitattributes").write_text("* text=auto eol=lf\n")
+        self.live.write_bytes(b"source A\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "LF checkout")
+        original = self.key()
+        self.live.write_bytes(b"source A\r\n")
+        edited = self.key()
+        self.assertNotEqual(edited, original)
+        self.git("add", "web/src/entrypoint.tsx")
+        self.assertEqual(self.key(), edited)
+        self.live.write_bytes(b"source A\n")
+        self.assertEqual(self.key(), original)
+
+    def test_compile_environment_affects_key(self):
+        (self.root / ".git/info/exclude").write_text(".env\n")
+        default = self.key()
+        self.assertNotEqual(self.key(API_URL="https://build.invalid"), default)
+        self.assertNotEqual(self.key(DEV_WORKSPACE="build-fixture"), default)
+        (self.root / ".env").write_text("DEV_WORKSPACE=from-dotenv\n")
+        self.assertNotEqual(self.key(), default)
+        (self.root / ".env").unlink()
+        self.assertEqual(self.key(), default)
 
     def test_receipt_describes_the_successful_build(self):
         self.live.write_text("staged source")
