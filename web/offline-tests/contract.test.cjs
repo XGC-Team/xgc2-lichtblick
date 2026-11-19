@@ -119,6 +119,43 @@ test("event validator rejects undeclared schemas, mesh assets, role mismatch and
     ),
   );
 });
+test("only the declared frozen obstacle topic can carry a string event", () => {
+  const schemaName = "std_msgs/String";
+  const row = {
+    timeNs: "1",
+    role: "data",
+    event: {
+      topic: s.FROZEN_OBSTACLE_TOPIC,
+      schemaName,
+      message: { data: "{}" },
+      receiveTime: { sec: 0, nsec: 1 },
+      sizeInBytes: 2,
+    },
+  };
+  const topics = [{ name: row.event.topic, schemaName }];
+  assert.deepEqual(s.parseEvents([row], topics), [row]);
+  assert.throws(() => s.parseEvents([row], []), /undeclared/);
+  assert.throws(
+    () => s.parseEvents([{ ...row, role: "tf" }], topics),
+    /mismatch/,
+  );
+  assert.throws(() =>
+    s.parseEvents(
+      [{ ...row, event: { ...row.event, topic: "/other" } }],
+      [{ name: "/other", schemaName }],
+    ),
+  );
+  for (const data of [0, "", "x".repeat(2 * 1024 * 1024 + 1)]) {
+    assert.throws(
+      () =>
+        s.parseEvents(
+          [{ ...row, event: { ...row.event, message: { data } } }],
+          topics,
+        ),
+      /Invalid frozen obstacle document/,
+    );
+  }
+});
 test("RGBA row orientation flips once and validates buffer dimensions", () => {
   const pixels = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
   assert.deepEqual(Array.from(c.flipRows(pixels, 1, 2)), [5, 6, 7, 8, 1, 2, 3, 4]);

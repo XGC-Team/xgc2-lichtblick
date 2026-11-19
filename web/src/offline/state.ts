@@ -75,6 +75,8 @@ export type SnapshotEvent = {
     sizeInBytes: number;
   };
 };
+export const FROZEN_OBSTACLE_TOPIC = "/xgc_media_scene/document";
+
 export function rosNanos(value: Time): bigint {
   requireValue(
     Number.isSafeInteger(value.sec) &&
@@ -377,9 +379,12 @@ export function parseEvents(value: unknown, topics: Snapshot["topics"]): Snapsho
     const time = nanos(row.timeNs);
     requireValue(time >= previous, "Unsorted event history");
     previous = time;
+    const obstacleDocument =
+      row.event.topic === FROZEN_OBSTACLE_TOPIC && row.event.schemaName === "std_msgs/String";
     requireValue(
       ["data", "tf", "tf-static"].includes(row.role) &&
-        schemas.has(row.event.schemaName) &&
+        (schemas.has(row.event.schemaName) || obstacleDocument) &&
+      (row.event.topic !== FROZEN_OBSTACLE_TOPIC || obstacleDocument) &&
         declared.get(row.event.topic) === row.event.schemaName,
       "Unsupported/undeclared event",
     );
@@ -390,6 +395,12 @@ export function parseEvents(value: unknown, topics: Snapshot["topics"]): Snapsho
     rosNanos(row.event.receiveTime);
     requireValue(record(row.event.message), "Invalid message");
     const msg = row.event.message;
+    if (obstacleDocument) {
+      requireValue(
+        typeof msg.data === "string" && msg.data.length > 0 && msg.data.length <= 2 * 1024 * 1024,
+        "Invalid frozen obstacle document",
+      );
+    }
     const markers =
       row.event.schemaName === "visualization_msgs/MarkerArray"
         ? msg.markers
