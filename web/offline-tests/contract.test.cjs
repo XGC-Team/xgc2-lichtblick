@@ -674,3 +674,62 @@ test("H264 prepared frames require exact bounded decode evidence and lossless pi
   const legacy = fixture();
   assert.equal(s.parseSnapshot(legacy).cameraFrames[0].sourceEncoding, undefined);
 });
+
+test("native 3d mode and custom even dimensions validate without cameraFrames", () => {
+  const f3d = fixture();
+  f3d.recipe.mode = "3d";
+  delete f3d.recipe.source;
+  f3d.recipe.output = { width: 1600, height: 1000, fps: 30 };
+  f3d.policy.maxFrameAgeNs = "0";
+  f3d.cameraFrames = [];
+  f3d.rendererConfig = {
+    followTf: "world",
+    followMode: "follow-none",
+    cameraState: {
+      distance: 15,
+      perspective: true,
+      phi: 55,
+      target: [0, 0, 0],
+      targetOffset: [0, 0, 1],
+      targetOrientation: [0, 0, 0, 1],
+      thetaOffset: 30,
+      fovy: 45,
+      near: 0.05,
+      far: 500,
+    },
+    layers: {},
+    scene: { backgroundColor: "#f8fafc" },
+    topics: {},
+    transforms: {},
+    publish: {},
+    imageMode: {},
+  };
+  const parsed = s.parseSnapshot(structuredClone(f3d));
+  assert.deepEqual(parsed.cameraFrames, []);
+  const p0 = {
+    snapshotSha256: sha,
+    frameIndex: 0,
+    targetTimeNs: "0",
+    sourceFrameId: "3d-0",
+    cameraTimeNs: String(base),
+    width: 1600,
+    height: 1000,
+  };
+  assert.equal(s.selectFrame3d(parsed, p0, sha), base);
+  assert.throws(() => s.selectFrame(parsed, p0, sha), /Invalid frame request/);
+  assert.throws(() => s.selectFrame3d(parsed, { ...p0, width: 1920 }, sha), /Invalid frame request/);
+
+  const badOdd = structuredClone(f3d);
+  badOdd.recipe.output.width = 1601;
+  assert.throws(() => s.parseSnapshot(badOdd), /Unsupported output/);
+
+  const badFrames = structuredClone(f3d);
+  badFrames.cameraFrames = fixture().cameraFrames;
+  assert.throws(() => s.parseSnapshot(badFrames), /Invalid source index/);
+
+  const customImage = fixture();
+  customImage.recipe.output = { width: 1920, height: 1080, fps: 30 };
+  customImage.cameraFrames[0].width = 1920;
+  customImage.cameraFrames[0].height = 1080;
+  assert.equal(s.parseSnapshot(customImage).recipe.output.width, 1920);
+});
